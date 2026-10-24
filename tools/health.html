@@ -249,6 +249,10 @@
       if (!info) { row('warn', 'Ключи E2E', 'IndexedDB недоступна'); return; }
       var hasPub = !!info.publicKey;
       var hasPriv = !!info.privateKey;
+      if (!hasPub && !hasPriv) {
+        row('warn', 'Ключи E2E', 'не найдены — войдите в приложении');
+        return;
+      }
       row(hasPub && hasPriv ? 'ok' : 'bad', 'Ключи E2E',
         (hasPub ? 'публичный ✓' : 'публичного нет') + ' · ' + (hasPriv ? 'приватный ✓' : 'приватного нет — войдите заново'));
     });
@@ -262,13 +266,14 @@
       try {
         var req = indexedDB.open('relik-db');
         req.onerror = function () { finish(null); };
+        req.onblocked = function () { finish(null); };
         req.onsuccess = function () {
           var db = req.result;
-          if (!db.objectStoreNames.contains('settings')) { finish(null); return; }
+          if (!db.objectStoreNames.contains('settings')) { finish({}); return; }
           try {
             var get = db.transaction('settings').objectStore('settings').get('keyPair');
             get.onerror = function () { finish(null); };
-            get.onsuccess = function () { finish(get.result && get.result.value ? get.result.value : null); };
+            get.onsuccess = function () { finish(get.result && get.result.value ? get.result.value : {}); };
           } catch (e) { finish(null); }
         };
       } catch (e) { finish(null); }
