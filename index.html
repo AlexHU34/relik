@@ -494,6 +494,26 @@
     </div>
   </div>
 
+  <!-- ══════════ ПРОФИЛЬ ══════════ -->
+  <div class="overlay" id="profileOv" hidden>
+    <div class="modal profile-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="profile.title">Профиль</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body profile-body">
+        <div class="profile-hero" id="profileHero"></div>
+        <div class="profile-name" id="profileName"></div>
+        <div class="profile-username" id="profileUsername"></div>
+        <div class="profile-status" id="profileStatus"></div>
+        <div class="profile-actions">
+          <button class="btn" id="profileCall" data-i18n="profile.call">Позвонить</button>
+          <button class="btn btn-ghost" id="profileVideo" data-i18n="profile.video">Видеозвонок</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══════════ АДМИНИСТРИРОВАНИЕ ══════════ -->
   <div class="overlay" id="adminOv" hidden>
     <div class="modal" role="dialog" aria-modal="true">
@@ -502,6 +522,7 @@
         <button class="icon-btn" data-close></button>
       </header>
       <div class="m-body">
+        <input class="input" id="adminSearch" placeholder="" data-i18n-ph="newchat.search">
         <div class="admin-list" id="adminList"></div>
       </div>
     </div>

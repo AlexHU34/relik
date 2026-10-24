@@ -18,6 +18,18 @@ import { currentDevice } from './device.js';
 
 let selectedGroupMembers = new Set();
 
+function debounce(fn, ms = 260) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+const paintContactsDebounced = debounce(paintContacts);
+const paintGroupContactsDebounced = debounce(paintGroupContacts);
+const paintAdminUsersDebounced = debounce(paintAdminUsers);
+
 export function initModals() {
   /* статичные иконки закрытия */
   document.querySelectorAll('.m-head [data-close]').forEach((b) => { b.innerHTML = icon('x', 18); });
@@ -33,7 +45,7 @@ export function initModals() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('#lightbox').hidden) closeLightbox();
-    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); closeOv($('#pollOv')); closeOv($('#adminOv')); }
+    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv')); }
   });
 
   /* ── настройки ── */
@@ -46,13 +58,13 @@ export function initModals() {
   document.addEventListener('relik:lang', paintLangSeg);
 
   /* ── новый чат ── */
-  $('#ncSearch').addEventListener('input', paintContacts);
+  $('#ncSearch').addEventListener('input', paintContactsDebounced);
   $('#ncGroup').addEventListener('click', openGroupCreator);
   $('#lbX').addEventListener('click', closeLightbox);
   document.addEventListener('relik:lang', paintContacts);
 
   /* ── создание группы ── */
-  $('#gcSearch').addEventListener('input', paintGroupContacts);
+  $('#gcSearch').addEventListener('input', paintGroupContactsDebounced);
   $('#gcCreate').addEventListener('click', createGroupChat);
 
   /* ── темы, шрифты, звуки, аватар ── */
@@ -98,6 +110,7 @@ export function initModals() {
   $('#avatarBtn').addEventListener('click', () => $('#avatarInput').click());
   $('#avatarInput').addEventListener('change', handleAvatar);
   $('#adminUsersBtn').addEventListener('click', openAdminUsers);
+  $('#adminSearch').addEventListener('input', paintAdminUsersDebounced);
 }
 
 function closeOv(ov) {
@@ -255,6 +268,7 @@ async function saveProfile() {
 
 /* ── АДМИН: список пользователей ── */
 async function openAdminUsers() {
+  $('#adminSearch').value = '';
   $('#adminOv').hidden = false;
   await paintAdminUsers();
 }
@@ -264,7 +278,12 @@ async function paintAdminUsers() {
   wrap.innerHTML = `<div class="nc-hint">…</div>`;
 
   try {
-    const list = await listProfiles();
+    const q = $('#adminSearch').value.trim().replace(/^@+/, '').toLowerCase();
+    const list = (await listProfiles()).filter((p) => {
+      if (!q) return true;
+      return String(p.display_name || '').toLowerCase().includes(q) ||
+        String(p.username || '').toLowerCase().includes(q);
+    });
     wrap.innerHTML = list.map((p) => {
       const role = p.role || 'user';
       const isMe = p.id === S.me?.id;

@@ -14,7 +14,7 @@ import { notifyMessage } from './notify.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
-import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend } from '../backend/messages.js';
+import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage } from '../backend/messages.js';
 
 let els = {};
 const playing = new Map(); // msgId -> {timer, i, bars}
@@ -51,7 +51,18 @@ export function initChatView() {
     const chat = chatById(S.active);
     if (chat) startCall(chat);
   });
-  $('#infoBtn').addEventListener('click', () => toast(t('toast.mockCall')));
+  $('#infoBtn').addEventListener('click', openChatProfile);
+  $('#chatWho').addEventListener('click', openChatProfile);
+  $('#profileCall').addEventListener('click', () => {
+    const chat = chatById(S.active);
+    $('#profileOv').hidden = true;
+    if (chat) startCall(chat);
+  });
+  $('#profileVideo').addEventListener('click', () => {
+    const chat = chatById(S.active);
+    $('#profileOv').hidden = true;
+    if (chat) startCall(chat, { video: true });
+  });
 
   /* поиск по чату */
   $('#chatSearchBtn').innerHTML = icon('search', 18);
@@ -347,8 +358,11 @@ export async function openChat(id) {
         if (S.messages[id].some((x) => x.id === msg.id)) return;
         S.messages[id].push(msg);
         if (msg.hidden) {
-          /* голос в опросе: пересчитываем карточку, но не трогаем превью/звук */
-          if (S.active === id) renderMessages();
+          /* голос/реакция/закрытие: обновляем только нужный блок */
+          if (msg.type === 'vote' && msg.vote?.p) refreshPollCard(msg.vote.p);
+          else if (msg.type === 'pollclose' && msg.close?.p) refreshPollCard(msg.close.p);
+          else if (msg.type === 'rx' && msg.reaction?.m) refreshMessageReactions(msg.reaction.m);
+          else if (S.active === id) renderMessages();
           return;
         }
         if (S.active === id) {
@@ -393,6 +407,28 @@ export function showChat() {
   $('#chatEmpty').hidden = !!has;
   $('#chatActive').hidden = !has;
   if (has) { renderHeader(); renderMessages(); }
+}
+
+/* ── профиль собеседника / группы ── */
+function openChatProfile() {
+  const chat = chatById(S.active);
+  if (!chat) return;
+
+  const isDm = chat.kind === 'dm';
+  const u = isDm
+    ? (S.users.find((x) => x.id === chat.userId) || { name: chat.title || '…', hue: chat.hue ?? 0, seen: 'offline' })
+    : { name: chat.title || '…', hue: chat.hue ?? 5 };
+
+  $('#profileHero').innerHTML = avatarHtml(u, { lg: true });
+  $('#profileName').innerHTML = esc(u.name) + adminBadge(isDm ? u : null);
+  $('#profileUsername').textContent = isDm && u.username ? '@' + u.username : '';
+  $('#profileStatus').textContent = isDm
+    ? (u.seen === 'online' ? t('chat.online') : t('chat.' + u.seen))
+    : t('chat.members').replace('{n}', String((chat.members?.length || 0) + 1));
+
+  $('#profileCall').hidden = !isDm;
+  $('#profileVideo').hidden = !isDm;
+  $('#profileOv').hidden = false;
 }
 
 /* ── шапка чата ────────────────────────────────────────────── */
@@ -511,17 +547,41 @@ function openForward(m) {
   $('#fwdOv').hidden = false;
 }
 
-function forwardTo(chatId2) {
+async function forwardTo(chatId2) {
   const m = forwardMsg;
   const chat = chatById(chatId2);
   $('#fwdOv').hidden = true;
   forwardMsg = null;
   if (!m || !chat) return;
+
   const text = m.text || snippet(m);
-  deliverMessage(chatId2, {
+  const msg = {
     id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
-    type: 'text', text, reactions: [], status: 'sent', forwarded: true,
-  }).then(() => toast(t('chat.forwarded')));
+    type: 'text', text, reactions: [], status: 'sending', forwarded: true,
+  };
+
+  await deliverMessage(chatId2, msg);
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) {
+    msg.status = 'sent';
+    toast(t('chat.forwarded'));
+    return;
+  }
+
+  try {
+    await sendMessage(chatId2, text, null, chat.kind, chat.publicKey, msg.id);
+    msg.status = 'sent';
+    await idb.put('messages', msg);
+    if (S.active === chatId2) renderMessages();
+    toast(t('chat.forwarded'));
+  } catch (err) {
+    console.error('Forward error:', err);
+    msg.status = 'error';
+    msg.error = String(err?.message || '');
+    await idb.put('messages', msg);
+    if (S.active === chatId2) renderMessages();
+    toast(err.message || t('toast.error'));
+  }
 }
 
 
@@ -580,12 +640,15 @@ function bubbleHtml(m, mine) {
       <button class="v-speed" data-speed="${m.voice.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice.rate || 1}×</button>
     </div>`;
   if (m.text && (m.type === 'text' || m.type === 'image' || m.type === 'file')) out += `<div class="msg-text">${esc(m.text)}</div>`;
-  if (m.reactions?.length) {
-    out += `<div class="rx-row">${m.reactions.map((r) =>
-      `<button class="rx${r.by.includes('u_me') ? ' mine' : ''}" data-rx="${r.e}">${r.e}${r.by.length > 1 ? `<b>${r.by.length}</b>` : ''}</button>`).join('')}</div>`;
-  }
+  out += reactionsHtml(m);
   out += metaHtml(m, mine);
   return out;
+}
+
+function reactionsHtml(m) {
+  if (!m.reactions?.length) return '';
+  return `<div class="rx-row">${m.reactions.map((r) =>
+    `<button class="rx${r.by.includes('u_me') ? ' mine' : ''}" data-rx="${r.e}">${r.e}${r.by.length > 1 ? `<b>${r.by.length}</b>` : ''}</button>`).join('')}</div>`;
 }
 
 function pollHtml(m) {
@@ -600,7 +663,7 @@ function pollHtml(m) {
         .map((uid) => user(uid).name)
         .slice(0, 3)
         .join(', ') + ((votersByOption[i] || []).length > 3 ? ' +' + ((votersByOption[i] || []).length - 3) : '');
-    return `<button type="button" class="poll-opt${on ? ' on' : ''}${closed ? ' closed' : ''}" data-poll-opt="${i}">
+    return `<button type="button" class="poll-opt${on ? ' on' : ''}${closed ? ' closed' : ''}" data-poll-opt="${i}"${closed ? ' disabled' : ''}>
       <span class="poll-fill" style="width:${pct}%"></span>
       <span class="poll-mark">${on ? icon('check', 12) : ''}</span>
       <span class="poll-text">
@@ -659,6 +722,49 @@ function tallyReactions(raw) {
   return out;
 }
 
+/* Обновляем только реакции сообщения */
+export function refreshMessageReactions(messageId) {
+  if (S.active == null) return;
+  const m = byId(messageId);
+  if (!m) return;
+
+  const map = tallyReactions(S.messages[S.active] || []);
+  if (map.has(m.id)) m.reactions = map.get(m.id);
+
+  const id = (window.CSS && CSS.escape) ? CSS.escape(messageId) : messageId;
+  const bubble = els.msgs.querySelector(`[data-mid="${id}"] .bubble`);
+  if (!bubble) return;
+
+  const html = reactionsHtml(m);
+  const row = bubble.querySelector('.rx-row');
+  if (html) {
+    if (row) row.outerHTML = html;
+    else {
+      const meta = bubble.querySelector('.msg-meta');
+      if (meta) meta.insertAdjacentHTML('beforebegin', html);
+      else bubble.insertAdjacentHTML('beforeend', html);
+    }
+  } else if (row) {
+    row.remove();
+  }
+}
+
+/* Обновляем только карточку опроса — без перерисовки всей ленты */
+export function refreshPollCard(pollId) {
+  if (S.active == null) return;
+  const m = byId(pollId);
+  if (!m || m.type !== 'poll') return;
+
+  const id = (window.CSS && CSS.escape) ? CSS.escape(pollId) : pollId;
+  const el = els.msgs.querySelector(`[data-mid="${id}"] .poll`);
+  if (!el) return;
+
+  const box = document.createElement('div');
+  box.innerHTML = pollHtml(m);
+  const next = box.firstElementChild;
+  if (next) el.replaceWith(next);
+}
+
 /* Последний голос каждого участника; для мультивыбора — весь набор */
 function tallyPoll(pollMsg) {
   const all = S.messages[S.active] || [];
@@ -702,6 +808,10 @@ function votePollOption(m, index) {
       ? mine.filter((i) => i !== index)
       : [...mine, index].sort((a, b) => a - b);
   } else {
+    if (mine.length === 1 && mine[0] === index) {
+      toast(t('poll.alreadyVoted'));
+      return;
+    }
     next = [index];
   }
 

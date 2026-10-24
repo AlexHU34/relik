@@ -44,6 +44,27 @@ export async function getUserStatus(userId) {
   return 'offline';
 }
 
+/* ── Получение статусов сразу для списка пользователей ── */
+export async function getStatuses(userIds) {
+  if (!sb) return {};
+  const ids = [...new Set((userIds || []).filter((id) => id && !String(id).startsWith('u_')))];
+  if (!ids.length) return {};
+
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, last_seen')
+    .in('id', ids);
+  if (error) return {};
+
+  const now = Date.now();
+  const out = {};
+  for (const p of data) {
+    const diff = now - new Date(p.last_seen).getTime();
+    out[p.id] = diff < 2 * 60 * 1000 ? 'online' : diff < 24 * 60 * 60 * 1000 ? 'recent' : 'offline';
+  }
+  return out;
+}
+
 /* ── Обновление read receipt ── */
 export async function updateReadReceipt(chatId) {
   if (!sb) return;
@@ -185,15 +206,14 @@ export async function getChatMemberStatuses(chatId) {
 export async function refreshChatStatuses() {
   if (!SUPABASE.url || !SUPABASE.anonKey) return;
 
-  for (const chat of S.chats || []) {
-    if (chat.kind === 'dm' && chat.userId) {
-      // Пропускаем демо-пользователей (ID начинаются с u_)
-      if (chat.userId.startsWith('u_')) continue;
+  const ids = (S.chats || [])
+    .filter((c) => c.kind === 'dm' && c.userId && !String(c.userId).startsWith('u_'))
+    .map((c) => c.userId);
+  const statuses = await getStatuses(ids);
 
-      const status = await getUserStatus(chat.userId);
-      // Обновляем в S.users
-      const u = S.users?.find((u) => u.id === chat.userId);
-      if (u) u.seen = status;
-    }
+  for (const chat of S.chats || []) {
+    if (chat.kind !== 'dm' || !chat.userId || String(chat.userId).startsWith('u_')) continue;
+    const u = S.users?.find((x) => x.id === chat.userId);
+    if (u && statuses[chat.userId]) u.seen = statuses[chat.userId];
   }
 }

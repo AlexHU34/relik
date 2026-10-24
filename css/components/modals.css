@@ -24,8 +24,7 @@
 .field-hint{font-size:var(--fs-2xs);color:var(--tx-3)}
 
 /* ADMIN */
-.admin-chip{
-  display:inline-flex;align-items:center;line-height:1.2;
+.admin-chip{  display:inline-flex;align-items:center;line-height:1.2;
   font-size:9px;font-weight:800;letter-spacing:.5px;
   padding:2px 6px;border-radius:6px;margin-left:6px;vertical-align:middle;
   background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;
@@ -37,6 +36,15 @@
 .admin-user .u{font-size:var(--fs-2xs);color:var(--tx-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .admin-user .btn{padding:7px 11px;font-size:var(--fs-2xs);flex:none}
 .admin-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* Профиль */
+.profile-body{justify-items:center;text-align:center;gap:6px;padding-top:12px}
+.profile-hero .avatar{width:88px;height:88px;font-size:30px}
+.profile-name{font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap}
+.profile-username{color:var(--tx-2);font-size:var(--fs-sm)}
+.profile-status{color:var(--tx-3);font-size:var(--fs-xs)}
+.profile-actions{display:flex;gap:8px;margin-top:12px;width:100%;justify-content:center;flex-wrap:wrap}
+.profile-actions .btn{flex:1;min-width:130px}
 html[data-device="phone"] .overlay{padding:10px}
 html[data-device="phone"] .modal{width:100%;max-height:calc(100dvh - 20px);border-radius:18px}
 html[data-device="phone"] .m-body{padding:4px 14px 14px}

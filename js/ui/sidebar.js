@@ -7,7 +7,7 @@ import { idb } from '../db/idb.js';
 import { loadChats as loadChatsFromBackend, searchUsers as searchUsersBackend } from '../backend/chats.js';
 import { loadLatestPreviews, previewTextFor } from '../backend/messages.js';
 import { SUPABASE } from '../config.js';
-import { getUserStatus, refreshChatStatuses } from '../backend/presence.js';
+import { getStatuses, refreshChatStatuses } from '../backend/presence.js';
 
 /* Дата для бейджа времени в списке: сегодня — время, вчера/старее — дата */
 function listTime(ts) {
@@ -45,6 +45,7 @@ export function renderSidebar() {
     .filter((c) => {
       if (!q) return true;
       if (chatTitle(c).toLowerCase().includes(q)) return true;
+      if (String(c.username || '').toLowerCase().includes(q)) return true;
       return String(c.last?.text || '').toLowerCase().includes(q);
     })
     .sort((a, b) => (b.last?.ts || 0) - (a.last?.ts || 0));
@@ -77,6 +78,20 @@ export function initSidebar() {
   $('#searchInput').addEventListener('input', (e) => {
     S.filter = e.target.value;
     renderSidebar();
+  });
+  $('#searchInput').addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.target.value = '';
+    S.filter = '';
+    renderSidebar();
+  });
+
+  /* Ctrl/Cmd+K — быстрый поиск */
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'k') return;
+    e.preventDefault();
+    if (location.hash !== '#/app') location.hash = '#/app';
+    setTimeout(() => $('#searchInput')?.focus(), 60);
   });
 }
 
@@ -133,13 +148,15 @@ export async function loadChats() {
 
       await idb.bulkPut('chats', S.chats);
 
-      // Загружаем статусы участников (только реальных, не демо)
+      // Загружаем статусы участников одним запросом
+      const ids = S.chats
+        .filter((c) => c.kind === 'dm' && c.userId && !String(c.userId).startsWith('u_'))
+        .map((c) => c.userId);
+      const statuses = await getStatuses(ids);
       for (const chat of S.chats) {
-        if (chat.kind === 'dm' && chat.userId && !chat.userId.startsWith('u_')) {
-          const status = await getUserStatus(chat.userId);
-          const u = S.users?.find((u) => u.id === chat.userId);
-          if (u) u.seen = status;
-        }
+        if (chat.kind !== 'dm' || !chat.userId) continue;
+        const u = S.users?.find((x) => x.id === chat.userId);
+        if (u && statuses[chat.userId]) u.seen = statuses[chat.userId];
       }
     } catch (err) {
       console.error('Load chats error:', err);

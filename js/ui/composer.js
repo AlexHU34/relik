@@ -5,7 +5,7 @@ import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
 import { EMOJI_PALETTE, SUPABASE } from '../config.js';
-import { deliverMessage, markRead, renderMessages } from './chatView.js';
+import { deliverMessage, markRead, renderMessages, refreshPollCard, refreshMessageReactions } from './chatView.js';
 import { renderSidebar } from './sidebar.js';
 import { toast } from './toast.js';
 import { makeDemoPhoto } from '../data/mock.js';
@@ -284,7 +284,7 @@ function syncPollRemoveButtons() {
 }
 
 function addPollOption(value = '') {
-  if (els.pollOptions.children.length >= 6) return;
+  if (els.pollOptions.children.length >= 6) { toast(t('poll.maxOptions')); return; }
   els.pollOptions.appendChild(pollOptionRow(value));
   syncPollRemoveButtons();
 }
@@ -361,7 +361,7 @@ export async function sendReaction(message, emoji, on) {
   S.messages[chat.id] = S.messages[chat.id] || [];
   S.messages[chat.id].push(event);
   await idb.put('messages', event);
-  if (S.active === chat.id) renderMessages();
+  if (S.active === chat.id) refreshMessageReactions(message.id);
 
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
@@ -373,7 +373,7 @@ export async function sendReaction(message, emoji, on) {
     console.error('Reaction error:', err);
     S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== event.id);
     await idb.del('messages', event.id);
-    if (S.active === chat.id) renderMessages();
+    if (S.active === chat.id) refreshMessageReactions(message.id);
     toast(t('msg.reactionError'));
   }
 }
@@ -393,7 +393,7 @@ export async function closePoll(pollMsg) {
   S.messages[chat.id] = S.messages[chat.id] || [];
   S.messages[chat.id].push(event);
   await idb.put('messages', event);
-  if (S.active === chat.id) renderMessages();
+  if (S.active === chat.id) refreshPollCard(pollMsg.id);
 
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
@@ -405,7 +405,7 @@ export async function closePoll(pollMsg) {
     console.error('Close poll error:', err);
     S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== event.id);
     await idb.del('messages', event.id);
-    if (S.active === chat.id) renderMessages();
+    if (S.active === chat.id) refreshPollCard(pollMsg.id);
     toast(t('poll.closeError'));
   }
 }
@@ -428,7 +428,7 @@ export async function votePoll(pollMsg, options) {
   S.messages[chat.id] = S.messages[chat.id] || [];
   S.messages[chat.id].push(msg);
   await idb.put('messages', msg);
-  if (S.active === chat.id) renderMessages();
+  if (S.active === chat.id) refreshPollCard(pollMsg.id);
 
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
@@ -440,7 +440,7 @@ export async function votePoll(pollMsg, options) {
     console.error('Vote error:', err);
     S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== msg.id);
     await idb.del('messages', msg.id);
-    if (S.active === chat.id) renderMessages();
+    if (S.active === chat.id) refreshPollCard(pollMsg.id);
     toast(t('poll.voteError'));
   }
 }
