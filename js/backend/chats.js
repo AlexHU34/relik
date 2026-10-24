@@ -22,8 +22,21 @@ export async function hasAvatarColumn() {
   return false;
 }
 
-function profileCols(withAvatar) {
-  return `id, display_name, avatar_hue, public_key${withAvatar ? ', avatar' : ''}`;
+let usernameCol = null;
+export async function hasUsernameColumn() {
+  if (usernameCol !== null) return usernameCol;
+  if (!sb) { usernameCol = false; return false; }
+  const { error } = await sb.from('profiles').select('username').limit(1);
+  if (!error) { usernameCol = true; return true; }
+  if (error.code === '42703' || /column.*does not exist|schema cache/i.test(error.message || '')) {
+    usernameCol = false;
+    return false;
+  }
+  return false;
+}
+
+function profileCols(withAvatar, withUsername) {
+  return `id, display_name, avatar_hue, public_key${withAvatar ? ', avatar' : ''}${withUsername ? ', username' : ''}`;
 }
 
 /* Контакты в S.users всегда свежие (имя, цвет, аватар) */
@@ -33,6 +46,7 @@ function upsertUser(p) {
   const fresh = {
     id: p.id,
     name: p.display_name,
+    username: p.username || null,
     hue: p.avatar_hue ?? 0,
     avatar: p.avatar || null,
     seen: prev?.seen || 'offline',
@@ -46,7 +60,7 @@ export async function loadChats() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return [];
 
-  const pcols = profileCols(await hasAvatarColumn());
+  const pcols = profileCols(await hasAvatarColumn(), await hasUsernameColumn());
 
   const { data: members, error } = await sb
     .from('conversation_members')
@@ -74,6 +88,7 @@ export async function loadChats() {
         title: otherProfile?.display_name,
         hue: otherProfile?.avatar_hue,
         avatar: otherProfile?.avatar || null,
+        username: otherProfile?.username || null,
         publicKey: otherProfile?.public_key,
       };
     } else {
@@ -162,16 +177,24 @@ export async function getProfile(userId) {
   return data;
 }
 
-/* ── Поиск пользователей по имени (пустой запрос — все контакты) ── */
+/* ── Поиск пользователей по имени или @username (пустой запрос — все контакты) ── */
 export async function searchUsers(query) {
-  const q = String(query || '').trim();
-  const cols = `id, display_name, avatar_hue, public_key, last_seen${await hasAvatarColumn() ? ', avatar' : ''}`;
+  const q = String(query || '').trim().replace(/^@+/, '');
+  const withUser = await hasUsernameColumn();
+  const withAvatar = await hasAvatarColumn();
+  const cols = `id, display_name, avatar_hue, public_key, last_seen${withAvatar ? ', avatar' : ''}${withUser ? ', username' : ''}`;
   let req = sb
     .from('profiles')
     .select(cols)
     .order('display_name')
     .limit(30);
-  if (q) req = req.ilike('display_name', `%${q}%`);
+
+  if (q) {
+    const safe = q.replace(/[,()]/g, ' ').trim();
+    req = withUser
+      ? req.or(`display_name.ilike.%${safe}%,username.ilike.%${safe}%`)
+      : req.ilike('display_name', `%${safe}%`);
+  }
 
   const { data, error } = await req;
   if (error) throw error;

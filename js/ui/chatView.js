@@ -407,8 +407,13 @@ function renderHeader() {
   const st = $('#chatWhoStatus');
   st.classList.remove('online');
   if (isDm) {
-    if (u.seen === 'online') { st.textContent = t('chat.online'); st.classList.add('online'); }
-    else st.textContent = t('chat.' + u.seen);
+    const uname = u.username ? '@' + u.username : '';
+    if (u.seen === 'online') {
+      st.textContent = uname ? `${uname} · ${t('chat.online')}` : t('chat.online');
+      st.classList.add('online');
+    } else {
+      st.textContent = uname || t('chat.' + u.seen);
+    }
   } else {
     st.textContent = t('chat.members').replace('{n}', String(chat.members.length + 1));
   }

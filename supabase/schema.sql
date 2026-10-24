@@ -8,6 +8,7 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users on delete cascade,
   display_name text not null default 'Anonymous',
+  username text,                        -- @username: латиница, уникальный
   avatar_hue smallint not null default 0,
   avatar text,                          -- аватар (data URL, 256px JPEG)
   public_key text,                      -- ECDH P-256 (JWK, публичная часть)

@@ -5,7 +5,7 @@ import { sb } from './supabaseClient.js';
 import { idb } from '../db/idb.js';
 import * as keygen from '../crypto/keygen.js';
 import * as backup from '../crypto/backup.js';
-import { hasAvatarColumn } from './chats.js';
+import { hasAvatarColumn, hasUsernameColumn } from './chats.js';
 
 /* Приватный ключ может прийти и объектом (после расшифровки бэкапа), и строкой.
    В IndexedDB всегда кладём строку — так его читают все версии приложения. */
@@ -17,6 +17,32 @@ function jwkToString(v) {
 function avatarOf(profile, user) {
   return profile?.avatar || user?.user_metadata?.avatar || null;
 }
+
+/* Юзернейм: латиница, цифры и _, 3–32 символа, начинается с буквы */
+const USERNAME_RE = /^[A-Za-z][A-Za-z0-9_]{2,31}$/;
+
+export function normalizeUsername(v) {
+  return String(v || '').trim().replace(/^@+/, '');
+}
+
+export function isValidUsername(v) {
+  return USERNAME_RE.test(v);
+}
+
+export async function isUsernameTaken(username, myId) {
+  /* _ и % в LIKE — служебные, экранируем */
+  const pattern = String(username).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id')
+    .ilike('username', pattern)
+    .neq('id', myId)
+    .limit(1);
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
+export { hasUsernameColumn };
 
 /* Пароль нужен один раз — чтобы зашифровать резервную копию ключа.
    Держим только в памяти/на время вкладки и очищаем сразу после создания профиля. */
@@ -84,6 +110,7 @@ async function finalizeProfile(user, email, name, password) {
     id: user.id,
     name,
     mail: email,
+    username: null,
     publicKey: publicKeyJwk,
     privateKey: privateKeyJwk,
   };
@@ -129,6 +156,7 @@ export async function signIn(email, password) {
     mail: email,
     hue: profile.avatar_hue,
     avatar: avatarOf(profile, data.user),
+    username: profile.username || null,
     publicKey: profile.public_key,
     privateKey: privateKeyStr,
   };
@@ -230,6 +258,7 @@ export async function restoreSession() {
     mail: session.user.email,
     hue: profile.avatar_hue,
     avatar: avatarOf(profile, session.user),
+    username: profile.username || null,
     publicKey: profile.public_key,
     privateKey: privateKey || null,
   };

@@ -61,7 +61,7 @@ export function renderSidebar() {
   const av = $('#meAvatar');
   if (av) av.innerHTML = avatarHtml(S.me || { name: '?', hue: 0 });
   $('#meName') && ($('#meName').textContent = S.me?.name || '');
-  $('#meMail') && ($('#meMail').textContent = S.me?.mail || '');
+  $('#meMail') && ($('#meMail').textContent = S.me?.username ? '@' + S.me.username : (S.me?.mail || ''));
 }
 
 /* Делегирование кликов навешивается один раз в initSidebar() */

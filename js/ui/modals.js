@@ -7,7 +7,7 @@ import { idb, newId } from '../db/idb.js';
 import { APP, SUPABASE } from '../config.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
-import { updateProfile, saveAvatar } from '../backend/auth.js';
+import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn } from '../backend/auth.js';
 import { searchUsers, createDmChat } from '../backend/chats.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
@@ -113,6 +113,7 @@ function closeLightbox() { $('#lightbox').hidden = true; }
 /* ── НАСТРОЙКИ ── */
 export function openSettings() {
   $('#nameInput').value = S.me?.name || '';
+  $('#usernameInput').value = S.me?.username || '';
   $('#verStr').textContent = `v${APP.version} · ${APP.phase}`;
   paintLangSeg();
   paintThemes();
@@ -203,18 +204,50 @@ async function saveProfile() {
   const name = $('#nameInput').value.trim();
   if (!name) { toast(t('auth.needName')); return; }
 
+  const rawUsername = $('#usernameInput').value.trim();
+  const username = normalizeUsername(rawUsername);
+  const real = !!(SUPABASE.url && SUPABASE.anonKey);
+
+  if (rawUsername && !isValidUsername(username)) {
+    toast(t('settings.usernameInvalid'));
+    return;
+  }
+
   try {
-    if (SUPABASE.url && SUPABASE.anonKey) {
-      await updateProfile({ display_name: name });
+    const updates = { display_name: name };
+
+    if (real) {
+      const hasCol = await hasUsernameColumn();
+      if (rawUsername && !hasCol) { toast(t('settings.usernameNoDb')); return; }
+
+      if (rawUsername && hasCol &&
+          username.toLowerCase() !== String(S.me?.username || '').toLowerCase()) {
+        if (await isUsernameTaken(username, S.me?.id)) {
+          toast(t('settings.usernameTaken'));
+          return;
+        }
+      }
+
+      if (hasCol) updates.username = username || null;
+      await updateProfile(updates);
     } else {
-      S.me.name = name;
+      updates.username = username || null;
+      S.me = { ...S.me, ...updates };
       await idb.put('settings', { key: 'me', value: S.me });
     }
+
+    S.me = { ...S.me, ...updates };
+    await idb.put('settings', { key: 'me', value: S.me });
     renderSidebar();
     toast(t('settings.saved'));
     $('#settingsOv').hidden = true;
   } catch (err) {
-    toast(err.message || t('settings.error'));
+    console.error('Save profile error:', err);
+    if (err.code === '23505' || /duplicate|unique/i.test(err.message || '')) {
+      toast(t('settings.usernameTaken'));
+    } else {
+      toast(err.message || t('settings.error'));
+    }
   }
 }
 
@@ -236,7 +269,7 @@ async function paintContacts() {
       const profiles = await searchUsers(q);
       users = profiles
         .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, seen: 'offline' }));
+        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null, seen: 'offline' }));
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
@@ -252,7 +285,7 @@ async function paintContacts() {
       ${avatarHtml(u, { online: u.seen === 'online' })}
       <span class="info">
         <span class="n">${esc(u.name)}</span>
-        <span class="s">${t('chat.' + u.seen)}</span>
+        <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + u.seen)}</span>
       </span>
     </button>`;
   }).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
@@ -320,7 +353,7 @@ async function paintGroupContacts() {
       const profiles = await searchUsers(q);
       users = profiles
         .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null }));
+        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null }));
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
