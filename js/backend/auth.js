@@ -1,0 +1,191 @@
+/* Relik — Supabase Auth + профили
+   Регистрация с подтверждением по коду из письма, вход, ключи E2E */
+
+import { sb } from './supabaseClient.js';
+import { idb } from '../db/idb.js';
+import * as keygen from '../crypto/keygen.js';
+import * as backup from '../crypto/backup.js';
+
+/* Пароль нужен один раз — чтобы зашифровать резервную копию ключа.
+   Держим только в памяти/на время вкладки и очищаем сразу после создания профиля. */
+function pendingName(email) {
+  return sessionStorage.getItem('relik.pendingName') || email.split('@')[0];
+}
+
+/* ── Регистрация: шаг 1 — создать пользователя в Auth ── */
+export async function signUp(email, password) {
+  sessionStorage.setItem('relik.pendingPass', password);
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if (error) throw error;
+
+  // Если подтверждение email включено — сессии ещё нет, нужен код
+  if (!data.session) return { pending: true, email };
+
+  return await finalizeProfile(data.user, email, pendingName(email), password);
+}
+
+/* ── Регистрация: шаг 2 — проверить код из письма ── */
+export async function verifySignupCode(email, token, password) {
+  const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
+  if (error) throw error;
+
+  const pass = password || sessionStorage.getItem('relik.pendingPass') || '';
+  if (!pass) throw new Error('Перезапустите регистрацию: пароль не найден');
+
+  return await finalizeProfile(data.user, email, pendingName(email), pass);
+}
+
+/* ── Создание E2E-ключей и профиля после успешной аутентификации ── */
+async function finalizeProfile(user, email, name, password) {
+  const keyPair = await keygen.generateKeyPair();
+  const publicKeyJwk = await keygen.exportPublicKey(keyPair);
+  const privateKeyJwk = await keygen.exportPrivateKey(keyPair);
+  const encryptedBackup = await backup.encryptPrivateKeyWithPassword(
+    JSON.parse(privateKeyJwk),
+    password
+  );
+
+  const row = {
+    id: user.id,
+    display_name: name,
+    avatar_hue: Math.floor(Math.random() * 360),
+    public_key: publicKeyJwk,
+    key_backup: JSON.stringify(encryptedBackup),
+  };
+
+  const { error: profileError } = await sb.from('profiles').insert(row);
+  if (profileError) {
+    // 23505 — профиль уже есть (повторная попытка): обновляем ключи
+    if (profileError.code === '23505') {
+      const { error: updErr } = await sb.from('profiles').update({
+        display_name: name,
+        public_key: publicKeyJwk,
+        key_backup: JSON.stringify(encryptedBackup),
+      }).eq('id', user.id);
+      if (updErr) throw updErr;
+    } else {
+      throw profileError;
+    }
+  }
+
+  const me = {
+    id: user.id,
+    name,
+    mail: email,
+    publicKey: publicKeyJwk,
+    privateKey: privateKeyJwk,
+  };
+
+  await idb.put('settings', { key: 'me', value: me });
+  await idb.put('settings', { key: 'keyPair', value: { publicKey: publicKeyJwk, privateKey: privateKeyJwk } });
+
+  sessionStorage.removeItem('relik.pendingPass');
+  sessionStorage.removeItem('relik.pendingName');
+
+  return me;
+}
+
+/* ── Вход ── */
+export async function signIn(email, password) {
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+
+  const { data: profile, error: profileError } = await sb
+    .from('profiles')
+    .select('*')
+    .eq('id', data.user.id)
+    .single();
+
+  if (profileError) throw profileError;
+
+  // Дешифрование приватного ключа из бэкапа
+  let privateKeyJwk = null;
+  try {
+    const keyBackup = JSON.parse(profile.key_backup);
+    privateKeyJwk = await backup.decryptPrivateKeyWithPassword(keyBackup, password);
+  } catch (err) {
+    console.error('Key backup decrypt error:', err);
+  }
+
+  const me = {
+    id: profile.id,
+    name: profile.display_name,
+    mail: email,
+    hue: profile.avatar_hue,
+    publicKey: profile.public_key,
+    privateKey: privateKeyJwk,
+  };
+
+  await idb.put('settings', { key: 'me', value: me });
+  if (privateKeyJwk) {
+    await idb.put('settings', {
+      key: 'keyPair',
+      value: { publicKey: profile.public_key, privateKey: privateKeyJwk },
+    });
+  }
+
+  return me;
+}
+
+/* ── Выход ── */
+export async function signOut() {
+  await sb.auth.signOut();
+  await idb.del('settings', 'me');
+  await idb.del('settings', 'keyPair');
+}
+
+/* ── Получение текущего пользователя ── */
+export async function getCurrentUser() {
+  const { data: { user }, error } = await sb.auth.getUser();
+  if (error) throw error;
+  return user;
+}
+
+/* ── Обновление профиля ── */
+export async function updateProfile(updates) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await sb.from('profiles').update(updates).eq('id', user.id);
+  if (error) throw error;
+
+  const meRec = await idb.get('settings', 'me');
+  if (meRec) {
+    meRec.value = { ...meRec.value, ...updates };
+    await idb.put('settings', meRec);
+  }
+
+  return updates;
+}
+
+/* ── Восстановление сессии при загрузке ── */
+export async function restoreSession() {
+  const { data: { session }, error } = await sb.auth.getSession();
+  if (error || !session) return null;
+
+  const { data: profile, error: profileError } = await sb
+    .from('profiles')
+    .select('*')
+    .eq('id', session.user.id)
+    .single();
+  if (profileError) return null;
+
+  const keyPairRec = await idb.get('settings', 'keyPair');
+
+  return {
+    id: profile.id,
+    name: profile.display_name,
+    mail: session.user.email,
+    hue: profile.avatar_hue,
+    publicKey: profile.public_key,
+    privateKey: keyPairRec?.value?.privateKey || null,
+  };
+}
+
+/* ── last_seen (presence) ── */
+export async function updateLastSeen() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  await sb.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', user.id);
+}

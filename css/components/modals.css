@@ -1,0 +1,91 @@
+/* ============================================================
+   Relik — модальные окна, лайтбокс, тосты
+   ============================================================ */
+.overlay{
+  position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:20px;
+  background:rgba(5,7,12,.62);backdrop-filter:blur(6px);animation:fade .18s var(--ease);
+}
+.overlay[hidden]{display:none !important;}
+.modal{
+  width:min(440px,100%);max-height:min(680px,92vh);
+  background:var(--surface);border:1px solid var(--line-2);border-radius:22px;
+  box-shadow:var(--sh-2);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;
+  animation:pop .2s var(--ease);
+}
+.m-head{display:flex;align-items:center;gap:10px;padding:16px 18px 10px}
+.m-head h3{font-size:var(--fs-lg);flex:1}
+.m-body{padding:6px 18px 16px;overflow-y:auto;display:grid;gap:12px;align-content:start}
+.m-foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+
+/* О приложении (в настройках) */
+.about{border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;gap:8px;background:var(--surface-2);margin-top:4px}
+.about .top{display:flex;align-items:center;gap:10px}
+.about img{width:42px;height:42px;border-radius:12px}
+.about .nm{font-weight:700;font-size:var(--fs-md)}
+.about .ver{font-size:var(--fs-2xs);color:var(--tx-3)}
+.about .e2e{font-size:var(--fs-xs);color:var(--tx-2);line-height:1.5}
+
+/* Сегмент (RU/EN) */
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:13px;padding:3px}
+.seg button{padding:8px 10px;border-radius:10px;font-size:var(--fs-sm);font-weight:600;color:var(--tx-2);transition:background var(--t-fast),color var(--t-fast)}
+.seg button.on{background:var(--accent-soft);color:var(--tx);box-shadow:inset 0 0 0 1px var(--accent-glow)}
+
+/* Темы */
+.theme-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.theme-swatch{position:relative;height:46px;border-radius:12px;border:2px solid var(--line);cursor:pointer;transition:border-color var(--t-fast),transform var(--t-fast);overflow:hidden}
+.theme-swatch:hover{transform:translateY(-1px)}
+.theme-swatch.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.theme-swatch i{position:absolute;left:8px;bottom:8px;width:18px;height:18px;border-radius:50%;background:var(--sw-accent)}
+
+/* Переключатель (звуки) */
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:var(--fs-sm);color:var(--tx-2);cursor:pointer;user-select:none;padding:4px 0}
+.switch-row input{position:absolute;opacity:0;pointer-events:none}
+.switch-row i{width:42px;height:24px;border-radius:99px;background:var(--surface-3);border:1px solid var(--line-2);position:relative;transition:background var(--t-fast),border-color var(--t-fast);flex:none}
+.switch-row i::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--tx-3);transition:transform var(--t-fast),background var(--t-fast)}
+.switch-row input:checked + i{background:var(--accent-soft);border-color:var(--accent-glow)}
+.switch-row input:checked + i::after{transform:translateX(18px);background:var(--indigo)}
+
+/* Аватар в настройках */
+.avatar-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.avatar-row .avatar img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+
+/* Контакты (новый чат) */
+.contact{display:flex;align-items:center;gap:12px;padding:8px 10px;border-radius:14px;text-align:left;width:100%;transition:background var(--t-fast)}
+.contact:hover{background:var(--surface-2)}
+.contact .info{display:grid;gap:1px;min-width:0}
+.contact .n{font-weight:600;font-size:var(--fs-md)}
+.contact .s{font-size:var(--fs-2xs);color:var(--tx-3)}
+.contact .c-ic{width:38px;height:38px;border-radius:12px;background:var(--surface-3);color:var(--tx-2);display:grid;place-items:center;flex:none}
+.contact .c-ic.grad{background:var(--grad);color:#fff}
+.nc-hint{font-size:var(--fs-2xs);color:var(--tx-3);padding:2px 10px 6px}
+
+/* Подтверждение email */
+.verify-sub{font-size:var(--fs-sm);color:var(--tx-2);line-height:1.5}
+.verify-email{font-size:var(--fs-sm);font-weight:600;color:var(--tx)}
+.code-input{letter-spacing:.28em;font-size:22px;text-align:center;font-variant-numeric:tabular-nums;padding:12px 14px;font-weight:600}
+.code-input.invite{letter-spacing:.12em;font-size:18px;text-transform:uppercase;font-variant-numeric:normal}
+
+/* Участники группы (выбранные) */
+.group-member{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);transition:background var(--t-fast);cursor:default}
+.group-member:hover{background:var(--surface-3)}
+.group-member .rm{color:var(--tx-3);transition:color var(--t-fast)}
+.group-member .rm:hover{color:var(--bad)}
+
+/* Лайтбокс */
+.lightbox{position:fixed;inset:0;z-index:110;display:grid;place-items:center;background:rgba(5,7,12,.92);backdrop-filter:blur(8px);animation:fade .2s var(--ease)}
+.lightbox[hidden]{display:none !important}
+.lightbox img{max-width:92vw;max-height:86vh;border-radius:16px;box-shadow:var(--sh-2)}
+.lightbox .lx-close{position:absolute;top:18px;right:18px;background:var(--surface-3);color:var(--tx-2)}
+.lightbox .lx-close:hover{color:var(--tx)}
+
+/* Тосты */
+#toasts{position:fixed;left:50%;bottom:26px;translate:-50% 0;z-index:100;display:grid;gap:8px;justify-items:center;pointer-events:none}
+.toast{
+  display:flex;align-items:center;gap:8px;pointer-events:auto;
+  background:var(--raise);border:1px solid var(--line-2);color:var(--tx);
+  padding:10px 16px;border-radius:var(--r-full);font-size:var(--fs-sm);
+  box-shadow:var(--sh-2);animation:toast-in .25s var(--ease);max-width:min(90vw,440px);
+}
+.toast.out{animation:toast-out .25s var(--ease) forwards}
+@keyframes toast-in{from{opacity:0;translate:0 12px;scale:.94}to{opacity:1}}
+@keyframes toast-out{to{opacity:0;translate:0 12px;scale:.94}}

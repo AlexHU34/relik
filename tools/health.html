@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0e14">
+<title>Relik — проверка сайта</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:20px 16px 40px;background:#0b0e14;color:#e7eaf3;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:20px;letter-spacing:-.02em;margin:0 0 6px}
+  .sub{margin:0 0 16px;color:#9aa4bb;font-size:12.5px;line-height:1.6}
+  .row{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  button{
+    font:inherit;font-weight:600;padding:10px 18px;border-radius:12px;border:0;cursor:pointer;color:#fff;
+    background:linear-gradient(135deg,#5b6cf9,#9f5cf6);
+  }
+  button.ghost{background:#1a1f2b;border:1px solid #2a3242;color:#c9d1e3}
+  .summary{padding:12px 14px;border-radius:12px;margin-bottom:14px;font-weight:600;font-size:13.5px;
+    border:1px solid #2a3242;background:#121722}
+  .summary.ok{border-color:rgba(62,207,142,.45);background:rgba(62,207,142,.08);color:#8ff0c2}
+  .summary.bad{border-color:rgba(255,92,92,.45);background:rgba(255,92,92,.08);color:#ffb3b3}
+  .item{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-bottom:1px solid #1c2230;font-size:12.5px}
+  .item:last-child{border-bottom:0}
+  .item .ic{flex:none;width:16px;text-align:center;font-weight:700}
+  .item .ok{color:#3ecf8e}
+  .item .bad{color:#ff6b6b}
+  .item .warn{color:#f5b94a}
+  .item code{font-size:11.5px;color:#9aa4bb;word-break:break-all;font-family:ui-monospace,Consolas,monospace}
+  .item .det{color:#8791a8;font-size:11.5px}
+  .card{border:1px solid #222a38;border-radius:14px;background:#0f131c;overflow:hidden}
+  .meta{margin-top:16px;padding:12px 14px;border:1px solid #222a38;border-radius:14px;background:#0f131c;
+    font-size:11.5px;color:#9aa4bb;word-break:break-all}
+  .meta b{color:#c9d1e3;font-weight:600}
+  a{color:#8b9bff}
+  h2{font-size:14px;margin:22px 0 8px}
+  ul{margin:0 0 0 18px;padding:0;color:#9aa4bb;font-size:12.5px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Проверка Relik</h1>
+  <p class="sub">
+    Откройте эту страницу на том устройстве, где приложение не работает, и нажмите «Проверить».
+    Если какой-то файл не загружается — его нет в деплое или его блокирует сеть.
+  </p>
+
+  <div class="row">
+    <button id="run">Проверить</button>
+    <button id="copy" class="ghost">Скопировать отчёт</button>
+    <button id="open" class="ghost">Открыть приложение</button>
+  </div>
+
+  <div class="summary" id="summary">Готово к проверке</div>
+  <div class="card" id="list"></div>
+
+  <div class="meta" id="meta"></div>
+
+  <h2>Что означают ошибки</h2>
+  <ul>
+    <li><b>404</b> у <code>js/vendor/supabase.js</code> — файл не попал в деплой. Загрузите архив
+      <code>relik-site-fixed.zip</code> целиком (Netlify → Deploys → перетащить архив).</li>
+    <li><b>Все файлы 404</b> — сайт не опубликован или ссылка устарела (Netlify → Site overview → новый адрес).</li>
+    <li><b>Сеть / timeout</b> у <code>supabase.co</code> — провайдер блокирует Supabase: нужен Wi-Fi или VPN.</li>
+    <li><b>0 байт / обрыв</b> у больших файлов — мобильная сеть или прокси режет загрузку, попробуйте Wi-Fi.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var FILES = [
+    ['../index.html', 'страница'],
+    ['../sw.js', 'service worker'],
+    ['../manifest.json', 'манифест PWA'],
+    ['../css/tokens.css', 'стили'],
+    ['../css/base.css', 'стили'],
+    ['../css/layout.css', 'стили'],
+    ['../css/components/chat.css', 'стили'],
+    ['../css/components/composer.css', 'стили'],
+    ['../css/components/modals.css', 'стили'],
+    ['../css/components/call.css', 'стили'],
+    ['../js/main.js', 'код'],
+    ['../js/config.js', 'конфиг'],
+    ['../js/vendor/supabase.js', 'SDK Supabase ≈ 213 КБ'],
+    ['../js/i18n/i18n.js', 'код'],
+    ['../js/db/idb.js', 'код'],
+    ['../js/ui/router.js', 'код'],
+    ['../js/ui/chatView.js', 'код'],
+    ['../js/ui/device.js', 'код'],
+    ['../js/backend/supabaseClient.js', 'код'],
+    ['../assets/icons/icon-192.png', 'иконка'],
+  ];
+
+  var list = document.getElementById('list');
+  var summary = document.getElementById('summary');
+  var meta = document.getElementById('meta');
+  var report = '';
+
+  function row(state, title, det) {
+    var el = document.createElement('div');
+    el.className = 'item';
+    var ic = document.createElement('span');
+    ic.className = 'ic ' + state;
+    ic.textContent = state === 'ok' ? '✓' : state === 'warn' ? '!' : '✕';
+    var body = document.createElement('div');
+    var t = document.createElement('div');
+    t.textContent = title;
+    body.appendChild(t);
+    if (det) {
+      var d = document.createElement('div');
+      d.className = 'det';
+      d.textContent = det;
+      body.appendChild(d);
+    }
+    el.appendChild(ic);
+    el.appendChild(body);
+    list.appendChild(el);
+  }
+
+  function checkFile(url, note) {
+    var t0 = Date.now();
+    return fetch(url, { method: 'GET', cache: 'no-store' })
+      .then(function (res) {
+        return res.text().then(function (txt) {
+          var ms = Date.now() - t0;
+          var bytes = txt.length;
+          var ok = res.ok && bytes > 0;
+          row(ok ? 'ok' : 'bad', url + '  (' + note + ')',
+            res.status + ' · ' + bytes + ' Б · ' + ms + ' мс');
+          report += (ok ? 'OK   ' : 'FAIL ') + url + ' -> ' + res.status + ' ' + bytes + 'B ' + ms + 'ms\n';
+          return ok;
+        });
+      })
+      .catch(function (err) {
+        var ms = Date.now() - t0;
+        row('bad', url + '  (' + note + ')', 'нет ответа: ' + (err && err.message ? err.message : err) + ' · ' + ms + ' мс');
+        report += 'FAIL ' + url + ' -> ' + (err && err.message ? err.message : err) + '\n';
+        return false;
+      });
+  }
+
+  function checkServer() {
+    return fetch('../js/config.js', { cache: 'no-store' })
+      .then(function (r) { return r.text(); })
+      .then(function (src) {
+        var m = src.match(/url:\s*'([^']+)'/);
+        if (!m) { row('warn', 'Supabase URL', 'не найден в config.js'); return; }
+        var base = m[1];
+        var t0 = Date.now();
+        return fetch(base + '/auth/v1/health', { method: 'GET', cache: 'no-store' })
+          .then(function (res) {
+            var ms = Date.now() - t0;
+            var ok = res.status < 500;
+            row(ok ? 'ok' : 'bad', 'Сервер Supabase', base + ' · ' + res.status + ' · ' + ms + ' мс' +
+              (ok ? '' : ' (сервер недоступен)'));
+            report += (ok ? 'OK   ' : 'FAIL ') + 'supabase health -> ' + res.status + ' ' + ms + 'ms\n';
+          })
+          .catch(function (err) {
+            var ms = Date.now() - t0;
+            row('bad', 'Сервер Supabase', base + ' · нет ответа: ' + (err && err.message ? err.message : err) + ' · ' + ms + ' мс');
+            report += 'FAIL supabase -> ' + (err && err.message ? err.message : err) + '\n';
+          });
+      })
+      .catch(function () { row('warn', 'Сервер Supabase', 'config.js недоступен'); });
+  }
+
+  function run() {
+    list.innerHTML = '';
+    report = '';
+    summary.className = 'summary';
+    summary.textContent = 'Проверяем…';
+    var fails = 0;
+    var chain = Promise.resolve();
+    FILES.forEach(function (f) {
+      chain = chain.then(function () {
+        return checkFile(f[0], f[1]).then(function (ok) { if (!ok) fails++; });
+      });
+    });
+    chain
+      .then(checkServer)
+      .then(function () {
+        summary.className = 'summary ' + (fails ? 'bad' : 'ok');
+        summary.textContent = fails
+          ? 'Не загрузилось файлов: ' + fails + ' из ' + FILES.length + ' — см. красные строки'
+          : 'Все ' + FILES.length + ' файлов загрузились — приложение должно открываться';
+        report = 'URL: ' + location.href + '\nUA: ' + navigator.userAgent + '\n\n' + report;
+        return finish();
+      });
+  }
+
+  function finish() {
+    return navigator.serviceWorker && navigator.serviceWorker.getRegistrations
+      ? navigator.serviceWorker.getRegistrations().then(function (regs) {
+          row('warn', 'Service worker', regs.length ? 'зарегистрирован: ' + regs.length + ' (обновите страницу дважды)' : 'не зарегистрирован');
+        }).catch(function () {})
+      : Promise.resolve();
+  }
+
+  document.getElementById('run').addEventListener('click', run);
+  document.getElementById('open').addEventListener('click', function () { location.href = '../index.html'; });
+  document.getElementById('copy').addEventListener('click', function () {
+    var text = report || 'Сначала нажмите «Проверить»';
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { summary.className = 'summary ok'; summary.textContent = 'Отчёт скопирован'; });
+    } else {
+      window.prompt('Скопируйте отчёт:', text);
+    }
+  });
+
+  meta.innerHTML =
+    '<b>Адрес:</b> ' + location.href + '<br>' +
+    '<b>Экран:</b> ' + window.innerWidth + '×' + window.innerHeight + ' · dpr ' + (window.devicePixelRatio || 1) + '<br>' +
+    '<b>Сеть:</b> ' + (navigator.onLine ? 'онлайн' : 'офлайн') + ' · ' +
+    '<b>Браузер:</b> ' + navigator.userAgent;
+
+  run();
+})();
+</script>
+</body>
+</html>

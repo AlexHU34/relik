@@ -1,0 +1,68 @@
+/* ============================================================
+   Relik — дизайн-токены (тёмный минимализм, цвета логотипа)
+   ============================================================ */
+:root{
+  color-scheme: dark;
+
+  /* Поверхности */
+  --bg:#0b0e14;
+  --bg-glow-1:rgba(78,127,255,.09);
+  --bg-glow-2:rgba(159,92,246,.08);
+  --surface:#11151c;
+  --surface-2:#151a23;
+  --surface-3:#1b212d;
+  --raise:#20293a;
+
+  /* Линии */
+  --line:#20262f;
+  --line-2:#2b3442;
+
+  /* Текст */
+  --tx:#e8eaf2;
+  --tx-2:#9aa3b5;
+  --tx-3:#5f6879;
+
+  /* Бренд (с цвета логотипа: синий → индиго → фиолет) */
+  --blue:#4e7fff;
+  --indigo:#5b6cf9;
+  --violet:#9f5cf6;
+  --grad:linear-gradient(135deg,var(--blue),var(--indigo) 50%,var(--violet));
+  --accent:var(--indigo);
+  --accent-soft:rgba(91,108,249,.15);
+  --accent-glow:rgba(91,108,249,.4);
+
+  /* Статусы */
+  --ok:#3ecf8e;
+  --warn:#f5b544;
+  --bad:#f96a6a;
+
+  /* Пузыри */
+  --mine-bg:#242c48;
+  --mine-line:#333d63;
+  --theirs-bg:#161c27;
+  --theirs-line:#232b39;
+
+  /* Форма и глубина */
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:22px; --r-full:999px;
+  --sh-1:0 1px 2px rgba(0,0,0,.35);
+  --sh-2:0 10px 30px -12px rgba(0,0,0,.55);
+  --sh-pop:0 18px 50px -12px rgba(0,0,0,.65), 0 0 0 1px var(--line);
+
+  /* Типографика */
+  --font:"Inter","SF Pro Display",system-ui,"Segoe UI",Roboto,sans-serif;
+  --fs-2xs:10.5px; --fs-xs:12px; --fs-sm:13px; --fs-md:14.5px;
+  --fs-lg:16.5px; --fs-xl:20px; --fs-2xl:26px; --fs-3xl:34px;
+
+  /* Отступы */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px;
+  --s6:24px; --s8:32px; --s10:40px;
+
+  /* Движение */
+  --ease:cubic-bezier(.22,.68,.32,1);
+  --t-fast:.13s var(--ease);
+  --t-med:.22s var(--ease);
+  --t-slow:.4s var(--ease);
+
+  /* Раскладка */
+  --sidebar-w:300px;
+}

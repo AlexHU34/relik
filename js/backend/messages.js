@@ -1,0 +1,361 @@
+/* Relik — управление сообщениями через Supabase (Фаза 6)
+   Отправка, загрузка, Realtime-подписка с E2E шифрованием */
+
+import { sb } from './supabaseClient.js';
+import { idb } from '../db/idb.js';
+import { SUPABASE } from '../config.js';
+import { S } from '../ui/state.js';
+import {
+  getKeyPair,
+  getTheirPublicKey,
+  encryptForChat,
+  decryptFromChat,
+  encryptForGroup,
+  decryptFromGroup,
+} from '../crypto/encryption.js';
+
+/* ── Загрузка сообщений чата с дешифрованием ── */
+export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = null) {
+  const { data, error } = await sb
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', chatId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  const keyPair = SUPABASE.url && SUPABASE.anonKey ? await getKeyPair() : null;
+  const theirPubKey = theirPublicKeyJwk && keyPair ? await getTheirPublicKey(theirPublicKeyJwk) : null;
+
+  // Преобразуем в формат приложения с дешифровкой
+  const messages = await Promise.all(data.map(async (m) => {
+    let text = m.ciphertext;
+
+    // Дешифруем если есть ключи
+    if (SUPABASE.url && SUPABASE.anonKey && keyPair && theirPubKey && m.iv && chatKind === 'dm') {
+      try {
+        text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+      } catch (err) {
+        console.error('Decrypt error:', err);
+        text = '[Шифрование не удалось]';
+      }
+    }
+
+    return {
+      id: m.id,
+      chatId: m.conversation_id,
+      sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
+      ts: new Date(m.created_at).getTime(),
+      type: 'text',
+      text,
+      reactions: [],
+      status: 'read',
+      replyTo: m.reply_to ? { id: m.reply_to } : null,
+      edited: m.edited,
+      deleted: m.deleted,
+    };
+  }));
+
+  // Кэшируем в IndexedDB (уже дешифрованные)
+  await idb.bulkPut('messages', messages);
+
+  return messages;
+}
+
+/* ── Отправка сообщения с шифрованием ── */
+export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  let ciphertext, iv;
+
+  if (SUPABASE.url && SUPABASE.anonKey) {
+    // Шифруем сообщение
+    const keyPair = await getKeyPair();
+    if (!keyPair) throw new Error('No key pair found');
+
+    if (chatKind === 'dm' && theirPublicKeyJwk) {
+      const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+      const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey);
+      ciphertext = encrypted.ciphertext;
+      iv = encrypted.iv;
+    } else if (chatKind === 'group') {
+      // TODO: в Фазе 8 будет шифрование ключом группы
+      ciphertext = text; // временно открытым текстом
+      iv = '';
+    } else {
+      ciphertext = text;
+      iv = '';
+    }
+  } else {
+    // Демо-режим: открытым текстом
+    ciphertext = text;
+    iv = '';
+  }
+
+  const { data, error } = await sb
+    .from('messages')
+    .insert({
+      conversation_id: chatId,
+      sender_id: user.id,
+      ciphertext,
+      iv,
+      reply_to: replyToId,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    chatId: data.conversation_id,
+    sender: 'u_me',
+    ts: new Date(data.created_at).getTime(),
+    type: 'text',
+    text: text, // возвращаем оригинальный текст для UI
+    reactions: [],
+    status: 'sent',
+    replyTo: data.reply_to ? { id: data.reply_to } : null,
+    edited: data.edited,
+    deleted: data.deleted,
+  };
+}
+
+/* ── Редактирование сообщения ── */
+export async function editMessage(messageId, newText) {
+  const { data, error } = await sb
+    .from('messages')
+    .update({
+      ciphertext: newText,
+      edited: true,
+    })
+    .eq('id', messageId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return data;
+}
+
+/* ── Удаление сообщения ── */
+export async function deleteMessage(messageId) {
+  const { error } = await sb
+    .from('messages')
+    .update({ deleted: true })
+    .eq('id', messageId);
+
+  if (error) throw error;
+}
+
+/* ── Добавление реакции ── */
+export async function addReaction(messageId, emoji) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await sb
+    .from('reactions')
+    .insert({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    });
+
+  if (error) throw error;
+}
+
+/* ── Удаление реакции ── */
+export async function removeReaction(messageId, emoji) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await sb
+    .from('reactions')
+    .delete()
+    .match({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    });
+
+  if (error) throw error;
+}
+
+/* ── Realtime-подписка на сообщения чата с дешифрованием ── */
+export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicKeyJwk = null) {
+  if (!sb) return { unsubscribe: () => {} };
+
+  const channel = sb
+    .channel(`chat:${chatId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${chatId}`,
+      },
+      async (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const m = payload.new;
+          let text = m.ciphertext;
+
+          // Дешифруем если есть ключи
+          if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
+            try {
+              const keyPair = await getKeyPair();
+              const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
+              if (keyPair && theirPubKey) {
+                text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+              }
+            } catch (err) {
+              console.error('Decrypt error:', err);
+              text = '[Шифрование не удалось]';
+            }
+          }
+
+          const message = {
+            id: m.id,
+            chatId: m.conversation_id,
+            sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
+            ts: new Date(m.created_at).getTime(),
+            type: 'text',
+            text,
+            reactions: [],
+            status: 'sent',
+            replyTo: m.reply_to ? { id: m.reply_to } : null,
+            edited: m.edited,
+            deleted: m.deleted,
+          };
+          await idb.put('messages', message);
+          callbacks.onMessage?.(message);
+        } else if (payload.eventType === 'UPDATE') {
+          const m = payload.new;
+          let text = m.ciphertext;
+
+          // Дешифруем редактирование
+          if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
+            try {
+              const keyPair = await getKeyPair();
+              const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
+              if (keyPair && theirPubKey) {
+                text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+              }
+            } catch (err) {
+              console.error('Decrypt error:', err);
+            }
+          }
+
+          if (callbacks.onEdit) {
+            callbacks.onEdit(m.id, {
+              text,
+              edited: m.edited,
+              deleted: m.deleted,
+            });
+          }
+        } else if (payload.eventType === 'DELETE') {
+          if (callbacks.onDelete) {
+            callbacks.onDelete(payload.old.id);
+          }
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'reactions',
+      },
+      async (payload) => {
+        if (callbacks.onReaction) {
+          callbacks.onReaction(payload);
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('Realtime status:', status);
+    });
+
+  return {
+    unsubscribe: () => {
+      sb.removeChannel(channel);
+    },
+  };
+}
+
+/* ── Realtime-подписка на все сообщения пользователя (RLS фильтрует) ── */
+export function subscribeAllMessages(onInsert) {
+  if (!sb) return { unsubscribe: () => {} };
+
+  const channel = sb
+    .channel('all-messages')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'messages' },
+      (payload) => { onInsert?.(payload.new); }
+    )
+    .subscribe();
+
+  return { unsubscribe: () => { sb.removeChannel(channel); } };
+}
+
+/* Текст для превью входящего сообщения (с расшифровкой, если возможно) */
+export async function previewTextFor(row, chat) {
+  if (!row.iv) return row.ciphertext || '…';
+  try {
+    if (chat && chat.publicKey) {
+      const keyPair = await getKeyPair();
+      if (keyPair) {
+        const theirPubKey = await getTheirPublicKey(chat.publicKey);
+        return await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey);
+      }
+    }
+  } catch (err) {
+    /* не смогли расшифровать — покажем заглушку */
+  }
+  return '…';
+}
+
+/* ── Realtime-подписка на presence (онлайн-статус) ── */
+export function subscribeToPresence(callbacks) {
+  if (!sb) return { unsubscribe: () => {} };
+
+  const channel = sb
+    .channel('presence')
+    .on('presence', { event: 'sync' }, () => {
+      callbacks.onSync?.();
+    })
+    .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+      callbacks.onJoin?.(key, newPresences);
+    })
+    .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+      callbacks.onLeave?.(key, leftPresences);
+    })
+    .subscribe((status) => {
+      console.log('Presence status:', status);
+    });
+
+  return {
+    unsubscribe: () => {
+      sb.removeChannel(channel);
+    },
+  };
+}
+
+/* ── Обновление read receipt ── */
+export async function updateReadReceipt(chatId) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  const { error } = await sb
+    .from('read_receipts')
+    .upsert({
+      conversation_id: chatId,
+      user_id: user.id,
+      last_read_at: new Date().toISOString(),
+    });
+
+  if (error) console.error('Read receipt error:', error);
+}

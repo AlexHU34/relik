@@ -1,0 +1,70 @@
+/* ============================================================
+   Relik — композер: поле ввода, вложения, эмодзи, запись голоса
+   ============================================================ */
+.composer{padding:10px max(20px, calc((100% - 920px)/2)) 16px;display:grid;gap:10px;background:linear-gradient(transparent,var(--bg) 34%)}
+
+/* Плашка ответа/редактирования */
+.reply-edit-bar{
+  display:none;align-items:center;gap:10px;padding:8px 10px;
+  border-radius:14px;background:var(--surface-2);border:1px solid var(--line);
+  animation:fade-up .2s var(--ease);
+}
+.reply-edit-bar.on{display:flex}
+.reb-ic{width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--indigo);display:grid;place-items:center;flex:none}
+.reb-main{flex:1;display:grid;gap:2px;min-width:0}
+.reb-label{font-size:var(--fs-2xs);font-weight:700;color:var(--indigo)}
+.reb-text{font-size:var(--fs-sm);color:var(--tx-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Ряд ввода */
+.composer-row{
+  display:flex;align-items:flex-end;gap:6px;
+  background:var(--surface-2);border:1px solid var(--line);
+  border-radius:22px;padding:8px 10px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 14px 34px -26px rgba(0,0,0,.95);
+  transition:border-color var(--t-fast),box-shadow var(--t-fast),background var(--t-fast);
+}
+.composer-row:focus-within{border-color:var(--accent-glow);box-shadow:0 0 0 3px var(--accent-soft),0 14px 34px -26px rgba(0,0,0,.95)}
+.composer-row.recording{border-color:rgba(249,106,106,.6);background:rgba(249,106,106,.06)}
+
+/* Вложения */
+.attach{position:relative}
+.attach-menu{
+  position:absolute;bottom:50px;left:0;min-width:200px;z-index:var(--z-pop,60);
+  background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-lg);
+  box-shadow:var(--sh-pop);padding:6px;display:grid;gap:2px;animation:pop .15s var(--ease);
+}
+.attach-menu button{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:11px;font-size:var(--fs-sm);color:var(--tx-2);text-align:left;transition:background var(--t-fast),color var(--t-fast)}
+.attach-menu button:hover{background:var(--surface-3);color:var(--tx)}
+.attach-menu .amb{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none}
+.attach-menu .c-photo{color:#9f5cf6;background:rgba(159,92,246,.15)}
+.attach-menu .c-file{color:#4e7fff;background:rgba(78,127,255,.15)}
+
+/* Текстовое поле */
+#ta{flex:1;resize:none;border:0;outline:0;background:none;padding:8px 6px;max-height:140px;font-size:var(--fs-md);line-height:1.5}
+#ta::placeholder{color:var(--tx-3)}
+
+/* Эмодзи */
+.emoji-wrap{position:relative}
+.emoji-pop{
+  position:absolute;bottom:50px;right:0;width:min(328px,92vw);z-index:var(--z-pop,60);
+  background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-lg);
+  box-shadow:var(--sh-pop);padding:8px;display:grid;grid-template-columns:repeat(8,1fr);
+  animation:pop .15s var(--ease);max-height:240px;overflow-y:auto;
+}
+.emoji-pop button{font-size:19px;padding:6px;border-radius:10px;transition:background var(--t-fast),transform var(--t-fast)}
+.emoji-pop button:hover{background:var(--surface-3);transform:scale(1.15)}
+
+/* Отправка / микрофон */
+.send-btn{
+  width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:var(--grad);color:#fff;box-shadow:0 6px 18px -6px var(--accent-glow);
+  transition:transform var(--t-fast),filter var(--t-fast);
+}
+.send-btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.send-btn:active{transform:scale(.88)}
+.send-btn.mic{background:var(--surface-3);color:var(--tx-2);box-shadow:none}
+
+/* Запись (демо) */
+.rec-ui{display:flex;align-items:center;gap:8px;padding:8px 10px;color:var(--bad)}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:var(--bad);animation:blink 1s infinite}
+.rec-time{font-size:var(--fs-sm);font-weight:600;font-variant-numeric:tabular-nums}

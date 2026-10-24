@@ -1,0 +1,222 @@
+/* ============================================================
+   Relik — раскладка на CSS Grid: экран входа, сетка приложения,
+   сайдбар, каркас чата. Мобильная перестройка < 900px.
+   ============================================================ */
+
+/* ---------- Экран входа (премиальный сплит) ---------- */
+.auth{position:relative;z-index:1;min-height:100dvh;display:grid;place-items:center;padding:clamp(12px,2.5vw,40px);overflow:auto}
+.auth-shell{
+  width:min(1060px,100%);display:grid;grid-template-columns:1.02fr .98fr;
+  border:1px solid var(--line);border-radius:30px;overflow:hidden;
+  background:var(--surface);box-shadow:0 50px 140px -50px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.02) inset;
+  animation:fade-up .55s var(--ease);
+}
+.brand{
+  position:relative;padding:clamp(28px,3.4vw,44px);display:grid;min-height:600px;overflow:hidden;
+  background:
+    linear-gradient(165deg,rgba(91,108,249,.12),transparent 42%),
+    radial-gradient(120% 90% at 0% 100%,rgba(159,92,246,.10),transparent 60%),
+    var(--surface-2);
+  border-right:1px solid var(--line);
+}
+.brand-aurora{
+  position:absolute;inset:-35%;pointer-events:none;
+  background:
+    radial-gradient(430px 330px at 28% 18%,rgba(78,127,255,.38),transparent 62%),
+    radial-gradient(390px 310px at 82% 62%,rgba(159,92,246,.30),transparent 62%),
+    radial-gradient(330px 270px at 18% 88%,rgba(62,207,142,.16),transparent 62%);
+  filter:blur(46px);opacity:.9;animation:aurora 20s ease-in-out infinite alternate;
+}
+@keyframes aurora{
+  0%{transform:translate3d(-2%,-2%,0) scale(1)}
+  50%{transform:translate3d(2%,1.5%,0) scale(1.06)}
+  100%{transform:translate3d(-1%,2%,0) scale(1.03)}
+}
+.brand-inner{position:relative;display:grid;align-content:center;gap:24px;height:100%}
+.brand-mark{display:flex;align-items:center;gap:12px}
+.brand-mark img{width:46px;height:46px;border-radius:14px;box-shadow:0 14px 36px -10px var(--accent-glow)}
+.brand-mark span{font-weight:800;font-size:21px;letter-spacing:-.02em}
+.brand-title{font-size:clamp(28px,3.2vw,42px);line-height:1.07;letter-spacing:-.035em;font-weight:800}
+.brand-title br{display:block}
+.brand-sub{color:var(--tx-2);max-width:36ch;font-size:14.5px;line-height:1.6}
+.brand-feats{list-style:none;display:grid;gap:15px;margin-top:6px;padding:0}
+.brand-feats li{display:flex;gap:12px;align-items:flex-start}
+.bf-ic{
+  width:40px;height:40px;border-radius:13px;flex:none;display:grid;place-items:center;
+  background:rgba(255,255,255,.045);border:1px solid var(--line-2);color:var(--indigo);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.brand-feats b{display:block;font-size:13.5px;margin-bottom:1px}
+.brand-feats span{font-size:12.5px;color:var(--tx-3);line-height:1.5}
+.brand-foot{font-size:10.5px;color:var(--tx-3);letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.panel{display:grid;place-items:center;padding:clamp(24px,3vw,44px);background:var(--surface)}
+.auth-mobile-brand{display:none;align-items:center;gap:11px;width:min(420px,100%);margin:4px auto 0}
+.auth-mobile-brand img{width:40px;height:40px;border-radius:12px;box-shadow:0 10px 26px -10px var(--accent-glow)}
+.auth-mobile-brand div{display:grid;gap:1px}
+.auth-mobile-brand span{font-weight:800;font-size:18px;letter-spacing:-.02em;line-height:1.1}
+.auth-mobile-brand em{font-style:normal;font-size:11.5px;color:var(--tx-3)}
+.auth-card{
+  width:min(384px,100%);display:grid;gap:18px;text-align:left;
+  background:transparent;border:0;box-shadow:none;padding:0;animation:none;
+}
+.auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:14px}
+.auth-tab{padding:9px 10px;border-radius:10px;font-size:13px;font-weight:600;color:var(--tx-3);transition:background var(--t-fast),color var(--t-fast),box-shadow var(--t-fast)}
+.auth-tab:hover{color:var(--tx-2)}
+.auth-tab.on{background:var(--surface-3);color:var(--tx);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.2)}
+.auth-welcome{font-style:italic;color:var(--indigo);font-size:13px;min-height:18px;margin:-6px 0 0;letter-spacing:.01em}
+.auth-form{width:100%;display:grid;gap:14px}
+.input-wrap{position:relative}
+.input-wrap .in-ic{position:absolute;left:13px;top:50%;translate:0 -50%;color:var(--tx-3);display:grid;pointer-events:none}
+.input-wrap .input{padding-left:40px;padding-right:44px;border-radius:13px;background:var(--surface-2);border-color:var(--line)}
+.input-wrap .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.pass-toggle{position:absolute;right:6px;top:50%;translate:0 -50%;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--tx-3);transition:background var(--t-fast),color var(--t-fast)}
+.pass-toggle:hover{background:var(--surface-3);color:var(--tx)}
+.auth-cta{width:100%;position:relative;padding:12px 18px}
+.auth-cta::after{content:"→";margin-left:8px;transition:transform var(--t-fast)}
+.auth-cta:hover::after{transform:translateX(3px)}
+.auth-forgot{align-self:flex-start;font-size:11.5px;color:var(--tx-3);background:none;border:0;padding:0;cursor:pointer;transition:color var(--t-fast);margin-top:-4px}
+.auth-forgot:hover{color:var(--indigo)}
+.auth-trust{display:flex;gap:9px;align-items:flex-start;font-size:11.5px;line-height:1.5;color:var(--tx-3);border-top:1px solid var(--line);padding-top:14px}
+.auth-trust .trust-ic{color:var(--ok);display:grid;flex:none}
+.auth-note{font-size:11px;color:var(--tx-3);line-height:1.5;max-width:38ch}
+.auth-card.shake{animation:shake .4s}
+@keyframes shake{20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+
+@media (max-width:900px){
+  .auth{padding:0}
+  .auth-shell{grid-template-columns:1fr;border-radius:0;min-height:100dvh;border:0;box-shadow:none;background:var(--bg)}
+  .brand{display:none}
+  .panel{padding:22px 16px 32px;align-content:start;gap:18px}
+  .auth-mobile-brand{display:flex;align-items:center;gap:11px;width:min(420px,100%);margin:4px auto 0}
+  .auth-mobile-brand img{width:40px;height:40px;border-radius:12px;box-shadow:0 10px 26px -10px var(--accent-glow)}
+  .auth-mobile-brand div{display:grid;gap:1px}
+  .auth-mobile-brand span{font-weight:800;font-size:18px;letter-spacing:-.02em;line-height:1.1}
+  .auth-mobile-brand em{font-style:normal;font-size:11.5px;color:var(--tx-3)}
+  .auth-card{
+    width:min(420px,100%);padding:20px;border:1px solid var(--line);border-radius:22px;
+    background:var(--surface);box-shadow:var(--sh-2);
+  }
+}
+
+/* ---------- Авто-раскладка под устройство (телефон / планшет / компьютер) ---------- */
+html[data-device="desktop"] .app{grid-template-columns:var(--sidebar-w) 1fr}
+html[data-device="desktop"] .sidebar{display:grid!important}
+html[data-device="desktop"] .chat{display:grid!important}
+html[data-device="desktop"] .back-btn{display:none!important}
+html[data-device="desktop"] .msg{max-width:min(72%,720px)}
+html[data-device="desktop"] .auth-shell{grid-template-columns:1.02fr .98fr}
+html[data-device="desktop"] .brand{display:grid!important}
+html[data-device="desktop"] .auth-mobile-brand{display:none!important}
+html[data-device="desktop"] .auth-card{background:transparent;border:0;box-shadow:none;padding:0}
+
+html[data-device="tablet"] .app{grid-template-columns:min(260px,34vw) 1fr}
+html[data-device="tablet"] .sidebar{display:grid!important}
+html[data-device="tablet"] .chat{display:grid!important}
+html[data-device="tablet"] .back-btn{display:none!important}
+html[data-device="tablet"] .msg{max-width:min(80%,640px)}
+html[data-device="tablet"] .auth-shell{grid-template-columns:1fr;border-radius:0;min-height:100dvh;border:0;box-shadow:none;background:var(--bg)}
+html[data-device="tablet"] .brand{display:none!important}
+html[data-device="tablet"] .auth-mobile-brand{display:flex!important}
+html[data-device="tablet"] .auth-card{width:min(460px,100%);padding:22px;border:1px solid var(--line);border-radius:22px;background:var(--surface);box-shadow:var(--sh-2)}
+html[data-device="tablet"] .panel{padding:24px 18px}
+
+html[data-device="phone"] .app{grid-template-columns:1fr}
+html[data-device="phone"] .back-btn{display:grid!important}
+html[data-device="phone"] .chat{display:none}
+html[data-device="phone"] .app.pane-chat .chat{display:grid!important;animation:slide-in-right .24s var(--ease)}
+html[data-device="phone"] .app.pane-chat .sidebar{display:none!important}
+html[data-device="phone"] .sidebar{display:grid;border-right:0}
+html[data-device="phone"] .msg{max-width:min(88%,540px)}
+html[data-device="phone"] .auth-shell{grid-template-columns:1fr;border-radius:0;min-height:100dvh;border:0;box-shadow:none;background:var(--bg)}
+html[data-device="phone"] .brand{display:none!important}
+html[data-device="phone"] .auth-mobile-brand{display:flex!important}
+html[data-device="phone"] .auth-card{width:min(420px,100%);padding:20px;border:1px solid var(--line);border-radius:22px;background:var(--surface);box-shadow:var(--sh-2)}
+html[data-device="phone"] .panel{padding:22px 16px 32px;align-content:start;gap:18px}
+
+/* ---------- Сетка приложения ---------- */
+.app{position:relative;z-index:1;height:100dvh;display:grid;grid-template-columns:var(--sidebar-w) 1fr}
+
+/* ---------- Сайдбар ---------- */
+.sidebar{
+  background:var(--surface);border-right:1px solid var(--line);
+  display:grid;grid-template-rows:auto auto 1fr auto;min-height:0;min-width:0;
+}
+.side-head{display:flex;align-items:center;gap:var(--s2);padding:15px 14px 10px}
+.side-logo{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;border-radius:12px;padding:4px 6px 4px 0}
+.side-logo img{width:32px;height:32px;border-radius:10px;box-shadow:0 8px 22px -10px var(--accent-glow)}
+.side-logo b{font-size:17.5px;font-weight:800;letter-spacing:-.02em}
+.side-search{padding:4px 14px 12px;position:relative}
+.side-search .input{padding:9px 12px 9px 38px;font-size:var(--fs-sm)}
+.side-search .search-ic{position:absolute;left:26px;top:50%;translate:0 -50%;color:var(--tx-3);pointer-events:none}
+.side-search .search-ic .ic{display:block}
+
+.side-list{overflow-y:auto;min-height:0;padding:2px 8px 10px;display:grid;gap:2px;align-content:start}
+.chat-item{
+  position:relative;
+  display:grid;grid-template-columns:min-content 1fr min-content;gap:11px;align-items:center;
+  padding:9px 10px;border-radius:14px;text-align:left;width:100%;
+  transition:background var(--t-fast),transform var(--t-fast);
+}
+.chat-item::before{
+  content:"";position:absolute;left:0;top:22%;bottom:22%;width:3px;border-radius:3px;
+  background:var(--grad);opacity:0;transition:opacity var(--t-fast);
+}
+.chat-item:hover{background:var(--surface-2);transform:translateX(1px)}
+.chat-item.active{background:var(--surface-3)}
+.chat-item.active::before{opacity:1}
+.ci-main{display:grid;gap:3px;min-width:0}
+.ci-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.ci-name{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ci-time{font-size:10.5px;color:var(--tx-3);flex:none;font-variant-numeric:tabular-nums}
+.ci-bottom{display:flex;justify-content:space-between;gap:8px;align-items:center;min-width:0}
+.ci-preview{font-size:12.5px;color:var(--tx-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ci-preview .who{color:var(--tx-3)}
+.ci-side{display:grid;gap:5px;justify-items:end}
+
+.side-foot{display:flex;align-items:center;gap:4px;padding:10px 10px;border-top:1px solid var(--line)}
+.me-chip{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:6px 8px;border-radius:12px;text-align:left;transition:background var(--t-fast)}
+.me-chip:hover{background:var(--surface-2)}
+.me-chip .info{display:grid;gap:1px;min-width:0}
+.me-chip .name{font-weight:600;font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me-chip .mail{font-size:var(--fs-2xs);color:var(--tx-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.side-empty{display:grid;justify-items:center;gap:6px;text-align:center;padding:38px 18px;color:var(--tx-3)}
+.side-empty .se-ic{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--line);color:var(--indigo);margin-bottom:4px}
+.side-empty b{font-size:13.5px;color:var(--tx-2);font-weight:600}
+.side-empty span:last-child{font-size:12px;line-height:1.5;max-width:24ch}
+
+/* ---------- Каркас чата ---------- */
+.chat{display:grid;min-width:0;min-height:0;position:relative;background:var(--bg)}
+.chat-inner{display:grid;grid-template-rows:auto 1fr auto;min-height:0;height:100dvh}
+.empty{display:grid;place-items:center;align-content:center;gap:12px;height:100%;text-align:center;padding:24px;animation:fade .4s;position:relative}
+.empty::before{content:"";position:absolute;width:520px;height:520px;pointer-events:none;
+  background:radial-gradient(circle,var(--accent-soft),transparent 65%);filter:blur(20px);opacity:.7}
+.empty>*{position:relative}
+.empty img{width:96px;height:96px;border-radius:26px;filter:drop-shadow(0 18px 40px rgba(91,108,249,.35))}
+.empty h2{font-size:var(--fs-xl);font-weight:700;letter-spacing:-.01em}
+.empty p{color:var(--tx-2);max-width:38ch}
+.empty .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+
+.chat-head{
+  display:flex;align-items:center;gap:10px;
+  padding:10px max(14px, calc((100% - 940px)/2));
+  border-bottom:1px solid var(--line);background:var(--chat-head-bg,rgba(17,21,28,.8));backdrop-filter:blur(14px);
+  position:relative;z-index:5;
+}
+.who{flex:1;min-width:0;display:flex;align-items:center;gap:11px;cursor:pointer;border-radius:12px;padding:4px 8px 4px 4px;text-align:left;transition:background var(--t-fast)}
+.who:hover{background:var(--surface-2)}
+.who .info{display:grid;gap:1px;min-width:0}
+.who .n{font-weight:600;font-size:var(--fs-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .s{font-size:var(--fs-xs);color:var(--tx-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who .s.online{color:var(--ok)}
+.back-btn{display:none}
+
+/* ---------- Мобильная перестройка (как в Telegram) ---------- */
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;overflow:hidden}
+  .back-btn{display:grid}
+  .chat{display:none}
+  .app.pane-chat .chat{display:grid;animation:slide-in-right .24s var(--ease)}
+  .app.pane-chat .sidebar{display:none}
+  @keyframes slide-in-right{from{transform:translateX(26px);opacity:.5}to{transform:none;opacity:1}}
+}
