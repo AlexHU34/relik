@@ -610,10 +610,11 @@ async function probeServer() {
     const res = await fetch(`${SUPABASE.url}/auth/v1/health`, {
       method: 'GET',
       cache: 'no-store',
+      mode: 'no-cors',            // без apikey: не засоряем консоль ошибкой 401
       signal: ctrl ? ctrl.signal : undefined,
     });
     if (timer) clearTimeout(timer);
-    if (res.status >= 500) throw new Error('HTTP ' + res.status);
+    if (res.type !== 'opaque' && res.status >= 500) throw new Error('HTTP ' + res.status);
   } catch (err) {
     console.warn('Server unreachable:', err);
     toast(t('net.unreachable'));
