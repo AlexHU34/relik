@@ -35,6 +35,8 @@ export function snippet(m) {
     case 'image': return `${t('msg.photo')} 📷`;
     case 'file':  return `📄 ${m.file?.name || t('msg.file')}`;
     case 'voice': return `🎙 ${t('msg.voice')}${m.voice ? ' · ' + fmtDur(m.voice.dur) : ''}`;
+    case 'poll':  return `📊 ${m.poll?.q || m.text || t('comp.poll')}`;
+    case 'vote':  return '';
     default: return String(m.text || '').replace(/\s+/g, ' ').trim();
   }
 }

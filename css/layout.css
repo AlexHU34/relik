@@ -133,6 +133,22 @@ html[data-device="phone"] .auth-mobile-brand{display:flex!important}
 html[data-device="phone"] .auth-card{width:min(420px,100%);padding:20px;border:1px solid var(--line);border-radius:22px;background:var(--surface);box-shadow:var(--sh-2)}
 html[data-device="phone"] .panel{padding:22px 16px 32px;align-content:start;gap:18px}
 
+/* Телефон: шапка, лента и композер не должны уезжать за край экрана */
+html[data-device="phone"] .chat-head{gap:4px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px}
+html[data-device="phone"] .chat-head .icon-btn{width:38px;height:38px;flex:none}
+html[data-device="phone"] #shareBtn,
+html[data-device="phone"] #infoBtn{display:none!important}
+html[data-device="phone"] .who{padding:2px 4px;gap:8px}
+html[data-device="phone"] .who .n{font-size:14px}
+html[data-device="phone"] .who .s{font-size:11px}
+html[data-device="phone"] .msgs{padding:12px 10px 8px}
+html[data-device="phone"] .composer{padding:8px 10px calc(10px + env(safe-area-inset-bottom))}
+html[data-device="phone"] .composer-row{gap:2px;padding:6px 7px;border-radius:18px}
+html[data-device="phone"] .composer-row .icon-btn{width:36px;height:36px}
+html[data-device="phone"] .send-btn{width:38px;height:38px}
+html[data-device="phone"] .attach-menu{max-width:calc(100vw - 32px)}
+html[data-device="phone"] .empty::before{width:320px;height:320px}
+
 /* ---------- Сетка приложения ---------- */
 .app{position:relative;z-index:1;height:100dvh;display:grid;grid-template-columns:var(--sidebar-w) 1fr}
 
@@ -187,8 +203,8 @@ html[data-device="phone"] .panel{padding:22px 16px 32px;align-content:start;gap:
 
 /* ---------- Каркас чата ---------- */
 .chat{display:grid;min-width:0;min-height:0;position:relative;background:var(--bg)}
-.chat-inner{display:grid;grid-template-rows:auto 1fr auto;min-height:0;height:100dvh}
-.empty{display:grid;place-items:center;align-content:center;gap:12px;height:100%;text-align:center;padding:24px;animation:fade .4s;position:relative}
+.chat-inner{display:grid;grid-template-rows:auto 1fr auto;min-height:0;min-width:0;width:100%;height:100dvh;overflow:hidden}
+.empty{display:grid;place-items:center;align-content:center;gap:12px;height:100%;text-align:center;padding:24px;animation:fade .4s;position:relative;overflow:hidden}
 .empty::before{content:"";position:absolute;width:520px;height:520px;pointer-events:none;
   background:radial-gradient(circle,var(--accent-soft),transparent 65%);filter:blur(20px);opacity:.7}
 .empty>*{position:relative}

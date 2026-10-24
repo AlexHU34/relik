@@ -32,7 +32,7 @@ export function initModals() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('#lightbox').hidden) closeLightbox();
-    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); }
+    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); closeOv($('#pollOv')); }
   });
 
   /* ── настройки ── */

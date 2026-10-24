@@ -123,6 +123,7 @@ export async function loadChats() {
           const ts = new Date(row.created_at).getTime();
           if ((chat.last?.ts || 0) >= ts) continue;
           const text = await previewTextFor(row, chat);
+          if (text == null) continue;
           const mine = row.sender_id === S.me?.id;
           chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
         }

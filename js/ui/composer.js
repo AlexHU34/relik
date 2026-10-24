@@ -11,7 +11,7 @@ import { toast } from './toast.js';
 import { makeDemoPhoto } from '../data/mock.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
-import { sendMessage, editMessage, deleteMessage } from '../backend/messages.js';
+import { sendMessage, editMessage, deleteMessage, encodePoll, encodeVote } from '../backend/messages.js';
 import { uploadFile, generateFileKey, readFileAsDataURL, readFileAsArrayBuffer } from '../backend/storage.js';
 import { generateGroupKey, encryptBytes } from '../crypto/encryption.js';
 
@@ -30,7 +30,8 @@ export function initComposer() {
     attachBtn: $('#attachBtn'), attachMenu: $('#attachMenu'),
     emojiBtn: $('#emojiBtn'), emojiPop: $('#emojiPop'),
     recUi: $('#recUi'), recTime: $('#recTime'), recCancel: $('#recCancel'),
-    attPhoto: $('#attPhoto'), attFile: $('#attFile'),
+    attPhoto: $('#attPhoto'), attFile: $('#attFile'), attPoll: $('#attPoll'),
+    pollOv: $('#pollOv'), pollQuestion: $('#pollQuestion'), pollOptions: $('#pollOptions'), pollMulti: $('#pollMulti'),
   };
 
   /* статичные иконки */
@@ -40,6 +41,7 @@ export function initComposer() {
   els.recCancel.innerHTML = icon('x', 16);
   $('#attPhotoIc').innerHTML = icon('image', 17);
   $('#attFileIc').innerHTML = icon('file', 17);
+  $('#attPollIc').innerHTML = icon('poll', 17);
   setSendMode('mic');
 
   /* палитра эмодзи */
@@ -73,6 +75,15 @@ export function initComposer() {
   });
   els.attPhoto.addEventListener('click', () => { els.attachMenu.hidden = true; sendImage(); });
   els.attFile.addEventListener('click', () => { els.attachMenu.hidden = true; sendFile(); });
+  els.attPoll.addEventListener('click', () => { els.attachMenu.hidden = true; openPollCreator(); });
+  $('#pollAddOpt').addEventListener('click', () => addPollOption());
+  $('#pollCreate').addEventListener('click', createPollFromForm);
+  els.pollOptions.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-rm-opt]');
+    if (!rm) return;
+    rm.closest('.poll-opt-edit')?.remove();
+    syncPollRemoveButtons();
+  });
 
   document.addEventListener('click', (e) => {
     if (!els.emojiPop.hidden && !e.target.closest('.emoji-wrap')) els.emojiPop.hidden = true;
@@ -253,6 +264,120 @@ export function retryFailedMessages() {
   }
 }
 
+/* ── опросы ─────────────────────────────────────────────────── */
+function pollOptionRow(value = '') {
+  const row = document.createElement('div');
+  row.className = 'poll-opt-edit';
+  row.innerHTML = `<input class="input" maxlength="80" placeholder="${t('poll.optionPh')}">
+    <button class="icon-btn" type="button" data-rm-opt></button>`;
+  row.querySelector('input').value = value;
+  row.querySelector('[data-rm-opt]').innerHTML = icon('x', 15);
+  return row;
+}
+
+function syncPollRemoveButtons() {
+  const rows = [...els.pollOptions.children];
+  rows.forEach((row) => {
+    const rm = row.querySelector('[data-rm-opt]');
+    if (rm) rm.hidden = rows.length <= 2;
+  });
+}
+
+function addPollOption(value = '') {
+  if (els.pollOptions.children.length >= 6) return;
+  els.pollOptions.appendChild(pollOptionRow(value));
+  syncPollRemoveButtons();
+}
+
+function openPollCreator() {
+  if (!chatById(S.active)) return;
+  els.pollQuestion.value = '';
+  els.pollOptions.innerHTML = '';
+  els.pollMulti.checked = false;
+  addPollOption();
+  addPollOption();
+  els.pollOv.hidden = false;
+  setTimeout(() => els.pollQuestion.focus(), 60);
+}
+
+async function createPollFromForm() {
+  const q = els.pollQuestion.value.trim();
+  if (!q) { toast(t('poll.needQuestion')); return; }
+
+  const o = [...els.pollOptions.querySelectorAll('input')]
+    .map((i) => i.value.trim())
+    .filter(Boolean);
+  if (o.length < 2) { toast(t('poll.needOptions')); return; }
+
+  els.pollOv.hidden = true;
+  await sendPoll({ q, o: o.slice(0, 6), multi: !!els.pollMulti.checked });
+}
+
+async function sendPoll(poll) {
+  const chat = chatById(S.active);
+  if (!chat) return;
+
+  const msg = {
+    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: 'poll', poll, text: poll.q, reactions: [],
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+  };
+
+  clearReplyEdit();
+  await deliverMessage(chat.id, msg);
+  playSent();
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  try {
+    await sendMessage(chat.id, encodePoll(poll), null, chat.kind, chat.publicKey, msg.id);
+    msg.status = 'sent';
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+  } catch (err) {
+    console.error('Create poll error:', err);
+    msg.status = 'error';
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+    toast(friendlySendError(err) || t('poll.createError'));
+  }
+}
+
+/* Голосование: клик по варианту. Меняем голос повторным кликом. */
+export async function votePoll(pollMsg, options) {
+  const chat = chatById(pollMsg?.chatId || S.active);
+  if (!chat || !pollMsg?.poll) return;
+
+  const picked = (Array.isArray(options) ? options : [options])
+    .filter((i) => Number.isInteger(i) && i >= 0 && i < (pollMsg.poll.o || []).length);
+
+  const vote = { p: pollMsg.id, v: picked };
+  const msg = {
+    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: 'vote', hidden: true, vote, text: '', reactions: [],
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+  };
+
+  S.messages[chat.id] = S.messages[chat.id] || [];
+  S.messages[chat.id].push(msg);
+  await idb.put('messages', msg);
+  if (S.active === chat.id) renderMessages();
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  try {
+    await sendMessage(chat.id, encodeVote(pollMsg.id, picked), null, chat.kind, chat.publicKey, msg.id);
+    msg.status = 'sent';
+    await idb.put('messages', msg);
+  } catch (err) {
+    console.error('Vote error:', err);
+    S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== msg.id);
+    await idb.del('messages', msg.id);
+    if (S.active === chat.id) renderMessages();
+    toast(t('poll.voteError'));
+  }
+}
+
 /* Понятная причина, если отправка не удалась */
 function friendlySendError(err) {
   const msg = String(err?.message || '');
@@ -270,13 +395,14 @@ function friendlySendError(err) {
 
 async function saveEdit(text) {
   const m = (S.messages[S.active] || []).find((x) => x.id === S.editing);
+  const chat = chatById(S.active);
   const wasEditing = S.editing;
   clearReplyEdit();
-  if (!m || !wasEditing) return;
+  if (!m || !wasEditing || !chat) return;
 
   if (SUPABASE.url && SUPABASE.anonKey) {
     try {
-      await editMessage(m.id, text);
+      await editMessage(m.id, text, chat.kind, chat.publicKey);
       m.text = text;
       m.edited = true;
       await idb.put('messages', m);

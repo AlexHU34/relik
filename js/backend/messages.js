@@ -14,6 +14,60 @@ import {
   decryptFromGroup,
 } from '../crypto/encryption.js';
 
+/* Опросы и голоса передаются обычными сообщениями с префиксом —
+   так они остаются E2E-зашифрованными и не требуют новых таблиц. */
+const POLL_PREFIX = '__relik_poll__:';
+const VOTE_PREFIX = '__relik_vote__:';
+
+export function encodePoll(poll) {
+  return POLL_PREFIX + JSON.stringify(poll);
+}
+
+export function encodeVote(pollId, options) {
+  return VOTE_PREFIX + JSON.stringify({ p: pollId, v: options });
+}
+
+export function decodeSpecial(text) {
+  if (typeof text !== 'string') return null;
+  if (text.startsWith(POLL_PREFIX)) {
+    try {
+      const poll = JSON.parse(text.slice(POLL_PREFIX.length));
+      return { kind: 'poll', poll, text: poll.q || '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(VOTE_PREFIX)) {
+    try {
+      return { kind: 'vote', vote: JSON.parse(text.slice(VOTE_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  return null;
+}
+
+/* Помечаем сообщение как опрос или скрытый голос */
+function applySpecial(m) {
+  const s = decodeSpecial(m.text);
+  if (!s) return m;
+  if (s.kind === 'poll') {
+    m.type = 'poll';
+    m.poll = s.poll;
+    m.text = s.text;
+  } else {
+    m.type = 'vote';
+    m.hidden = true;
+    m.vote = s.vote;
+    m.text = '';
+  }
+  return m;
+}
+
+/* Превью для списка чатов */
+function previewOfText(text) {
+  const s = decodeSpecial(text);
+  if (s?.kind === 'poll') return '📊 ' + s.text;
+  if (s?.kind === 'vote') return null;
+  return text;
+}
+
 /* ── Ключи для расшифровки (кешируем на время вызова) ── */
 async function chatKeys(theirPublicKeyJwk) {
   if (!SUPABASE.url || !SUPABASE.anonKey) return { keyPair: null, theirPubKey: null };
@@ -42,7 +96,7 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     }
   }
 
-  return {
+  return applySpecial({
     id: m.id,
     chatId: m.conversation_id,
     sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
@@ -54,7 +108,7 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     replyTo: m.reply_to ? { id: m.reply_to } : null,
     edited: m.edited,
     deleted: m.deleted,
-  };
+  });
 }
 
 /* ── Загрузка сообщений чата с дешифрованием ── */
@@ -165,7 +219,7 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
 
   if (error) throw error;
 
-  return {
+  return applySpecial({
     id: msgId,
     chatId,
     sender: 'u_me',
@@ -177,24 +231,33 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     replyTo: replyToId ? { id: replyToId } : null,
     edited: false,
     deleted: false,
-  };
+  });
 }
 
 /* ── Редактирование сообщения ── */
-export async function editMessage(messageId, newText) {
-  const { data, error } = await sb
+export async function editMessage(messageId, newText, chatKind = 'dm', theirPublicKeyJwk = null) {
+  let ciphertext = newText;
+  let iv = '';
+
+  /* в личных чатах правка тоже должна оставаться зашифрованной */
+  if (SUPABASE.url && SUPABASE.anonKey && chatKind === 'dm' && theirPublicKeyJwk) {
+    const keyPair = await getKeyPair();
+    if (keyPair) {
+      const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+      const encrypted = await encryptForChat(newText, keyPair.privateKey, theirPubKey);
+      ciphertext = encrypted.ciphertext;
+      iv = encrypted.iv;
+    }
+  }
+
+  const { error } = await sb
     .from('messages')
-    .update({
-      ciphertext: newText,
-      edited: true,
-    })
-    .eq('id', messageId)
-    .select()
-    .single();
+    .update({ ciphertext, iv, edited: true })
+    .eq('id', messageId);
 
   if (error) throw error;
 
-  return data;
+  return { ciphertext, iv };
 }
 
 /* ── Удаление сообщения ── */
@@ -273,7 +336,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
             }
           }
 
-          const message = {
+          const message = applySpecial({
             id: m.id,
             chatId: m.conversation_id,
             sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
@@ -285,7 +348,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
             replyTo: m.reply_to ? { id: m.reply_to } : null,
             edited: m.edited,
             deleted: m.deleted,
-          };
+          });
           await idb.put('messages', message);
           callbacks.onMessage?.(message);
         } else if (payload.eventType === 'UPDATE') {
@@ -361,13 +424,14 @@ export function subscribeAllMessages(onInsert) {
 
 /* Текст для превью входящего сообщения (с расшифровкой, если возможно) */
 export async function previewTextFor(row, chat) {
-  if (!row.iv) return row.ciphertext || '…';
+  if (!row.iv) return previewOfText(row.ciphertext || '…');
   try {
     if (chat && chat.publicKey) {
       const keyPair = await getKeyPair();
       if (keyPair) {
         const theirPubKey = await getTheirPublicKey(chat.publicKey);
-        return await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey);
+        const text = await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey);
+        return previewOfText(text);
       }
     }
   } catch (err) {

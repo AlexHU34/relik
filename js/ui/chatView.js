@@ -8,7 +8,7 @@ import { EMOJI_QUICK, SUPABASE } from '../config.js';
 import { openLightbox } from './modals.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
-import { refreshBar, resetComposer, loadEdit, retryMessage } from './composer.js';
+import { refreshBar, resetComposer, loadEdit, retryMessage, votePoll } from './composer.js';
 import { playMessage, playSent } from './sounds.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
@@ -114,6 +114,8 @@ function onMsgClick(e) {
 
   if (pickEl && m) { toggleReaction(m, pickEl.dataset.pick); return; }
   if (rxBt && m) { toggleReaction(m, rxBt.dataset.rx); return; }
+  const pollEl = e.target.closest('[data-poll-opt]');
+  if (pollEl && m?.type === 'poll') { votePollOption(m, Number(pollEl.dataset.pollOpt)); return; }
   if (imgEl && m?.file?.src) { openLightbox(m.file.src); return; }
   if (playEl && m) { playVoice(m, playEl); return; }
   if (speedEl && m) { cycleSpeed(m, speedEl); return; }
@@ -221,7 +223,7 @@ function startActiveSync(id, chat) {
         if (fresh.some((m) => m.sender !== 'u_me')) updateReadReceipt(id).catch(() => {});
       }
 
-      const last = S.messages[id][S.messages[id].length - 1];
+      const last = S.messages[id].filter((m) => !m.hidden).pop();
       if (last) {
         chat.last = { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' };
         await idb.put('chats', chat);
@@ -286,7 +288,7 @@ export async function openChat(id) {
         S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
         renderMessages();
         await updateReadReceipt(id).catch(() => {});
-        const lastMsg = msgs[msgs.length - 1];
+        const lastMsg = [...msgs].reverse().find((m) => !m.hidden);
         if (lastMsg) {
           chat.last = { ts: lastMsg.ts, from: lastMsg.sender, type: lastMsg.type, text: lastMsg.text || '' };
           idb.put('chats', chat);
@@ -308,6 +310,11 @@ export async function openChat(id) {
         S.messages[id] = S.messages[id] || [];
         if (S.messages[id].some((x) => x.id === msg.id)) return;
         S.messages[id].push(msg);
+        if (msg.hidden) {
+          /* голос в опросе: пересчитываем карточку, но не трогаем превью/звук */
+          if (S.active === id) renderMessages();
+          return;
+        }
         if (S.active === id) {
           renderMessages();
           scrollBottom();
@@ -372,9 +379,9 @@ function renderHeader() {
 export function renderMessages() {
   const chat = chatById(S.active);
   if (!chat) return;
-  const all = S.messages[S.active] || [];
+  const all = (S.messages[S.active] || []).filter((m) => !m.hidden);
   const arr = searchQuery
-    ? all.filter((m) => String(m.text || '').toLowerCase().includes(searchQuery.toLowerCase()))
+    ? all.filter((m) => String(m.poll?.q || m.text || '').toLowerCase().includes(searchQuery.toLowerCase()))
     : all;
 
   const countEl = $('#chatSearchCount');
@@ -494,6 +501,7 @@ function bubbleHtml(m, mine) {
       <span class="rq-name">${esc(m.replyTo.name)}</span>
       <span class="rq-text">${esc(m.replyTo.snippet)}</span>
     </button>`;
+  if (m.type === 'poll') out += pollHtml(m);
   if (m.type === 'image') out += `<button class="msg-img"><img src="${m.file.src}" loading="lazy" alt=""></button>`;
   if (m.type === 'file') out += `<div class="file-row"><span class="file-ic">${icon('file', 20)}</span>
       <span class="file-info"><span class="file-name">${esc(m.file.name)}</span>
@@ -511,6 +519,70 @@ function bubbleHtml(m, mine) {
   }
   out += metaHtml(m, mine);
   return out;
+}
+
+function pollHtml(m) {
+  const opts = Array.isArray(m.poll?.o) ? m.poll.o : [];
+  const { counts, voters, mine } = tallyPoll(m);
+  const rows = opts.map((label, i) => {
+    const pct = voters ? Math.round((counts[i] / voters) * 100) : 0;
+    const on = mine.includes(i);
+    return `<button type="button" class="poll-opt${on ? ' on' : ''}" data-poll-opt="${i}">
+      <span class="poll-fill" style="width:${pct}%"></span>
+      <span class="poll-mark">${on ? icon('check', 12) : ''}</span>
+      <span class="poll-label">${esc(label)}</span>
+      <span class="poll-count">${counts[i]}</span>
+    </button>`;
+  }).join('');
+
+  const hint = m.poll?.multi ? t('poll.hintMulti') : t('poll.hint');
+  return `<div class="poll">
+    <div class="poll-head">${icon('poll', 16)}<span>${esc(m.poll?.q || m.text || '')}</span></div>
+    <div class="poll-opts">${rows}</div>
+    <div class="poll-meta"><span>${t('poll.votes')}: ${voters}</span><span>${mine.length ? t('poll.yourVote') : hint}</span></div>
+  </div>`;
+}
+
+/* Последний голос каждого участника; для мультивыбора — весь набор */
+function tallyPoll(pollMsg) {
+  const all = S.messages[S.active] || [];
+  const latest = new Map();
+
+  for (const m of all) {
+    if (m.type !== 'vote' || !m.vote || m.vote.p !== pollMsg.id) continue;
+    const prev = latest.get(m.sender);
+    if (!prev || (m.ts || 0) >= (prev.ts || 0)) latest.set(m.sender, m);
+  }
+
+  const total = Array.isArray(pollMsg.poll?.o) ? pollMsg.poll.o.length : 0;
+  const counts = Array(total).fill(0);
+  let voters = 0;
+  let mine = [];
+
+  for (const [uid, m] of latest) {
+    const v = (m.vote.v || []).filter((i) => Number.isInteger(i) && i >= 0 && i < total);
+    if (!v.length) continue;
+    voters++;
+    for (const i of v) counts[i]++;
+    if (uid === 'u_me' || uid === S.me?.id) mine = v;
+  }
+
+  return { counts, voters, mine };
+}
+
+function votePollOption(m, index) {
+  const { mine } = tallyPoll(m);
+  let next;
+
+  if (m.poll?.multi) {
+    next = mine.includes(index)
+      ? mine.filter((i) => i !== index)
+      : [...mine, index].sort((a, b) => a - b);
+  } else {
+    next = [index];
+  }
+
+  votePoll(m, next);
 }
 
 function metaHtml(m, mine) {
@@ -532,10 +604,11 @@ function metaHtml(m, mine) {
 
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
+  const canForward = m.type === 'text';
   const tools = [
     `<button data-act="reply" title="${t('msg.reply')}">${icon('reply', 15)}</button>`,
     `<button data-act="react" title="${t('msg.react')}">${icon('smile', 15)}</button>`,
-    `<button data-act="forward" title="${t('msg.forward')}">${icon('forward', 15)}</button>`,
+    canForward ? `<button data-act="forward" title="${t('msg.forward')}">${icon('forward', 15)}</button>` : '',
     `<button data-act="pin" title="${t('msg.pin')}">${icon('pin', 15)}</button>`,
     isText ? `<button data-act="copy" title="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
     mine && isText ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',

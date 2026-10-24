@@ -31,6 +31,16 @@ a{color:var(--indigo);text-decoration:none}
 [hidden]{display:none!important}
 .muted{color:var(--tx-2)}
 
+/* Уважаем настройку «меньше движения» */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.01ms!important;
+    scroll-behavior:auto!important;
+  }
+}
+
 /* Скроллбары */
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:#262d3a;border-radius:8px;border:2px solid transparent;background-clip:content-box}

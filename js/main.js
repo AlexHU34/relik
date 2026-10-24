@@ -426,6 +426,7 @@ function startGlobalRealtime() {
     if (S.active === row.conversation_id) return; // открытый чат — своя подписка
 
     const text = await previewTextFor(row, chat);
+    if (text == null) return; // голос в опросе не показываем
     chat.last = { ts: Date.now(), from: row.sender_id, type: 'text', text };
     chat.unread = (chat.unread || 0) + 1;
     await idb.put('chats', chat);
@@ -460,6 +461,7 @@ async function refreshChatListQuiet() {
       if ((chat.last?.ts || 0) >= ts) continue;
 
       const text = await previewTextFor(row, chat);
+      if (text == null) continue; // голос в опросе
       const mine = row.sender_id === S.me.id;
       chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
       if (!mine) {

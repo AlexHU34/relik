@@ -24,6 +24,8 @@ const P = {
   check2: '<path d="m16.5 7-8 8L5 11.5"/><path d="m21 8.5-7.5 7.5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/>',
+  poll: '<path d="M4 20V11M10 20V4M16 20v-6M22 20H2"/>',
+  arrowDown: '<path d="M12 5v14"/><path d="m5 12 7 7 7-7"/>',
   pencil: '<path d="M17 3a2.83 2.83 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z"/>',
   trash: '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
   reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>',

@@ -151,3 +151,32 @@
 /* Скорость голосового */
 .v-speed{font-size:10.5px;font-weight:600;color:var(--tx-2);background:var(--surface-3);border:1px solid var(--line);border-radius:8px;padding:1px 6px;flex:none}
 .v-speed:hover{color:var(--tx);border-color:var(--line-2)}
+
+/* ---------- Опрос ---------- */
+.poll{display:grid;gap:8px;width:min(340px,100%);min-width:0}
+.poll-head{display:flex;gap:8px;align-items:flex-start;font-weight:600;font-size:var(--fs-sm);line-height:1.35}
+.poll-head .ic{color:var(--indigo);flex:none;margin-top:1px}
+.poll-opts{display:grid;gap:6px}
+.poll-opt{
+  position:relative;display:flex;align-items:center;gap:8px;padding:9px 11px;
+  border-radius:11px;border:1px solid var(--line);background:var(--surface-2);
+  text-align:left;overflow:hidden;
+  transition:border-color var(--t-fast),background var(--t-fast),transform var(--t-fast);
+}
+.poll-opt:hover{border-color:var(--accent-glow);background:var(--surface-3)}
+.poll-opt:active{transform:scale(.985)}
+.poll-opt.on{border-color:var(--accent)}
+.poll-fill{
+  position:absolute;inset:0 auto 0 0;width:0;pointer-events:none;
+  background:var(--accent-soft);opacity:.7;transition:width .35s var(--ease);
+}
+.poll-opt.on .poll-fill{background:linear-gradient(90deg,var(--accent-soft),transparent)}
+.poll-mark{position:relative;width:16px;flex:none;color:var(--indigo);display:grid;place-items:center}
+.poll-label{position:relative;flex:1;min-width:0;font-size:var(--fs-sm);line-height:1.35;word-break:break-word}
+.poll-count{position:relative;font-size:var(--fs-xs);font-weight:700;color:var(--tx-2);font-variant-numeric:tabular-nums;flex:none}
+.poll-meta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:var(--fs-2xs);color:var(--tx-3)}
+
+/* Редактор опроса в модалке */
+.poll-options-edit{display:grid;gap:6px;margin-bottom:8px}
+.poll-opt-edit{display:flex;gap:6px;align-items:center}
+.poll-opt-edit .input{flex:1;min-width:0}

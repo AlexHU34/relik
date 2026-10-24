@@ -347,6 +347,7 @@
               <div class="attach-menu" id="attachMenu" hidden>
                 <button id="attPhoto"><span class="amb c-photo" id="attPhotoIc"></span><span data-i18n="comp.photo"></span></button>
                 <button id="attFile"><span class="amb c-file" id="attFileIc"></span><span data-i18n="comp.file"></span></button>
+                <button id="attPoll"><span class="amb c-poll" id="attPollIc"></span><span data-i18n="comp.poll"></span></button>
               </div>
             </div>
             <textarea id="ta" rows="1" placeholder="" data-i18n-ph="comp.ph"></textarea>
@@ -467,6 +468,36 @@
       <div class="m-foot">
         <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
         <button class="btn" id="gcCreate" data-i18n="group.createBtn">Создать группу</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ НОВЫЙ ОПРОС ══════════ -->
+  <div class="overlay" id="pollOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="poll.title">Новый опрос</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="poll.question">Вопрос</span>
+          <input class="input" id="pollQuestion" maxlength="140" placeholder="" data-i18n-ph="poll.questionPh">
+        </div>
+        <div class="field">
+          <span data-i18n="poll.options">Варианты ответа</span>
+          <div id="pollOptions" class="poll-options-edit"></div>
+          <button class="btn btn-ghost" id="pollAddOpt" type="button" data-i18n="poll.addOption">Добавить вариант</button>
+        </div>
+        <label class="switch-row">
+          <span data-i18n="poll.multi">Несколько ответов</span>
+          <input type="checkbox" id="pollMulti">
+          <i></i>
+        </label>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
+        <button class="btn" id="pollCreate" data-i18n="poll.create">Создать опрос</button>
       </div>
     </div>
   </div>
