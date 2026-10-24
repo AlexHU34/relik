@@ -153,7 +153,7 @@
 .v-speed:hover{color:var(--tx);border-color:var(--line-2)}
 
 /* ---------- Опрос ---------- */
-.poll{display:grid;gap:8px;width:min(340px,100%);min-width:0}
+.poll{display:grid;gap:8px;width:min(340px,68vw);min-width:0}
 .poll-head{display:flex;gap:8px;align-items:flex-start;font-weight:600;font-size:var(--fs-sm);line-height:1.35}
 .poll-head .ic{color:var(--indigo);flex:none;margin-top:1px}
 .poll-opts{display:grid;gap:6px}
