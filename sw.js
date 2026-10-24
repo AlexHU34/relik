@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.8.3';
+const VER = 'relik-v1.8.4';
 const ASSETS = [
   './', './index.html', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
@@ -30,9 +30,11 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  /* network-first: свежий код всегда, кеш — офлайн-фолбэк */
+  /* network-first + принудительная ревалидация HTTP-кеша:
+     после деплоя свежий код подхватывается сразу, а не через 10 минут */
+  const req = new Request(e.request, { cache: 'no-cache' });
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then((res) => {
         const copy = res.clone();
         caches.open(VER).then((c) => c.put(e.request, copy));
