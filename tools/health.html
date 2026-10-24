@@ -144,29 +144,135 @@
       });
   }
 
-  function checkServer() {
+  function readConfig() {
     return fetch('../js/config.js', { cache: 'no-store' })
       .then(function (r) { return r.text(); })
       .then(function (src) {
-        var m = src.match(/url:\s*'([^']+)'/);
-        if (!m) { row('warn', 'Supabase URL', 'не найден в config.js'); return; }
-        var base = m[1];
-        var t0 = Date.now();
-        return fetch(base + '/auth/v1/health', { method: 'GET', cache: 'no-store' })
-          .then(function (res) {
-            var ms = Date.now() - t0;
-            var ok = res.status < 500;
-            row(ok ? 'ok' : 'bad', 'Сервер Supabase', base + ' · ' + res.status + ' · ' + ms + ' мс' +
-              (ok ? '' : ' (сервер недоступен)'));
-            report += (ok ? 'OK   ' : 'FAIL ') + 'supabase health -> ' + res.status + ' ' + ms + 'ms\n';
-          })
-          .catch(function (err) {
-            var ms = Date.now() - t0;
-            row('bad', 'Сервер Supabase', base + ' · нет ответа: ' + (err && err.message ? err.message : err) + ' · ' + ms + ' мс');
-            report += 'FAIL supabase -> ' + (err && err.message ? err.message : err) + '\n';
-          });
+        var u = src.match(/url:\s*'([^']+)'/);
+        var k = src.match(/anonKey:\s*'([^']+)'/);
+        return { base: u && u[1], key: k && k[1] };
+      });
+  }
+
+  function ms(t0) { return (Date.now() - t0) + ' мс'; }
+
+  function checkServer(cfg) {
+    if (!cfg.base) {
+      row('warn', 'Supabase URL', 'не найден в config.js');
+      return Promise.resolve();
+    }
+
+    /* 1. Auth health */
+    var t0 = Date.now();
+    return fetch(cfg.base + '/auth/v1/health', {
+      method: 'GET', cache: 'no-store',
+      headers: cfg.key ? { apikey: cfg.key } : {},
+    })
+      .then(function (res) {
+        var ok = res.status < 500;
+        row(ok ? 'ok' : 'bad', 'Auth-сервер Supabase', cfg.base + ' · ' + res.status + ' · ' + ms(t0));
+        report += (ok ? 'OK   ' : 'FAIL ') + 'auth health -> ' + res.status + ' ' + ms(t0) + '\n';
+        return ok ? null : Promise.reject(new Error('auth'));
       })
-      .catch(function () { row('warn', 'Сервер Supabase', 'config.js недоступен'); });
+      .catch(function (err) {
+        if (String(err && err.message) !== 'auth') {
+          row('bad', 'Auth-сервер Supabase', 'нет ответа: ' + (err && err.message ? err.message : err) + ' · ' + ms(t0));
+          report += 'FAIL auth -> ' + (err && err.message ? err.message : err) + '\n';
+        }
+      })
+      .then(function () { return checkRest(cfg); })
+      .then(function () { return checkRealtime(cfg); })
+      .then(function () { return checkSession(); });
+  }
+
+  /* 2. REST (PostgREST) — именно он отправляет/читает сообщения */
+  function checkRest(cfg) {
+    if (!cfg.key) { row('warn', 'REST API', 'anon key не найден'); return Promise.resolve(); }
+    var t0 = Date.now();
+    return fetch(cfg.base + '/rest/v1/profiles?select=id&limit=1', {
+      cache: 'no-store',
+      headers: { apikey: cfg.key, Authorization: 'Bearer ' + cfg.key },
+    })
+      .then(function (res) {
+        var ok = res.status < 500;
+        row(ok ? 'ok' : 'bad', 'REST API (сообщения)', res.status + ' · ' + ms(t0));
+        report += (ok ? 'OK   ' : 'FAIL ') + 'rest -> ' + res.status + ' ' + ms(t0) + '\n';
+      })
+      .catch(function (err) {
+        row('bad', 'REST API (сообщения)', 'нет ответа: ' + (err && err.message ? err.message : err) + ' · ' + ms(t0));
+        report += 'FAIL rest -> ' + (err && err.message ? err.message : err) + '\n';
+      });
+  }
+
+  /* 3. Realtime WebSocket — мгновенная доставка сообщений */
+  function checkRealtime(cfg) {
+    if (!cfg.key) { row('warn', 'Realtime', 'anon key не найден'); return Promise.resolve(); }
+    var url = cfg.base.replace(/^http/, 'ws') + '/realtime/v1/websocket?apikey=' + encodeURIComponent(cfg.key) + '&vsn=1.0.0';
+    var t0 = Date.now();
+    return new Promise(function (resolve) {
+      var done = false;
+      var ws;
+      function finish(ok, text) {
+        if (done) return;
+        done = true;
+        try { ws && ws.close(); } catch (e) {}
+        row(ok ? 'ok' : 'bad', 'Realtime (мгновенные сообщения)', text + ' · ' + ms(t0));
+        report += (ok ? 'OK   ' : 'FAIL ') + 'realtime ws -> ' + text + ' ' + ms(t0) + '\n';
+        resolve();
+      }
+      try { ws = new WebSocket(url); } catch (e) { finish(false, 'не удалось открыть'); return; }
+      ws.onopen = function () { finish(true, 'соединение открыто'); };
+      ws.onerror = function () { finish(false, 'ошибка соединения'); };
+      ws.onclose = function (e) { finish(false, 'закрыто, код ' + e.code); };
+      setTimeout(function () { finish(false, 'таймаут 8 с'); }, 8000);
+    });
+  }
+
+  /* 4. Сессия входа и ключи шифрования */
+  function checkSession() {
+    var raw = null;
+    try { raw = localStorage.getItem('relik-auth'); } catch (e) {}
+    var session = null;
+    try { session = raw ? JSON.parse(raw) : null; } catch (e) {}
+
+    if (!session || !session.access_token) {
+      row('warn', 'Вход в аккаунт', 'сессии нет — выполните вход в приложении');
+    } else {
+      var exp = session.expires_at ? new Date(session.expires_at * 1000) : null;
+      var expired = exp && exp.getTime() < Date.now();
+      row(expired ? 'bad' : 'ok', 'Вход в аккаунт',
+        (session.user && session.user.email ? session.user.email : 'сессия есть') +
+        (exp ? ' · до ' + exp.toLocaleString() : ''));
+    }
+
+    return readKeyPair().then(function (info) {
+      if (!info) { row('warn', 'Ключи E2E', 'IndexedDB недоступна'); return; }
+      var hasPub = !!info.publicKey;
+      var hasPriv = !!info.privateKey;
+      row(hasPub && hasPriv ? 'ok' : 'bad', 'Ключи E2E',
+        (hasPub ? 'публичный ✓' : 'публичного нет') + ' · ' + (hasPriv ? 'приватный ✓' : 'приватного нет — войдите заново'));
+    });
+  }
+
+  function readKeyPair() {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish(v) { if (!done) { done = true; resolve(v); } }
+      setTimeout(function () { finish(null); }, 4000);
+      try {
+        var req = indexedDB.open('relik-db');
+        req.onerror = function () { finish(null); };
+        req.onsuccess = function () {
+          var db = req.result;
+          if (!db.objectStoreNames.contains('settings')) { finish(null); return; }
+          try {
+            var get = db.transaction('settings').objectStore('settings').get('keyPair');
+            get.onerror = function () { finish(null); };
+            get.onsuccess = function () { finish(get.result && get.result.value ? get.result.value : null); };
+          } catch (e) { finish(null); }
+        };
+      } catch (e) { finish(null); }
+    });
   }
 
   function run() {
@@ -182,6 +288,7 @@
       });
     });
     chain
+      .then(readConfig)
       .then(checkServer)
       .then(function () {
         summary.className = 'summary ' + (fails ? 'bad' : 'ok');

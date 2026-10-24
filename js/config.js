@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.1.2',
+  version: '1.1.3',
   phase: 'Production Ready — E2E Encrypted Messenger',
 };
 

@@ -114,9 +114,17 @@ export async function loadLatestPreviews() {
 }
 
 /* ── Отправка сообщения с шифрованием ── */
-export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null) {
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
+export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null, messageId = null) {
+  /* id уже есть у оптимистичного сообщения в ленте — используем его же */
+  const msgId = messageId || newId();
+
+  /* не гоняем лишний сетевой запрос getUser: id уже есть в состоянии */
+  let senderId = S.me?.id || null;
+  if (!senderId) {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    senderId = user.id;
+  }
 
   let ciphertext, iv;
 
@@ -144,14 +152,12 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     iv = '';
   }
 
-  const msgId = newId();
-
   const { error } = await sb
     .from('messages')
     .insert({
       id: msgId,
       conversation_id: chatId,
-      sender_id: user.id,
+      sender_id: senderId,
       ciphertext,
       iv,
       reply_to: replyToId,

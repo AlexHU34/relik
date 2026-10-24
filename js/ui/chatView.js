@@ -8,7 +8,7 @@ import { EMOJI_QUICK, SUPABASE } from '../config.js';
 import { openLightbox } from './modals.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
-import { refreshBar, resetComposer, loadEdit } from './composer.js';
+import { refreshBar, resetComposer, loadEdit, retryMessage } from './composer.js';
 import { playMessage, playSent } from './sounds.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
@@ -122,6 +122,7 @@ function onMsgClick(e) {
     const act = actEl.dataset.act;
     if (act === 'reply') { S.editing = null; S.reply = { id: m.id, name: user(m.sender).name, snippet: snippet(m) }; refreshBar(); closeReact(); }
     else if (act === 'react') { S.reactOpen = S.reactOpen === m.id ? null : m.id; renderMessages(); }
+    else if (act === 'retry') { retryMessage(m); }
     else if (act === 'copy') { navigator.clipboard?.writeText(m.text || '').catch(() => {}); toast(t('msg.copied')); }
     else if (act === 'edit') { S.editing = m.id; S.reply = null; loadEdit(m); closeReact(); }
     else if (act === 'pin') {
@@ -167,6 +168,14 @@ function closeReact() {
 }
 
 /* ── «Живая» лента: Realtime + тихий опрос на случай сбоя сокета ── */
+function mergeMessages(server, local) {
+  const map = new Map(server.map((m) => [m.id, m]));
+  for (const m of local) {
+    if (!map.has(m.id)) map.set(m.id, m);
+  }
+  return [...map.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
 function stopActiveSync() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   activeSyncTick = null;
@@ -177,7 +186,7 @@ function startActiveSync(id, chat) {
   let busy = false;
 
   const tick = async () => {
-    if (busy || S.active !== id) return;
+    if (busy || !S.me || S.active !== id) return;
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     busy = true;
     try {
@@ -273,7 +282,8 @@ export async function openChat(id) {
     loadMessages(id, chat.kind, chat.publicKey)
       .then(async (msgs) => {
         if (S.active !== id) return;
-        S.messages[id] = msgs;
+        /* сервер — источник правды, но локальные «отправляется/ошибка» не теряем */
+        S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
         renderMessages();
         await updateReadReceipt(id).catch(() => {});
         const lastMsg = msgs[msgs.length - 1];
@@ -505,11 +515,18 @@ function bubbleHtml(m, mine) {
 
 function metaHtml(m, mine) {
   const edited = m.edited ? `<span class="msg-edited">${t('msg.edited')}</span>` : '';
-  const ticks = mine && !m.deleted
-    ? (m.status === 'read'
-        ? `<span class="ticks read">${icon('check2', 13)}</span>`
-        : `<span class="ticks">${icon('check', 13)}</span>`)
-    : '';
+  let ticks = '';
+  if (mine && !m.deleted) {
+    if (m.status === 'error') {
+      ticks = `<button class="ticks err" data-act="retry" title="${t('comp.sendOffline')}">${icon('alert', 13)}</button>`;
+    } else if (m.status === 'sending') {
+      ticks = `<span class="ticks sending" title="${t('comp.sending')}">${icon('clock', 13)}</span>`;
+    } else if (m.status === 'read') {
+      ticks = `<span class="ticks read">${icon('check2', 13)}</span>`;
+    } else {
+      ticks = `<span class="ticks">${icon('check', 13)}</span>`;
+    }
+  }
   return `<div class="msg-meta"><span>${fmtTime(m.ts)}</span>${edited}${ticks}</div>`;
 }
 

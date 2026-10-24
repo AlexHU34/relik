@@ -9,7 +9,7 @@ import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll } from './ui/chatView.js';
-import { initComposer, refreshBar } from './ui/composer.js';
+import { initComposer, refreshBar, retryFailedMessages } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat } from './ui/modals.js';
 import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
@@ -389,6 +389,8 @@ function initChrome() {
     }
     S.me = null;
     S.chats = [];
+    S.active = null;
+    S.messages = {};
     stopCalls();
     stopSidebarRefresh();
     if (globalSub) { globalSub.unsubscribe(); globalSub = null; }
@@ -653,27 +655,34 @@ async function boot() {
   bootDone();
 }
 
-/* Сервер недоступен (нет сети, блокировка, нужен VPN) — один раз говорим об этом */
+/* Тихая проверка сервера: не показываем ложное «нет сети».
+   Реальные проблемы видны при действиях (вход, отправка сообщения). */
 let serverChecked = false;
 async function probeServer() {
   if (serverChecked || !SUPABASE.url) return;
   serverChecked = true;
   try {
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 9000) : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
     const res = await fetch(`${SUPABASE.url}/auth/v1/health`, {
       method: 'GET',
       cache: 'no-store',
       signal: ctrl ? ctrl.signal : undefined,
-      headers: { apikey: SUPABASE.anonKey },   // иначе 401 → красная ошибка в консоли
+      headers: { apikey: SUPABASE.anonKey },
     });
     if (timer) clearTimeout(timer);
-    if (res.status >= 500) throw new Error('HTTP ' + res.status);
+    if (res.status >= 500) console.warn('Server health:', res.status);
   } catch (err) {
-    console.warn('Server unreachable:', err);
-    toast(t('net.unreachable'));
+    console.warn('Server health check failed:', err && err.message ? err.message : err);
   }
 }
+
+/* Связь восстановилась — досылаем недоставленные сообщения и обновляем чаты */
+window.addEventListener('online', () => {
+  if (!S.me) return;
+  retryFailedMessages();
+  reloadChats().catch(() => {});
+});
 
 /* Заголовок и версия */
 document.title = APP.name;

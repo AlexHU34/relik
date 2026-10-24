@@ -126,6 +126,8 @@ export default {
   'comp.voice': 'Voice message',
   'comp.keyError': 'Encryption keys are corrupted — log out and sign in again',
   'comp.noKeys': 'Encryption keys not found — log out and sign in again',
+  'comp.sendOffline': 'Message not sent: connection lost. Tap the icon next to the message to retry',
+  'comp.sending': 'Sending…',
   'comp.micDenied': 'No microphone access — allow it in the browser',
   'comp.micUnsupported': 'This browser does not support microphone recording',
 

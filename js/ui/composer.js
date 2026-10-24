@@ -187,29 +187,70 @@ export async function sendCurrent() {
 
   idb.del('settings', 'draft:' + chat.id).catch(() => {});
 
-  if (SUPABASE.url && SUPABASE.anonKey) {
-    try {
-      const msg = await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey);
-      clearReplyEdit();
-      await deliverMessage(chat.id, msg);
-      setTimeout(() => markRead(chat.id, msg.id), 1300);
-    } catch (err) {
-      console.error('Send message error:', err);
-      /* текст не теряем: можно сразу повторить отправку */
-      toast(friendlySendError(err));
-      return;
-    }
-  } else {
-    clearReplyEdit();
-    const msg = {
-      id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
-      type: 'text', text, reactions: [], status: 'sent',
-      ...(replyBox ? { replyTo: replyBox } : {}),
-    };
-    await deliverMessage(chat.id, msg);
-    setTimeout(() => markRead(chat.id, msg.id), 1300);
-  }
+  /* Сообщение появляется в ленте сразу, не дожидаясь ответа сервера */
+  const msg = {
+    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: 'text', text, reactions: [],
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+    ...(replyBox ? { replyTo: replyBox } : {}),
+  };
+
+  clearReplyEdit();
+  await deliverMessage(chat.id, msg);
   playSent();
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  try {
+    await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey, msg.id);
+    msg.status = 'sent';
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+    setTimeout(() => markRead(chat.id, msg.id), 1300);
+  } catch (err) {
+    console.error('Send message error:', err);
+    msg.status = 'error';
+    msg.error = String(err?.message || '');
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+    toast(friendlySendError(err));
+  }
+}
+
+/* ── повторная отправка (клик по ошибке или возврат сети) ── */
+export async function retryMessage(m) {
+  if (!m || m.status !== 'error') return;
+  const chat = chatById(m.chatId || S.active);
+  if (!chat) return;
+
+  m.status = 'sending';
+  await idb.put('messages', m);
+  if (S.active === chat.id) renderMessages();
+
+  try {
+    await sendMessage(chat.id, m.text, m.replyTo?.id || null, chat.kind, chat.publicKey, m.id);
+    m.status = 'sent';
+    delete m.error;
+    await idb.put('messages', m);
+    setTimeout(() => markRead(chat.id, m.id), 1300);
+  } catch (err) {
+    console.error('Retry message error:', err);
+    m.status = 'error';
+    m.error = String(err?.message || '');
+    await idb.put('messages', m);
+    toast(friendlySendError(err));
+  }
+  if (S.active === chat.id) renderMessages();
+}
+
+/* Все недоставленные сообщения — при восстановлении связи */
+export function retryFailedMessages() {
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+  for (const list of Object.values(S.messages)) {
+    for (const m of list) {
+      if (m.sender === 'u_me' && m.status === 'error') retryMessage(m);
+    }
+  }
 }
 
 /* Понятная причина, если отправка не удалась */
@@ -220,6 +261,9 @@ function friendlySendError(err) {
   }
   if (/no key pair|key pair found/i.test(msg)) {
     return t('comp.noKeys');
+  }
+  if (/failed to fetch|network|load failed|timeout|abort|offline|fetch/i.test(msg)) {
+    return t('comp.sendOffline');
   }
   return msg || t('toast.error');
 }
