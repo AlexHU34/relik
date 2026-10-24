@@ -14,6 +14,49 @@ import {
   decryptFromGroup,
 } from '../crypto/encryption.js';
 
+/* ── Ключи для расшифровки (кешируем на время вызова) ── */
+async function chatKeys(theirPublicKeyJwk) {
+  if (!SUPABASE.url || !SUPABASE.anonKey) return { keyPair: null, theirPubKey: null };
+  const keyPair = await getKeyPair();
+  let theirPubKey = null;
+  if (theirPublicKeyJwk && keyPair) {
+    try {
+      theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+    } catch (err) {
+      console.warn('Peer public key error:', err);
+    }
+  }
+  return { keyPair, theirPubKey };
+}
+
+/* ── Строка из Supabase → сообщение приложения (с дешифровкой) ── */
+async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
+  let text = m.ciphertext;
+
+  if (keyPair && theirPubKey && m.iv && chatKind === 'dm') {
+    try {
+      text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+    } catch (err) {
+      console.error('Decrypt error:', err);
+      text = '[Шифрование не удалось]';
+    }
+  }
+
+  return {
+    id: m.id,
+    chatId: m.conversation_id,
+    sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
+    ts: new Date(m.created_at).getTime(),
+    type: 'text',
+    text,
+    reactions: [],
+    status: 'read',
+    replyTo: m.reply_to ? { id: m.reply_to } : null,
+    edited: m.edited,
+    deleted: m.deleted,
+  };
+}
+
 /* ── Загрузка сообщений чата с дешифрованием ── */
 export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = null) {
   const { data, error } = await sb
@@ -24,42 +67,50 @@ export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = 
 
   if (error) throw error;
 
-  const keyPair = SUPABASE.url && SUPABASE.anonKey ? await getKeyPair() : null;
-  const theirPubKey = theirPublicKeyJwk && keyPair ? await getTheirPublicKey(theirPublicKeyJwk) : null;
-
-  // Преобразуем в формат приложения с дешифровкой
-  const messages = await Promise.all(data.map(async (m) => {
-    let text = m.ciphertext;
-
-    // Дешифруем если есть ключи
-    if (SUPABASE.url && SUPABASE.anonKey && keyPair && theirPubKey && m.iv && chatKind === 'dm') {
-      try {
-        text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
-      } catch (err) {
-        console.error('Decrypt error:', err);
-        text = '[Шифрование не удалось]';
-      }
-    }
-
-    return {
-      id: m.id,
-      chatId: m.conversation_id,
-      sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
-      ts: new Date(m.created_at).getTime(),
-      type: 'text',
-      text,
-      reactions: [],
-      status: 'read',
-      replyTo: m.reply_to ? { id: m.reply_to } : null,
-      edited: m.edited,
-      deleted: m.deleted,
-    };
-  }));
+  const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
+  const messages = await Promise.all(data.map((m) => rowToMessage(m, keyPair, theirPubKey, chatKind)));
 
   // Кэшируем в IndexedDB (уже дешифрованные)
   await idb.bulkPut('messages', messages);
 
   return messages;
+}
+
+/* ── Новые сообщения после отметки времени (страховка для Realtime) ── */
+export async function fetchMessagesSince(chatId, afterTs, chatKind = 'dm', theirPublicKeyJwk = null) {
+  const after = new Date(Math.max(0, afterTs || 0)).toISOString();
+
+  const { data, error } = await sb
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', chatId)
+    .gt('created_at', after)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  if (!data.length) return [];
+
+  const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
+  const messages = await Promise.all(data.map((m) => rowToMessage(m, keyPair, theirPubKey, chatKind)));
+  await idb.bulkPut('messages', messages);
+  return messages;
+}
+
+/* ── Последние сообщения по всем чатам: превью в списке без Realtime ── */
+export async function loadLatestPreviews() {
+  const { data, error } = await sb
+    .from('messages')
+    .select('conversation_id, sender_id, ciphertext, iv, created_at')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+
+  const byChat = new Map();
+  for (const row of data) {
+    if (!byChat.has(row.conversation_id)) byChat.set(row.conversation_id, row);
+  }
+  return byChat;
 }
 
 /* ── Отправка сообщения с шифрованием ── */

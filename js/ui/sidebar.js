@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';
 import { loadChats as loadChatsFromBackend, searchUsers as searchUsersBackend } from '../backend/chats.js';
+import { loadLatestPreviews, previewTextFor } from '../backend/messages.js';
 import { SUPABASE } from '../config.js';
 import { getUserStatus, refreshChatStatuses } from '../backend/presence.js';
 
@@ -96,7 +97,39 @@ export async function touchSidebar() {
 export async function loadChats() {
   if (SUPABASE.url && SUPABASE.anonKey) {
     try {
-      S.chats = await loadChatsFromBackend();
+      const prev = new Map((S.chats || []).map((c) => [c.id, c]));
+      const fresh = await loadChatsFromBackend();
+
+      /* обновляем объекты на месте: открытый чат держит ссылку на свой объект */
+      S.chats = fresh.map((c) => {
+        const old = prev.get(c.id);
+        if (!old) return c;
+        const keep = {
+          last: old.last || c.last,
+          unread: old.unread ?? c.unread,
+          pin: old.pin || c.pin,
+          publicKey: c.publicKey || old.publicKey,
+        };
+        Object.assign(old, c, keep);
+        return old;
+      });
+
+      /* сразу подтягиваем последние сообщения для превью в списке */
+      try {
+        const latest = await loadLatestPreviews();
+        for (const chat of S.chats) {
+          const row = latest.get(chat.id);
+          if (!row) continue;
+          const ts = new Date(row.created_at).getTime();
+          if ((chat.last?.ts || 0) >= ts) continue;
+          const text = await previewTextFor(row, chat);
+          const mine = row.sender_id === S.me?.id;
+          chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
+        }
+      } catch (err) {
+        /* превью не критичны */
+      }
+
       await idb.bulkPut('chats', S.chats);
 
       // Загружаем статусы участников (только реальных, не демо)

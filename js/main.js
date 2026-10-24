@@ -18,7 +18,7 @@ import { initDevice } from './ui/device.js';
 import { sb } from './backend/supabaseClient.js';
 import { signUp, signIn, signOut, restoreSession, updateProfile, updateLastSeen, verifySignupCode, saveAvatar } from './backend/auth.js';
 import { loadChats, searchUsers, getProfile } from './backend/chats.js';
-import { loadMessages, subscribeToChat, updateReadReceipt, subscribeAllMessages, previewTextFor } from './backend/messages.js';
+import { loadMessages, subscribeToChat, updateReadReceipt, subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
 import { playMessage } from './ui/sounds.js';
 import { initCalls, stopCalls } from './ui/calls.js';
 
@@ -390,6 +390,7 @@ function initChrome() {
     S.me = null;
     S.chats = [];
     stopCalls();
+    stopSidebarRefresh();
     if (globalSub) { globalSub.unsubscribe(); globalSub = null; }
     location.hash = '#/auth';
     showAuth();
@@ -410,6 +411,8 @@ function paintEmptyChips() {
 
 /* ── глобальные уведомления о новых сообщениях ── */
 let globalSub = null;
+let sidebarTimer = null;
+let sidebarBusy = false;
 
 function startGlobalRealtime() {
   if (!isRealBackend || !S.me || globalSub) return;
@@ -427,6 +430,51 @@ function startGlobalRealtime() {
     renderSidebar();
     playMessage();
   });
+
+  /* Realtime может не дойти (сеть/RLS) — раз в 10 секунд тихо сверяем список */
+  if (!sidebarTimer) {
+    sidebarTimer = setInterval(refreshChatListQuiet, 10000);
+  }
+}
+
+function stopSidebarRefresh() {
+  if (sidebarTimer) { clearInterval(sidebarTimer); sidebarTimer = null; }
+}
+
+/* Тихая синхронизация превью в списке чатов — без перезагрузки страницы */
+async function refreshChatListQuiet() {
+  if (!isRealBackend || !S.me || sidebarBusy) return;
+  if (document.visibilityState === 'hidden') return;
+  sidebarBusy = true;
+  try {
+    const latest = await loadLatestPreviews();
+    let changed = false;
+    let incoming = false;
+
+    for (const chat of S.chats) {
+      const row = latest.get(chat.id);
+      if (!row) continue;
+      const ts = new Date(row.created_at).getTime();
+      if ((chat.last?.ts || 0) >= ts) continue;
+
+      const text = await previewTextFor(row, chat);
+      const mine = row.sender_id === S.me.id;
+      chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
+      if (!mine) {
+        if (S.active !== chat.id) chat.unread = (chat.unread || 0) + 1;
+        incoming = true;
+      }
+      await idb.put('chats', chat);
+      changed = true;
+    }
+
+    if (changed) renderSidebar();
+    if (incoming) playMessage();
+  } catch (err) {
+    /* тихо: сеть/RLS восстановятся сами */
+  } finally {
+    sidebarBusy = false;
+  }
 }
 
 /* ── демо-сцена: в чат «прилетает» живое сообщение ── */

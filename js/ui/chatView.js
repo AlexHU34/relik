@@ -13,19 +13,22 @@ import { playMessage, playSent } from './sounds.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
-import { loadMessages, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend } from '../backend/messages.js';
+import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend } from '../backend/messages.js';
 
 let els = {};
 const playing = new Map(); // msgId -> {timer, i, bars}
 let searchQuery = '';
 let forwardMsg = null;
 let currentSubscription = null; // Realtime subscription
+let pollTimer = null;           // страховочный опрос активного чата
+let activeSyncTick = null;
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
   els.msgs = $('#msgs');
   els.msgs.addEventListener('click', onMsgClick);
   $('#backBtn').addEventListener('click', () => {
+    stopActiveSync();
     stopTyping();
     location.hash = '#/app';
     S.active = null;
@@ -84,12 +87,18 @@ export function initChatView() {
     const dy = Math.abs(t.clientY - sy);
     sx = 0;
     if (dx > 80 && dy < 60 && $('#appView').classList.contains('pane-chat')) {
+      stopActiveSync();
       location.hash = '#/app';
       S.active = null;
       $('#appView').classList.remove('pane-chat');
       showChat();
     }
   }, { passive: true });
+
+  /* вернулись в браузер/вкладку — сразу подтягиваем новые сообщения */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && activeSyncTick) activeSyncTick();
+  });
 }
 
 function onMsgClick(e) {
@@ -157,12 +166,76 @@ function closeReact() {
   if (S.reactOpen) { S.reactOpen = null; renderMessages(); }
 }
 
+/* ── «Живая» лента: Realtime + тихий опрос на случай сбоя сокета ── */
+function stopActiveSync() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  activeSyncTick = null;
+}
+
+function startActiveSync(id, chat) {
+  stopActiveSync();
+  let busy = false;
+
+  const tick = async () => {
+    if (busy || S.active !== id) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    busy = true;
+    try {
+      const list = S.messages[id] || [];
+      const lastTs = list.reduce((max, m) => Math.max(max, m.ts || 0), 0);
+      /* берём с небольшим запасом: дубликаты отсекаем по id */
+      const fresh = await fetchMessagesSince(id, lastTs ? lastTs - 5000 : 0, chat.kind, chat.publicKey);
+      if (!fresh.length || S.active !== id) return;
+
+      let added = 0;
+      S.messages[id] = S.messages[id] || [];
+      for (const m of fresh) {
+        const i = S.messages[id].findIndex((x) => x.id === m.id);
+        if (i >= 0) {
+          const old = S.messages[id][i];
+          S.messages[id][i] = {
+            ...old,
+            ...m,
+            reactions: old.reactions?.length ? old.reactions : m.reactions,
+          };
+        } else {
+          S.messages[id].push(m);
+          added++;
+        }
+      }
+
+      if (added) {
+        /* сообщения пришли сами — перерисовываем без перезагрузки страницы */
+        const st = els.msgs.scrollTop + els.msgs.clientHeight >= els.msgs.scrollHeight - 140;
+        renderMessages();
+        if (st) scrollBottom();
+        if (fresh.some((m) => m.sender !== 'u_me')) updateReadReceipt(id).catch(() => {});
+      }
+
+      const last = S.messages[id][S.messages[id].length - 1];
+      if (last) {
+        chat.last = { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' };
+        await idb.put('chats', chat);
+        renderSidebar();
+      }
+    } catch (err) {
+      /* офлайн или RLS — просто попробуем на следующем тике */
+    } finally {
+      busy = false;
+    }
+  };
+
+  activeSyncTick = tick;
+  pollTimer = setInterval(tick, 4000);
+}
+
 /* ── открытие чата ─────────────────────────────────────────── */
 export async function openChat(id) {
   const chat = chatById(id);
   if (!chat) return;
 
   // Отписываемся от предыдущего чата
+  stopActiveSync();
   if (currentSubscription) {
     currentSubscription.unsubscribe();
     currentSubscription = null;
@@ -249,6 +322,9 @@ export async function openChat(id) {
         if (S.active === id) renderMessages();
       },
     }, chat.kind, chat.publicKey);
+
+    /* Realtime может отвалиться (сеть, VPN, RLS) — опрос добирает пропущенное */
+    startActiveSync(id, chat);
   }
 
   if (currentDevice() === 'phone') $('#appView').classList.add('pane-chat');
