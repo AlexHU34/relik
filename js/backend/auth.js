@@ -5,6 +5,18 @@ import { sb } from './supabaseClient.js';
 import { idb } from '../db/idb.js';
 import * as keygen from '../crypto/keygen.js';
 import * as backup from '../crypto/backup.js';
+import { hasAvatarColumn } from './chats.js';
+
+/* Приватный ключ может прийти и объектом (после расшифровки бэкапа), и строкой.
+   В IndexedDB всегда кладём строку — так его читают все версии приложения. */
+function jwkToString(v) {
+  if (!v) return null;
+  return typeof v === 'string' ? v : JSON.stringify(v);
+}
+
+function avatarOf(profile, user) {
+  return profile?.avatar || user?.user_metadata?.avatar || null;
+}
 
 /* Пароль нужен один раз — чтобы зашифровать резервную копию ключа.
    Держим только в памяти/на время вкладки и очищаем сразу после создания профиля. */
@@ -101,26 +113,31 @@ export async function signIn(email, password) {
   // Дешифрование приватного ключа из бэкапа
   let privateKeyJwk = null;
   try {
-    const keyBackup = JSON.parse(profile.key_backup);
+    const keyBackup = typeof profile.key_backup === 'string'
+      ? JSON.parse(profile.key_backup)
+      : profile.key_backup;
     privateKeyJwk = await backup.decryptPrivateKeyWithPassword(keyBackup, password);
   } catch (err) {
     console.error('Key backup decrypt error:', err);
   }
+
+  const privateKeyStr = jwkToString(privateKeyJwk);
 
   const me = {
     id: profile.id,
     name: profile.display_name,
     mail: email,
     hue: profile.avatar_hue,
+    avatar: avatarOf(profile, data.user),
     publicKey: profile.public_key,
-    privateKey: privateKeyJwk,
+    privateKey: privateKeyStr,
   };
 
   await idb.put('settings', { key: 'me', value: me });
-  if (privateKeyJwk) {
+  if (privateKeyStr) {
     await idb.put('settings', {
       key: 'keyPair',
-      value: { publicKey: profile.public_key, privateKey: privateKeyJwk },
+      value: { publicKey: profile.public_key, privateKey: privateKeyStr },
     });
   }
 
@@ -158,6 +175,32 @@ export async function updateProfile(updates) {
   return updates;
 }
 
+/* ── Аватар: сохраняем на бэкенде (profiles.avatar + метаданные Auth) ── */
+export async function saveAvatar(dataUrl) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  let storedInProfile = false;
+  if (await hasAvatarColumn()) {
+    const { error } = await sb.from('profiles').update({ avatar: dataUrl }).eq('id', user.id);
+    if (error) throw error;
+    storedInProfile = true;
+  }
+
+  /* Дублируем в метаданные пользователя: так аватар переживает перезагрузку
+     и доступен на любом устройстве даже до миграции profiles.avatar. */
+  const { error: metaError } = await sb.auth.updateUser({ data: { avatar: dataUrl } });
+  if (metaError && !storedInProfile) throw metaError;
+
+  const meRec = await idb.get('settings', 'me');
+  if (meRec) {
+    meRec.value = { ...meRec.value, avatar: dataUrl };
+    await idb.put('settings', meRec);
+  }
+
+  return dataUrl;
+}
+
 /* ── Восстановление сессии при загрузке ── */
 export async function restoreSession() {
   const { data: { session }, error } = await sb.auth.getSession();
@@ -171,14 +214,24 @@ export async function restoreSession() {
   if (profileError) return null;
 
   const keyPairRec = await idb.get('settings', 'keyPair');
+  const privateKey = jwkToString(keyPairRec?.value?.privateKey);
+
+  /* старые записи могли хранить JWK объектом — нормализуем в строку */
+  if (keyPairRec?.value && privateKey !== keyPairRec.value.privateKey) {
+    await idb.put('settings', {
+      key: 'keyPair',
+      value: { publicKey: profile.public_key, privateKey },
+    });
+  }
 
   return {
     id: profile.id,
     name: profile.display_name,
     mail: session.user.email,
     hue: profile.avatar_hue,
+    avatar: avatarOf(profile, session.user),
     publicKey: profile.public_key,
-    privateKey: keyPairRec?.value?.privateKey || null,
+    privateKey: privateKey || null,
   };
 }
 

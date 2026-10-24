@@ -5,14 +5,52 @@ import { sb } from './supabaseClient.js';
 import { idb } from '../db/idb.js';
 import { S } from '../ui/state.js';
 
+/* ── Колонка profiles.avatar появляется миграцией supabase/avatar.sql.
+   Проверяем один раз: до миграции приложение тоже работает — аватар
+   тогда хранится в метаданных пользователя Supabase Auth. ── */
+let avatarCol = null;
+export async function hasAvatarColumn() {
+  if (avatarCol !== null) return avatarCol;
+  if (!sb) { avatarCol = false; return false; }
+  const { error } = await sb.from('profiles').select('avatar').limit(1);
+  if (!error) { avatarCol = true; return true; }
+  if (error.code === '42703' || /column.*does not exist|schema cache/i.test(error.message || '')) {
+    avatarCol = false;
+    return false;
+  }
+  /* сетевую ошибку не запоминаем — попробуем в следующий раз */
+  return false;
+}
+
+function profileCols(withAvatar) {
+  return `id, display_name, avatar_hue, public_key${withAvatar ? ', avatar' : ''}`;
+}
+
+/* Контакты в S.users всегда свежие (имя, цвет, аватар) */
+function upsertUser(p) {
+  const i = S.users.findIndex((u) => u.id === p.id);
+  const prev = i >= 0 ? S.users[i] : null;
+  const fresh = {
+    id: p.id,
+    name: p.display_name,
+    hue: p.avatar_hue ?? 0,
+    avatar: p.avatar || null,
+    seen: prev?.seen || 'offline',
+  };
+  if (i >= 0) S.users[i] = { ...prev, ...fresh };
+  else S.users.push(fresh);
+}
+
 /* ── Загрузка всех чатов пользователя ── */
 export async function loadChats() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return [];
 
+  const pcols = profileCols(await hasAvatarColumn());
+
   const { data: members, error } = await sb
     .from('conversation_members')
-    .select('conversation_id, conversations(*, conversation_members(user_id, profiles(id, display_name, avatar_hue, public_key)))')
+    .select(`conversation_id, conversations(*, conversation_members(user_id, profiles(${pcols})))`)
     .eq('user_id', user.id);
 
   if (error) throw error;
@@ -25,14 +63,7 @@ export async function loadChats() {
     if (conv.kind === 'dm') {
       // Личный чат
       const otherProfile = otherMembers[0]?.profiles;
-      if (otherProfile && !S.users.some((u) => u.id === otherProfile.id)) {
-        S.users.push({
-          id: otherProfile.id,
-          name: otherProfile.display_name,
-          hue: otherProfile.avatar_hue ?? 0,
-          seen: 'offline',
-        });
-      }
+      if (otherProfile) upsertUser(otherProfile);
       return {
         id: conv.id,
         kind: 'dm',
@@ -42,20 +73,14 @@ export async function loadChats() {
         last: null,
         title: otherProfile?.display_name,
         hue: otherProfile?.avatar_hue,
+        avatar: otherProfile?.avatar || null,
         publicKey: otherProfile?.public_key,
       };
     } else {
       // Групповой чат — добавляем профили участников в контакты
       for (const cm of conv.conversation_members) {
         const p = cm.profiles;
-        if (p && !S.users.some((u) => u.id === p.id)) {
-          S.users.push({
-            id: p.id,
-            name: p.display_name,
-            hue: p.avatar_hue ?? 0,
-            seen: 'offline',
-          });
-        }
+        if (p) upsertUser(p);
       }
       return {
         id: conv.id,
@@ -140,9 +165,10 @@ export async function getProfile(userId) {
 /* ── Поиск пользователей по имени (пустой запрос — все контакты) ── */
 export async function searchUsers(query) {
   const q = String(query || '').trim();
+  const cols = `id, display_name, avatar_hue, public_key, last_seen${await hasAvatarColumn() ? ', avatar' : ''}`;
   let req = sb
     .from('profiles')
-    .select('id, display_name, avatar_hue, public_key, last_seen')
+    .select(cols)
     .order('display_name')
     .limit(30);
   if (q) req = req.ilike('display_name', `%${q}%`);

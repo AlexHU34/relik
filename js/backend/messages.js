@@ -2,7 +2,7 @@
    Отправка, загрузка, Realtime-подписка с E2E шифрованием */
 
 import { sb } from './supabaseClient.js';
-import { idb } from '../db/idb.js';
+import { idb, newId } from '../db/idb.js';
 import { SUPABASE } from '../config.js';
 import { S } from '../ui/state.js';
 import {
@@ -93,32 +93,33 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     iv = '';
   }
 
-  const { data, error } = await sb
+  const msgId = newId();
+
+  const { error } = await sb
     .from('messages')
     .insert({
+      id: msgId,
       conversation_id: chatId,
       sender_id: user.id,
       ciphertext,
       iv,
       reply_to: replyToId,
-    })
-    .select()
-    .single();
+    });
 
   if (error) throw error;
 
   return {
-    id: data.id,
-    chatId: data.conversation_id,
+    id: msgId,
+    chatId,
     sender: 'u_me',
-    ts: new Date(data.created_at).getTime(),
+    ts: Date.now(),
     type: 'text',
-    text: text, // возвращаем оригинальный текст для UI
+    text, // возвращаем оригинальный текст для UI
     reactions: [],
     status: 'sent',
-    replyTo: data.reply_to ? { id: data.reply_to } : null,
-    edited: data.edited,
-    deleted: data.deleted,
+    replyTo: replyToId ? { id: replyToId } : null,
+    edited: false,
+    deleted: false,
   };
 }
 

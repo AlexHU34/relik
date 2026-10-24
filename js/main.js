@@ -16,7 +16,7 @@ import { applyTheme, currentTheme } from './ui/themes.js';
 import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
 import { initDevice } from './ui/device.js';
 import { sb } from './backend/supabaseClient.js';
-import { signUp, signIn, signOut, restoreSession, updateProfile, updateLastSeen, verifySignupCode } from './backend/auth.js';
+import { signUp, signIn, signOut, restoreSession, updateProfile, updateLastSeen, verifySignupCode, saveAvatar } from './backend/auth.js';
 import { loadChats, searchUsers, getProfile } from './backend/chats.js';
 import { loadMessages, subscribeToChat, updateReadReceipt, subscribeAllMessages, previewTextFor } from './backend/messages.js';
 import { playMessage } from './ui/sounds.js';
@@ -554,8 +554,14 @@ async function boot() {
           return;
         }
         const fresh = !S.me || S.me.id !== m.id;
+        const cachedAvatar = !fresh && S.me?.avatar ? S.me.avatar : null;
         S.me = m;
-        idb.put('settings', { key: 'me', value: m }).catch(() => {});
+        /* аватар, сохранённый раньше только в браузере, досохраняем на бэкенд */
+        if (!m.avatar && cachedAvatar) {
+          S.me.avatar = cachedAvatar;
+          saveAvatar(cachedAvatar).catch((err) => console.warn('Avatar sync failed:', err));
+        }
+        idb.put('settings', { key: 'me', value: S.me }).catch(() => {});
         if (fresh) {
           showApp();
           renderSidebar();

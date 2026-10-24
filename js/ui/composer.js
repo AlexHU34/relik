@@ -49,6 +49,8 @@ export function initComposer() {
   els.ta.addEventListener('input', () => {
     els.ta.style.height = 'auto';
     els.ta.style.height = Math.min(els.ta.scrollHeight, 140) + 'px';
+    /* как только есть текст — показываем кнопку отправки (на всех устройствах) */
+    syncSendMode();
     if (els.ta.value.trim() && Date.now() - lastTypingSent > 1500) {
       lastTypingSent = Date.now();
       sendTypingSignal();
@@ -159,8 +161,16 @@ export function loadEdit(m) {
 }
 
 function setSendMode(mode) {
-  els.send.classList.toggle('mic', mode === 'mic');
-  els.send.innerHTML = icon(mode === 'mic' ? 'mic' : 'send', 18);
+  const mic = mode === 'mic';
+  els.send.classList.toggle('mic', mic);
+  els.send.innerHTML = icon(mic ? 'mic' : 'send', 18);
+  els.send.title = t(mic ? 'comp.voice' : 'comp.send');
+  els.send.setAttribute('aria-label', els.send.title);
+}
+
+/* Микрофон, пока поле пустое; кнопка отправки — как только появился текст */
+function syncSendMode() {
+  setSendMode(els.ta.value.trim() || S.editing ? 'send' : 'mic');
 }
 
 /* ── отправка ──────────────────────────────────────────────── */
@@ -171,29 +181,47 @@ export async function sendCurrent() {
   if (S.editing) { await saveEdit(text); return; }
   if (!text) { toast(t('comp.recordHint')); return; }
 
-  clearReplyEdit();
+  /* запоминаем ответ до очистки поля */
+  const replyId = S.reply?.id || null;
+  const replyBox = S.reply ? { ...S.reply } : null;
 
   idb.del('settings', 'draft:' + chat.id).catch(() => {});
 
   if (SUPABASE.url && SUPABASE.anonKey) {
     try {
-      const msg = await sendMessage(chat.id, text, S.reply?.id, chat.kind, chat.publicKey);
+      const msg = await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey);
+      clearReplyEdit();
       await deliverMessage(chat.id, msg);
       setTimeout(() => markRead(chat.id, msg.id), 1300);
     } catch (err) {
       console.error('Send message error:', err);
-      toast(err.message || t('toast.error'));
+      /* текст не теряем: можно сразу повторить отправку */
+      toast(friendlySendError(err));
+      return;
     }
   } else {
+    clearReplyEdit();
     const msg = {
       id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
       type: 'text', text, reactions: [], status: 'sent',
-      ...(S.reply ? { replyTo: { ...S.reply } } : {}),
+      ...(replyBox ? { replyTo: replyBox } : {}),
     };
     await deliverMessage(chat.id, msg);
     setTimeout(() => markRead(chat.id, msg.id), 1300);
   }
   playSent();
+}
+
+/* Понятная причина, если отправка не удалась */
+function friendlySendError(err) {
+  const msg = String(err?.message || '');
+  if (/not valid JSON|Unexpected token/i.test(msg)) {
+    return t('comp.keyError');
+  }
+  if (/no key pair|key pair found/i.test(msg)) {
+    return t('comp.noKeys');
+  }
+  return msg || t('toast.error');
 }
 
 async function saveEdit(text) {

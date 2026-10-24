@@ -16,9 +16,15 @@ export async function exportPublicKey(keyPair) {
   return JSON.stringify(jwk);
 }
 
+/* ── JWK может прийти строкой или уже объектом ── */
+function toJwk(v) {
+  if (!v) return null;
+  return typeof v === 'string' ? JSON.parse(v) : v;
+}
+
 /* ── Импорт публичного ключа из JWK ── */
 export async function importPublicKey(jwkStr) {
-  const jwk = JSON.parse(jwkStr);
+  const jwk = toJwk(jwkStr);
   return await crypto.subtle.importKey(
     'jwk',
     jwk,
@@ -36,7 +42,7 @@ export async function exportPrivateKey(keyPair) {
 
 /* ── Импорт приватного ключа из JWK ── */
 export async function importPrivateKey(jwkStr) {
-  const jwk = JSON.parse(jwkStr);
+  const jwk = toJwk(jwkStr);
   return await crypto.subtle.importKey(
     'jwk',
     jwk,

@@ -7,7 +7,7 @@ import { idb, newId } from '../db/idb.js';
 import { APP, SUPABASE } from '../config.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
-import { updateProfile } from '../backend/auth.js';
+import { updateProfile, saveAvatar } from '../backend/auth.js';
 import { searchUsers, createDmChat } from '../backend/chats.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
@@ -165,13 +165,18 @@ async function handleAvatar(e) {
   if (!file) return;
   try {
     const dataUrl = await cropImage(file, 256);
+    if (SUPABASE.url && SUPABASE.anonKey) {
+      /* Сохраняем на бэкенде — аватар переживёт перезагрузку и появится на других устройствах */
+      await saveAvatar(dataUrl);
+    }
     S.me.avatar = dataUrl;
     await idb.put('settings', { key: 'me', value: S.me });
     renderSidebar();
     paintAvatar();
     toast(t('settings.saved'));
   } catch (err) {
-    toast(t('settings.error'));
+    console.error('Avatar save error:', err);
+    toast(err.message || t('settings.error'));
   }
   e.target.value = '';
 }
@@ -219,7 +224,7 @@ async function paintContacts() {
       const profiles = await searchUsers(q);
       users = profiles
         .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, seen: 'offline' }));
+        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, seen: 'offline' }));
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
@@ -303,7 +308,7 @@ async function paintGroupContacts() {
       const profiles = await searchUsers(q);
       users = profiles
         .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue }));
+        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null }));
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);

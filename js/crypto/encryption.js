@@ -12,6 +12,7 @@ export async function getKeyPair() {
   if (!rec?.value) return null;
 
   const { publicKey, privateKey } = rec.value;
+  if (!publicKey || !privateKey) return null;
   const pubKey = await keygen.importPublicKey(publicKey);
   const privKey = await keygen.importPrivateKey(privateKey);
 

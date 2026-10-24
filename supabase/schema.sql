@@ -9,6 +9,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users on delete cascade,
   display_name text not null default 'Anonymous',
   avatar_hue smallint not null default 0,
+  avatar text,                          -- аватар (data URL, 256px JPEG)
   public_key text,                      -- ECDH P-256 (JWK, публичная часть)
   key_backup text,                      -- приватный ключ, шифр. паролем (PBKDF2+AES-GCM)
   last_seen timestamptz not null default now(),
