@@ -393,6 +393,14 @@
           <span class="field-hint" data-i18n="settings.usernameHint">Латиница, цифры и _, 3–32 символа</span>
         </div>
         <button class="btn btn-ghost" id="saveProfile" data-i18n="settings.save">Сохранить</button>
+        <div class="field" id="adminField" hidden>
+          <span data-i18n="admin.title">Администрирование</span>
+          <div class="admin-row">
+            <span class="admin-chip">ADMIN</span>
+            <button class="btn btn-ghost" id="adminUsersBtn" type="button" data-i18n="admin.users">Пользователи</button>
+          </div>
+          <span class="field-hint" data-i18n="admin.hint">Можно удалять любые сообщения и закрывать любые опросы</span>
+        </div>
         <div class="field">
           <span data-i18n="settings.theme">Тема</span>
           <div class="theme-grid" id="themeGrid"></div>
@@ -482,6 +490,19 @@
       <div class="m-foot">
         <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
         <button class="btn" id="gcCreate" data-i18n="group.createBtn">Создать группу</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ АДМИНИСТРИРОВАНИЕ ══════════ -->
+  <div class="overlay" id="adminOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="admin.users">Пользователи</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="admin-list" id="adminList"></div>
       </div>
     </div>
   </div>

@@ -35,8 +35,21 @@ export async function hasUsernameColumn() {
   return false;
 }
 
-function profileCols(withAvatar, withUsername) {
-  return `id, display_name, avatar_hue, public_key${withAvatar ? ', avatar' : ''}${withUsername ? ', username' : ''}`;
+let roleCol = null;
+export async function hasRoleColumn() {
+  if (roleCol !== null) return roleCol;
+  if (!sb) { roleCol = false; return false; }
+  const { error } = await sb.from('profiles').select('role').limit(1);
+  if (!error) { roleCol = true; return true; }
+  if (error.code === '42703' || /column.*does not exist|schema cache/i.test(error.message || '')) {
+    roleCol = false;
+    return false;
+  }
+  return false;
+}
+
+function profileCols(withAvatar, withUsername, withRole) {
+  return `id, display_name, avatar_hue, public_key${withAvatar ? ', avatar' : ''}${withUsername ? ', username' : ''}${withRole ? ', role' : ''}`;
 }
 
 /* Контакты в S.users всегда свежие (имя, цвет, аватар) */
@@ -47,6 +60,7 @@ function upsertUser(p) {
     id: p.id,
     name: p.display_name,
     username: p.username || null,
+    role: p.role || 'user',
     hue: p.avatar_hue ?? 0,
     avatar: p.avatar || null,
     seen: prev?.seen || 'offline',
@@ -60,7 +74,7 @@ export async function loadChats() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return [];
 
-  const pcols = profileCols(await hasAvatarColumn(), await hasUsernameColumn());
+  const pcols = profileCols(await hasAvatarColumn(), await hasUsernameColumn(), await hasRoleColumn());
 
   const { data: members, error } = await sb
     .from('conversation_members')
@@ -89,6 +103,7 @@ export async function loadChats() {
         hue: otherProfile?.avatar_hue,
         avatar: otherProfile?.avatar || null,
         username: otherProfile?.username || null,
+        role: otherProfile?.role || 'user',
         publicKey: otherProfile?.public_key,
       };
     } else {
@@ -182,7 +197,8 @@ export async function searchUsers(query) {
   const q = String(query || '').trim().replace(/^@+/, '');
   const withUser = await hasUsernameColumn();
   const withAvatar = await hasAvatarColumn();
-  const cols = `id, display_name, avatar_hue, public_key, last_seen${withAvatar ? ', avatar' : ''}${withUser ? ', username' : ''}`;
+  const withRole = await hasRoleColumn();
+  const cols = `id, display_name, avatar_hue, public_key, last_seen${withAvatar ? ', avatar' : ''}${withUser ? ', username' : ''}${withRole ? ', role' : ''}`;
   let req = sb
     .from('profiles')
     .select(cols)
@@ -225,4 +241,25 @@ export async function joinConversation(chatId) {
   if (error && error.code !== '23505' && !String(error.message || '').includes('duplicate')) {
     throw error;
   }
+}
+
+/* ── Админ: список профилей и выдача роли ── */
+export async function listProfiles() {
+  const withRole = await hasRoleColumn();
+  const cols = `id, display_name, username, avatar_hue${withRole ? ', role' : ''}`;
+  const { data, error } = await sb
+    .from('profiles')
+    .select(cols)
+    .order('display_name')
+    .limit(200);
+  if (error) throw error;
+  return data;
+}
+
+export async function setUserRole(userId, role) {
+  const { error } = await sb
+    .from('profiles')
+    .update({ role })
+    .eq('id', userId);
+  if (error) throw error;
 }

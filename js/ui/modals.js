@@ -1,6 +1,6 @@
 /* Relik — модальные окна: настройки, новый чат, создание группы, лайтбокс */
 import { S, user } from './state.js';
-import { $, esc, avatarHtml } from './utils.js';
+import { $, esc, avatarHtml, adminBadge } from './utils.js';
 import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -8,7 +8,7 @@ import { APP, SUPABASE } from '../config.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
 import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn } from '../backend/auth.js';
-import { searchUsers, createDmChat } from '../backend/chats.js';
+import { searchUsers, createDmChat, listProfiles, setUserRole } from '../backend/chats.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -33,7 +33,7 @@ export function initModals() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('#lightbox').hidden) closeLightbox();
-    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); closeOv($('#pollOv')); }
+    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); closeOv($('#pollOv')); closeOv($('#adminOv')); }
   });
 
   /* ── настройки ── */
@@ -97,6 +97,7 @@ export function initModals() {
   });
   $('#avatarBtn').addEventListener('click', () => $('#avatarInput').click());
   $('#avatarInput').addEventListener('change', handleAvatar);
+  $('#adminUsersBtn').addEventListener('click', openAdminUsers);
 }
 
 function closeOv(ov) {
@@ -120,6 +121,7 @@ export function openSettings() {
   paintFonts();
   $('#soundsToggle').checked = soundsEnabled();
   $('#notifyToggle').checked = notificationsEnabled();
+  $('#adminField').hidden = S.me?.role !== 'admin';
   paintAvatar();
   $('#settingsOv').hidden = false;
 }
@@ -251,6 +253,55 @@ async function saveProfile() {
   }
 }
 
+/* ── АДМИН: список пользователей ── */
+async function openAdminUsers() {
+  $('#adminOv').hidden = false;
+  await paintAdminUsers();
+}
+
+async function paintAdminUsers() {
+  const wrap = $('#adminList');
+  wrap.innerHTML = `<div class="nc-hint">…</div>`;
+
+  try {
+    const list = await listProfiles();
+    wrap.innerHTML = list.map((p) => {
+      const role = p.role || 'user';
+      const isMe = p.id === S.me?.id;
+      const next = role === 'admin' ? 'user' : 'admin';
+      const label = role === 'admin' ? t('admin.unmake') : t('admin.make');
+      return `<div class="admin-user">
+        ${avatarHtml({ name: p.display_name, hue: p.avatar_hue })}
+        <span class="info">
+          <span class="n">${esc(p.display_name)}${adminBadge(p)}${isMe ? ` <span class="field-hint">(${t('admin.you')})</span>` : ''}</span>
+          <span class="u">${p.username ? '@' + esc(p.username) : '—'}</span>
+        </span>
+        ${isMe ? '' : `<button class="btn btn-ghost" type="button" data-role-uid="${p.id}" data-role="${next}">${label}</button>`}
+      </div>`;
+    }).join('') || `<div class="nc-hint">${t('admin.empty')}</div>`;
+
+    wrap.querySelectorAll('[data-role-uid]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await setUserRole(btn.dataset.roleUid, btn.dataset.role);
+          const u = S.users.find((x) => x.id === btn.dataset.roleUid);
+          if (u) u.role = btn.dataset.role;
+          toast(t('settings.saved'));
+          await paintAdminUsers();
+        } catch (err) {
+          console.error('Set role error:', err);
+          toast(t('admin.error'));
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    console.error('Admin list error:', err);
+    wrap.innerHTML = `<div class="nc-hint">${esc(err.message || t('toast.error'))}</div>`;
+  }
+}
+
 /* ── НОВЫЙ ЧАТ ── */
 export function openNewChat() {
   $('#ncSearch').value = '';
@@ -269,7 +320,7 @@ async function paintContacts() {
       const profiles = await searchUsers(q);
       users = profiles
         .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null, seen: 'offline' }));
+        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null, role: p.role || 'user', seen: 'offline' }));
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
@@ -284,7 +335,7 @@ async function paintContacts() {
     return `<button class="contact" data-uid="${u.id}" data-hcid="${dm?.id || ''}">
       ${avatarHtml(u, { online: u.seen === 'online' })}
       <span class="info">
-        <span class="n">${esc(u.name)}</span>
+        <span class="n">${esc(u.name)}${adminBadge(u)}</span>
         <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + u.seen)}</span>
       </span>
     </button>`;
@@ -353,7 +404,7 @@ async function paintGroupContacts() {
       const profiles = await searchUsers(q);
       users = profiles
         .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null }));
+        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null, role: p.role || 'user' }));
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
@@ -369,7 +420,7 @@ async function paintGroupContacts() {
     <button class="contact" data-gc-uid="${u.id}">
       ${avatarHtml(u)}
       <span class="info">
-        <span class="n">${esc(u.name)}</span>
+        <span class="n">${esc(u.name)}${adminBadge(u)}</span>
       </span>
     </button>
   `).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
@@ -391,7 +442,7 @@ function paintGroupMembers() {
     const u = user(uid);
     return `<button class="group-member" data-uid="${uid}">
       ${avatarHtml(u)}
-      <span>${esc(u.name)}</span>
+      <span>${esc(u.name)}${adminBadge(u)}</span>
       <span class="rm" data-rm="${uid}">${icon('x', 14)}</span>
     </button>`;
   }).join('');

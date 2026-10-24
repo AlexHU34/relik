@@ -42,14 +42,17 @@ export function snippet(m) {
 }
 
 /* Аватар с буквой или фото; opts: {sm, lg, online} */
-export function avatarHtml(u, opts = {}) {
-  if (!u) return '';
+export function avatarHtml(u, opts = {}) {  if (!u) return '';
   const cls = ['avatar', opts.sm ? 'sm' : '', opts.lg ? 'lg' : ''].filter(Boolean).join(' ');
   const dot = opts.online ? '<i class="online-dot"></i>' : '';
   const inner = u.avatar
     ? `<img src="${esc(u.avatar)}" alt="">`
     : `<b>${esc((u.name || '?').slice(0, 1).toUpperCase())}</b>`;
   return `<span class="${cls}" data-h="${u.hue ?? 0}">${inner}${dot}</span>`;
+}
+
+export function adminBadge(u) {
+  return u?.role === 'admin' ? '<span class="admin-chip">ADMIN</span>' : '';
 }
 
 /* Превью последнего сообщения для списка чатов */

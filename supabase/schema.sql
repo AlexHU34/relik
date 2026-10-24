@@ -9,6 +9,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users on delete cascade,
   display_name text not null default 'Anonymous',
   username text,                        -- @username: латиница, уникальный
+  role text not null default 'user',    -- user | admin
   avatar_hue smallint not null default 0,
   avatar text,                          -- аватар (data URL, 256px JPEG)
   public_key text,                      -- ECDH P-256 (JWK, публичная часть)
@@ -93,6 +94,20 @@ create policy "members send"
     where m.conversation_id = messages.conversation_id and m.user_id = auth.uid()));
 create policy "sender edits own"
   on public.messages for update using (auth.uid() = sender_id);
+
+-- Админ (см. supabase/admins.sql): правка любых сообщений
+create or replace function public.is_admin(uid uuid default auth.uid())
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles p where p.id = uid and p.role = 'admin');
+$$;
+
+create policy "admins update any message"
+  on public.messages for update
+  using (public.is_admin()) with check (public.is_admin());
+
+create policy "admins update any profile"
+  on public.profiles for update
+  using (public.is_admin()) with check (public.is_admin());
 
 -- ── Реакции ────────────────────────────────────────────────
 create table if not exists public.reactions (

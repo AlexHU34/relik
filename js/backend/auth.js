@@ -5,7 +5,7 @@ import { sb } from './supabaseClient.js';
 import { idb } from '../db/idb.js';
 import * as keygen from '../crypto/keygen.js';
 import * as backup from '../crypto/backup.js';
-import { hasAvatarColumn, hasUsernameColumn } from './chats.js';
+import { hasAvatarColumn, hasUsernameColumn, hasRoleColumn } from './chats.js';
 
 /* Приватный ключ может прийти и объектом (после расшифровки бэкапа), и строкой.
    В IndexedDB всегда кладём строку — так его читают все версии приложения. */
@@ -42,7 +42,7 @@ export async function isUsernameTaken(username, myId) {
   return Array.isArray(data) && data.length > 0;
 }
 
-export { hasUsernameColumn };
+export { hasUsernameColumn, hasRoleColumn };
 
 /* Пароль нужен один раз — чтобы зашифровать резервную копию ключа.
    Держим только в памяти/на время вкладки и очищаем сразу после создания профиля. */
@@ -111,6 +111,7 @@ async function finalizeProfile(user, email, name, password) {
     name,
     mail: email,
     username: null,
+    role: 'user',
     publicKey: publicKeyJwk,
     privateKey: privateKeyJwk,
   };
@@ -157,6 +158,7 @@ export async function signIn(email, password) {
     hue: profile.avatar_hue,
     avatar: avatarOf(profile, data.user),
     username: profile.username || null,
+    role: profile.role || 'user',
     publicKey: profile.public_key,
     privateKey: privateKeyStr,
   };
@@ -259,6 +261,7 @@ export async function restoreSession() {
     hue: profile.avatar_hue,
     avatar: avatarOf(profile, session.user),
     username: profile.username || null,
+    role: profile.role || 'user',
     publicKey: profile.public_key,
     privateKey: privateKey || null,
   };

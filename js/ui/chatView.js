@@ -1,6 +1,6 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
 import { S, user, chatTitle, chatById } from './state.js';
-import { $, esc, fmtTime, fmtDay, fmtDur, avatarHtml, snippet } from './utils.js';
+import { $, esc, fmtTime, fmtDay, fmtDur, avatarHtml, adminBadge, snippet } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -403,7 +403,7 @@ function renderHeader() {
     ? (S.users.find((x) => x.id === chat.userId) || { name: chat.title || '…', hue: chat.hue ?? 0, seen: 'offline' })
     : null;
   $('#chatWhoAvatar').innerHTML = avatarHtml(u || { name: chat.title, hue: chat.hue ?? 5 }, { online: u?.seen === 'online' });
-  $('#chatWhoName').textContent = chatTitle(chat);
+  $('#chatWhoName').innerHTML = esc(chatTitle(chat)) + adminBadge(isDm ? u : null);
   const st = $('#chatWhoStatus');
   st.classList.remove('online');
   if (isDm) {
@@ -614,7 +614,7 @@ function pollHtml(m) {
   const hint = closed
     ? t('poll.closed')
     : (mine.length ? t('poll.yourVote') : (m.poll?.multi ? t('poll.hintMulti') : t('poll.hint')));
-  const canClose = m.sender === 'u_me' && !closed;
+  const canClose = !closed && (m.sender === 'u_me' || S.me?.role === 'admin');
 
   return `<div class="poll${closed ? ' poll-ended' : ''}">
     <div class="poll-head">${icon('poll', 16)}<span>${esc(m.poll?.q || m.text || '')}</span></div>
@@ -666,9 +666,7 @@ function tallyPoll(pollMsg) {
   let closed = false;
 
   for (const m of all) {
-    if (m.type === 'pollclose' && m.close?.p === pollMsg.id && m.sender === pollMsg.sender) {
-      closed = true;
-    }
+    if (m.type === 'pollclose' && m.close?.p === pollMsg.id) closed = true;
     if (m.type !== 'vote' || !m.vote || m.vote.p !== pollMsg.id) continue;
     const prev = latest.get(m.sender);
     if (!prev || (m.ts || 0) >= (prev.ts || 0)) latest.set(m.sender, m);
@@ -730,6 +728,7 @@ function metaHtml(m, mine) {
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
   const canForward = m.type === 'text';
+  const canDelete = mine || S.me?.role === 'admin';
   const tools = [
     `<button data-act="reply" title="${t('msg.reply')}">${icon('reply', 15)}</button>`,
     `<button data-act="react" title="${t('msg.react')}">${icon('smile', 15)}</button>`,
@@ -737,7 +736,7 @@ function toolsHtml(m, mine) {
     `<button data-act="pin" title="${t('msg.pin')}">${icon('pin', 15)}</button>`,
     isText ? `<button data-act="copy" title="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
     mine && isText ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
-    mine ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
+    canDelete ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
   ].join('');
   return `<div class="tools">${tools}</div>`;
 }
