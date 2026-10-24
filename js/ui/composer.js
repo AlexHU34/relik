@@ -11,9 +11,8 @@ import { toast } from './toast.js';
 import { makeDemoPhoto } from '../data/mock.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
-import { sendMessage, editMessage, deleteMessage, encodePoll, encodeVote } from '../backend/messages.js';
-import { uploadFile, generateFileKey, readFileAsDataURL, readFileAsArrayBuffer } from '../backend/storage.js';
-import { generateGroupKey, encryptBytes } from '../crypto/encryption.js';
+import { sendMessage, editMessage, deleteMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
+import { readFileAsDataURL } from '../backend/storage.js';
 
 let els = {};
 let recTimer = null, recStart = 0;
@@ -31,7 +30,7 @@ export function initComposer() {
     emojiBtn: $('#emojiBtn'), emojiPop: $('#emojiPop'),
     recUi: $('#recUi'), recTime: $('#recTime'), recCancel: $('#recCancel'),
     attPhoto: $('#attPhoto'), attFile: $('#attFile'), attPoll: $('#attPoll'),
-    pollOv: $('#pollOv'), pollQuestion: $('#pollQuestion'), pollOptions: $('#pollOptions'), pollMulti: $('#pollMulti'),
+    pollOv: $('#pollOv'), pollQuestion: $('#pollQuestion'), pollOptions: $('#pollOptions'), pollMulti: $('#pollMulti'), pollAnon: $('#pollAnon'),
   };
 
   /* статичные иконки */
@@ -234,12 +233,13 @@ export async function retryMessage(m) {
   const chat = chatById(m.chatId || S.active);
   if (!chat) return;
 
+  const wire = m.wire || m.text;
   m.status = 'sending';
   await idb.put('messages', m);
   if (S.active === chat.id) renderMessages();
 
   try {
-    await sendMessage(chat.id, m.text, m.replyTo?.id || null, chat.kind, chat.publicKey, m.id);
+    await sendMessage(chat.id, wire, m.replyTo?.id || null, chat.kind, chat.publicKey, m.id);
     m.status = 'sent';
     delete m.error;
     await idb.put('messages', m);
@@ -294,6 +294,7 @@ function openPollCreator() {
   els.pollQuestion.value = '';
   els.pollOptions.innerHTML = '';
   els.pollMulti.checked = false;
+  els.pollAnon.checked = true;
   addPollOption();
   addPollOption();
   els.pollOv.hidden = false;
@@ -310,7 +311,7 @@ async function createPollFromForm() {
   if (o.length < 2) { toast(t('poll.needOptions')); return; }
 
   els.pollOv.hidden = true;
-  await sendPoll({ q, o: o.slice(0, 6), multi: !!els.pollMulti.checked });
+  await sendPoll({ q, o: o.slice(0, 6), multi: !!els.pollMulti.checked, anon: !!els.pollAnon.checked });
 }
 
 async function sendPoll(poll) {
@@ -320,6 +321,7 @@ async function sendPoll(poll) {
   const msg = {
     id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
     type: 'poll', poll, text: poll.q, reactions: [],
+    wire: encodePoll(poll),
     status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
   };
 
@@ -340,6 +342,71 @@ async function sendPoll(poll) {
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
     toast(friendlySendError(err) || t('poll.createError'));
+  }
+}
+
+/* Реакция: тоже скрытое сообщение, чтобы синхронизировалась у всех */
+export async function sendReaction(message, emoji, on) {
+  const chat = chatById(message?.chatId || S.active);
+  if (!chat || !message?.id) return;
+
+  const event = {
+    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: 'rx', hidden: true,
+    reaction: { m: message.id, e: emoji, on: !!on },
+    text: '', reactions: [],
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+  };
+
+  S.messages[chat.id] = S.messages[chat.id] || [];
+  S.messages[chat.id].push(event);
+  await idb.put('messages', event);
+  if (S.active === chat.id) renderMessages();
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  try {
+    await sendMessage(chat.id, encodeReaction(message.id, emoji, on), null, chat.kind, chat.publicKey, event.id);
+    event.status = 'sent';
+    await idb.put('messages', event);
+  } catch (err) {
+    console.error('Reaction error:', err);
+    S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== event.id);
+    await idb.del('messages', event.id);
+    if (S.active === chat.id) renderMessages();
+    toast(t('msg.reactionError'));
+  }
+}
+
+/* Завершение опроса: скрытое событие, доступно автору */
+export async function closePoll(pollMsg) {
+  const chat = chatById(pollMsg?.chatId || S.active);
+  if (!chat || !pollMsg?.poll) return;
+
+  const event = {
+    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: 'pollclose', hidden: true, close: { p: pollMsg.id },
+    text: '', reactions: [],
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+  };
+
+  S.messages[chat.id] = S.messages[chat.id] || [];
+  S.messages[chat.id].push(event);
+  await idb.put('messages', event);
+  if (S.active === chat.id) renderMessages();
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  try {
+    await sendMessage(chat.id, encodePollClose(pollMsg.id), null, chat.kind, chat.publicKey, event.id);
+    event.status = 'sent';
+    await idb.put('messages', event);
+  } catch (err) {
+    console.error('Close poll error:', err);
+    S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== event.id);
+    await idb.del('messages', event.id);
+    if (S.active === chat.id) renderMessages();
+    toast(t('poll.closeError'));
   }
 }
 
@@ -437,37 +504,92 @@ function buildMedia(type, extra = {}) {
   if (!S.demoShown) { S.demoShown = true; toast(t('toast.demoMedia')); }
 }
 
+/* Медиа передаём внутри зашифрованного сообщения (data URL).
+   Так фото и файлы работают без Storage и остаются E2E. */
+const MAX_MEDIA_CHARS = 900000;
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = src;
+  });
+}
+
+async function compressToDataUrl(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const variants = [[1400, .82], [1100, .76], [900, .7], [720, .64]];
+    for (const [max, quality] of variants) {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const src = canvas.toDataURL('image/jpeg', quality);
+      if (src.length <= MAX_MEDIA_CHARS) return src;
+    }
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function sendMediaPayload(payload) {
+  const chat = chatById(S.active);
+  if (!chat) return;
+
+  const replyId = S.reply?.id || null;
+  const replyBox = S.reply ? { ...S.reply } : null;
+  const msg = {
+    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: payload.kind,
+    file: { name: payload.name, size: payload.size, src: payload.src },
+    text: '', reactions: [], wire: encodeMedia(payload),
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+    ...(replyBox ? { replyTo: replyBox } : {}),
+  };
+
+  clearReplyEdit();
+  await deliverMessage(chat.id, msg);
+  playSent();
+
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  try {
+    await sendMessage(chat.id, msg.wire, replyId, chat.kind, chat.publicKey, msg.id);
+    msg.status = 'sent';
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+    setTimeout(() => markRead(chat.id, msg.id), 1300);
+  } catch (err) {
+    console.error('Media send error:', err);
+    msg.status = 'error';
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+    toast(friendlySendError(err) || t('media.error'));
+  }
+}
+
 export async function sendImage() {
   if (SUPABASE.url && SUPABASE.anonKey) {
-    // Реальная загрузка файла
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
     input.onchange = async (e) => {
-      const file = e.target.files[0];
+      const file = e.target.files && e.target.files[0];
       if (!file) return;
-
       try {
-        const fileKey = await generateGroupKey();
-        const result = await uploadFile(S.active, file, fileKey);
-
-        // Ключ файла шифруем и отправляем в сообщении
-        // TODO: шифрование ключа для чата
-
-        buildMedia('image', {
-          text: file.name,
-          file: {
-            name: file.name,
-            size: file.size,
-            path: result.path,
-            url: result.url,
-            encrypted: result.metadata.encrypted,
-            iv: result.metadata.iv,
-          },
-        });
+        const src = await compressToDataUrl(file);
+        if (!src) { toast(t('media.tooBig')); return; }
+        await sendMediaPayload({ kind: 'image', name: file.name, size: file.size, src });
       } catch (err) {
-        console.error('Upload error:', err);
-        toast(err.message || t('toast.error'));
+        console.error('Image error:', err);
+        toast(t('media.error'));
+      } finally {
+        e.target.value = '';
       }
     };
     input.click();
@@ -482,31 +604,20 @@ export async function sendImage() {
 
 export async function sendFile() {
   if (SUPABASE.url && SUPABASE.anonKey) {
-    // Реальная загрузка файла
     const input = document.createElement('input');
     input.type = 'file';
     input.onchange = async (e) => {
-      const file = e.target.files[0];
+      const file = e.target.files && e.target.files[0];
       if (!file) return;
-
       try {
-        const fileKey = await generateGroupKey();
-        const result = await uploadFile(S.active, file, fileKey);
-
-        buildMedia('file', {
-          text: file.name,
-          file: {
-            name: file.name,
-            size: file.size,
-            path: result.path,
-            url: result.url,
-            encrypted: result.metadata.encrypted,
-            iv: result.metadata.iv,
-          },
-        });
+        const src = await readFileAsDataURL(file);
+        if (src.length > MAX_MEDIA_CHARS) { toast(t('media.tooBig')); return; }
+        await sendMediaPayload({ kind: 'file', name: file.name, size: file.size, src });
       } catch (err) {
-        console.error('Upload error:', err);
-        toast(err.message || t('toast.error'));
+        console.error('File error:', err);
+        toast(t('media.error'));
+      } finally {
+        e.target.value = '';
       }
     };
     input.click();

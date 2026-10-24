@@ -332,6 +332,7 @@
           </div>
         </div>
         <div class="msgs" id="msgs"></div>
+        <button class="to-bottom" id="toBottom" hidden></button>
         <footer class="composer">
           <div class="reply-edit-bar" id="reb">
             <span class="reb-ic" id="rebIc"></span>
@@ -406,6 +407,11 @@
         <label class="switch-row">
           <span data-i18n="settings.sounds">Звуки</span>
           <input type="checkbox" id="soundsToggle">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="settings.notifications">Уведомления</span>
+          <input type="checkbox" id="notifyToggle">
           <i></i>
         </label>
         <div class="about">
@@ -492,6 +498,11 @@
         <label class="switch-row">
           <span data-i18n="poll.multi">Несколько ответов</span>
           <input type="checkbox" id="pollMulti">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="poll.anon">Анонимный опрос</span>
+          <input type="checkbox" id="pollAnon" checked>
           <i></i>
         </label>
       </div>

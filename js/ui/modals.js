@@ -13,6 +13,7 @@ import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
 import { soundsEnabled, setSounds } from './sounds.js';
+import { notificationsEnabled, setNotifications } from './notify.js';
 import { currentDevice } from './device.js';
 
 let selectedGroupMembers = new Set();
@@ -84,6 +85,16 @@ export function initModals() {
     e.target.value = '';
   });
   $('#soundsToggle').addEventListener('change', (e) => setSounds(e.target.checked));
+  $('#notifyToggle').addEventListener('change', async (e) => {
+    const wanted = e.target.checked;
+    try {
+      await setNotifications(wanted);
+      toast(t('settings.saved'));
+    } catch (err) {
+      e.target.checked = !wanted;
+      toast(err.message || t('settings.notifyDenied'));
+    }
+  });
   $('#avatarBtn').addEventListener('click', () => $('#avatarInput').click());
   $('#avatarInput').addEventListener('change', handleAvatar);
 }
@@ -107,6 +118,7 @@ export function openSettings() {
   paintThemes();
   paintFonts();
   $('#soundsToggle').checked = soundsEnabled();
+  $('#notifyToggle').checked = notificationsEnabled();
   paintAvatar();
   $('#settingsOv').hidden = false;
 }

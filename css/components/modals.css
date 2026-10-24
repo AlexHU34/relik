@@ -16,6 +16,11 @@
 .m-head h3{font-size:var(--fs-lg);flex:1}
 .m-body{padding:6px 18px 16px;overflow-y:auto;display:grid;gap:12px;align-content:start}
 .m-foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+html[data-device="phone"] .overlay{padding:10px}
+html[data-device="phone"] .modal{width:100%;max-height:calc(100dvh - 20px);border-radius:18px}
+html[data-device="phone"] .m-body{padding:4px 14px 14px}
+html[data-device="phone"] .m-foot{padding:10px 14px;flex-wrap:wrap}
+html[data-device="phone"] .m-foot .btn{flex:1;min-width:120px}
 
 /* О приложении (в настройках) */
 .about{border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;gap:8px;background:var(--surface-2);margin-top:4px}

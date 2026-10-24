@@ -18,6 +18,9 @@ import {
    так они остаются E2E-зашифрованными и не требуют новых таблиц. */
 const POLL_PREFIX = '__relik_poll__:';
 const VOTE_PREFIX = '__relik_vote__:';
+const RX_PREFIX = '__relik_rx__:';
+const CLOSE_PREFIX = '__relik_pollclose__:';
+const MEDIA_PREFIX = '__relik_media__:';
 
 export function encodePoll(poll) {
   return POLL_PREFIX + JSON.stringify(poll);
@@ -25,6 +28,18 @@ export function encodePoll(poll) {
 
 export function encodeVote(pollId, options) {
   return VOTE_PREFIX + JSON.stringify({ p: pollId, v: options });
+}
+
+export function encodeReaction(messageId, emoji, on) {
+  return RX_PREFIX + JSON.stringify({ m: messageId, e: emoji, on: !!on });
+}
+
+export function encodePollClose(pollId) {
+  return CLOSE_PREFIX + JSON.stringify({ p: pollId });
+}
+
+export function encodeMedia(media) {
+  return MEDIA_PREFIX + JSON.stringify(media);
 }
 
 export function decodeSpecial(text) {
@@ -40,10 +55,25 @@ export function decodeSpecial(text) {
       return { kind: 'vote', vote: JSON.parse(text.slice(VOTE_PREFIX.length)), text: '' };
     } catch (err) { return null; }
   }
+  if (text.startsWith(RX_PREFIX)) {
+    try {
+      return { kind: 'rx', reaction: JSON.parse(text.slice(RX_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(CLOSE_PREFIX)) {
+    try {
+      return { kind: 'pollclose', close: JSON.parse(text.slice(CLOSE_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(MEDIA_PREFIX)) {
+    try {
+      return { kind: 'media', media: JSON.parse(text.slice(MEDIA_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
   return null;
 }
 
-/* Помечаем сообщение как опрос или скрытый голос */
+/* Помечаем сообщение как опрос, скрытый голос или реакцию */
 function applySpecial(m) {
   const s = decodeSpecial(m.text);
   if (!s) return m;
@@ -51,10 +81,24 @@ function applySpecial(m) {
     m.type = 'poll';
     m.poll = s.poll;
     m.text = s.text;
-  } else {
+  } else if (s.kind === 'vote') {
     m.type = 'vote';
     m.hidden = true;
     m.vote = s.vote;
+    m.text = '';
+  } else if (s.kind === 'rx') {
+    m.type = 'rx';
+    m.hidden = true;
+    m.reaction = s.reaction;
+    m.text = '';
+  } else if (s.kind === 'media') {
+    m.type = s.media.kind === 'image' ? 'image' : 'file';
+    m.file = { name: s.media.name, size: s.media.size, src: s.media.src };
+    m.text = '';
+  } else {
+    m.type = 'pollclose';
+    m.hidden = true;
+    m.close = s.close;
     m.text = '';
   }
   return m;
@@ -63,9 +107,14 @@ function applySpecial(m) {
 /* Превью для списка чатов */
 function previewOfText(text) {
   const s = decodeSpecial(text);
-  if (s?.kind === 'poll') return '📊 ' + s.text;
-  if (s?.kind === 'vote') return null;
-  return text;
+  if (!s) return text;
+  if (s.kind === 'poll') return '📊 ' + s.text;
+  if (s.kind === 'media') {
+    return s.media.kind === 'image'
+      ? '📷 Фото'
+      : '📄 ' + (s.media.name || 'файл');
+  }
+  return null;
 }
 
 /* ── Ключи для расшифровки (кешируем на время вызова) ── */

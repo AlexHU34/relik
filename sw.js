@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.8.6';
+const VER = 'relik-v1.8.7';
 const ASSETS = [
   './', './index.html', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
@@ -9,7 +9,7 @@ const ASSETS = [
   './js/db/idb.js', './js/data/mock.js',
   './js/ui/state.js', './js/ui/utils.js', './js/ui/icons.js', './js/ui/toast.js',
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
-  './js/ui/themes.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js',
+  './js/ui/themes.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
   './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js',
   './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png',

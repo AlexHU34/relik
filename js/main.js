@@ -20,6 +20,7 @@ import { signUp, signIn, signOut, restoreSession, updateProfile, updateLastSeen,
 import { loadChats, searchUsers, getProfile } from './backend/chats.js';
 import { loadMessages, subscribeToChat, updateReadReceipt, subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
 import { playMessage } from './ui/sounds.js';
+import { notifyMessage } from './ui/notify.js';
 import { initCalls, stopCalls } from './ui/calls.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
@@ -432,6 +433,7 @@ function startGlobalRealtime() {
     await idb.put('chats', chat);
     renderSidebar();
     playMessage();
+    notifyMessage(chat, text, () => { location.hash = `#/chat/${chat.id}`; });
   });
 
   /* Realtime может не дойти (сеть/RLS) — раз в 10 секунд тихо сверяем список */

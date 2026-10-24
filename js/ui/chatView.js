@@ -8,8 +8,9 @@ import { EMOJI_QUICK, SUPABASE } from '../config.js';
 import { openLightbox } from './modals.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
-import { refreshBar, resetComposer, loadEdit, retryMessage, votePoll } from './composer.js';
+import { refreshBar, resetComposer, loadEdit, retryMessage, votePoll, sendReaction, closePoll } from './composer.js';
 import { playMessage, playSent } from './sounds.js';
+import { notifyMessage } from './notify.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
@@ -22,11 +23,17 @@ let forwardMsg = null;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let activeSyncTick = null;
+let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
+let autoScrolling = false;
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
   els.msgs = $('#msgs');
+  els.toBottom = $('#toBottom');
+  els.toBottom.innerHTML = icon('arrowDown', 18);
   els.msgs.addEventListener('click', onMsgClick);
+  els.msgs.addEventListener('scroll', updateToBottom, { passive: true });
+  els.toBottom.addEventListener('click', () => scrollBottom(false));
   $('#backBtn').addEventListener('click', () => {
     stopActiveSync();
     stopTyping();
@@ -99,6 +106,14 @@ export function initChatView() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && activeSyncTick) activeSyncTick();
   });
+
+  /* тап мимо сообщения закрывает панель действий */
+  document.addEventListener('click', (e) => {
+    if (!toolsOpen) return;
+    if (e.target.closest('.msg')) return;
+    toolsOpen = null;
+    renderMessages();
+  });
 }
 
 function onMsgClick(e) {
@@ -116,7 +131,19 @@ function onMsgClick(e) {
   if (rxBt && m) { toggleReaction(m, rxBt.dataset.rx); return; }
   const pollEl = e.target.closest('[data-poll-opt]');
   if (pollEl && m?.type === 'poll') { votePollOption(m, Number(pollEl.dataset.pollOpt)); return; }
+  const pollClose = e.target.closest('[data-poll-close]');
+  if (pollClose && m?.type === 'poll') { closePoll(m); return; }
   if (imgEl && m?.file?.src) { openLightbox(m.file.src); return; }
+  const fileEl = e.target.closest('.file-row');
+  if (fileEl && m?.type === 'file' && m.file?.src) {
+    const a = document.createElement('a');
+    a.href = m.file.src;
+    a.download = m.file.name || 'file';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
   if (playEl && m) { playVoice(m, playEl); return; }
   if (speedEl && m) { cycleSpeed(m, speedEl); return; }
   if (quoteEl) { jumpTo(quoteEl.dataset.jump); return; }
@@ -146,6 +173,14 @@ function onMsgClick(e) {
     return;
   }
   if (S.reactOpen) closeReact();
+  /* на телефоне действия по сообщению открываются тапом */
+  if (m && !e.target.closest('[data-act],[data-pick],[data-rx],[data-poll-opt],.poll,.reply-quote,.msg-img,.voice')) {
+    const touch = currentDevice() === 'phone' || window.matchMedia('(hover: none)').matches;
+    if (touch) {
+      toolsOpen = toolsOpen === m.id ? null : m.id;
+      renderMessages();
+    }
+  }
 }
 
 function byId(id) {
@@ -254,6 +289,7 @@ export async function openChat(id) {
 
   S.active = id;
   S.reply = null; S.editing = null; S.reactOpen = null;
+  toolsOpen = null;
   refreshBar(); resetComposer();
   $('#chatSearch').hidden = true;
   searchQuery = '';
@@ -316,8 +352,10 @@ export async function openChat(id) {
           return;
         }
         if (S.active === id) {
+          const near = isNearBottom();
           renderMessages();
-          scrollBottom();
+          if (near) scrollBottom();
+          else updateToBottom();
         }
         const c = chatById(id);
         if (c) {
@@ -325,6 +363,7 @@ export async function openChat(id) {
           if (S.active !== id) c.unread = (c.unread || 0) + 1;
           await idb.put('chats', c);
           renderSidebar();
+          if (document.hidden) notifyMessage(c, snippet(msg), () => { location.hash = `#/chat/${id}`; });
         }
       },
       onEdit: (msgId, updates) => {
@@ -379,7 +418,9 @@ function renderHeader() {
 export function renderMessages() {
   const chat = chatById(S.active);
   if (!chat) return;
-  const all = (S.messages[S.active] || []).filter((m) => !m.hidden);
+  const raw = S.messages[S.active] || [];
+  const all = raw.filter((m) => !m.hidden);
+  const rxMap = tallyReactions(raw);
   const arr = searchQuery
     ? all.filter((m) => String(m.poll?.q || m.text || '').toLowerCase().includes(searchQuery.toLowerCase()))
     : all;
@@ -395,11 +436,13 @@ export function renderMessages() {
       <b>${t('chat.welcomeTitle')}</b>
       <span>${t('chat.welcomeSub')}</span>
     </div>`;
+    if (els.toBottom) els.toBottom.hidden = true;
     return;
   }
   let html = '';
   let prev = null;
   for (const m of arr) {
+    if (rxMap.has(m.id)) m.reactions = rxMap.get(m.id);
     const newDay = !prev || new Date(m.ts).toDateString() !== new Date(prev.ts).toDateString();
     if (newDay) html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`;
     const cont = prev && prev.sender === m.sender && !newDay && (m.ts - prev.ts) < 4 * 60e3;
@@ -411,6 +454,7 @@ export function renderMessages() {
   els.msgs.innerHTML = html;
   if (keep) scrollBottom(false);
   renderPin();
+  updateToBottom();
 }
 
 /* ── поиск ─────────────────────────────────────────────────── */
@@ -477,14 +521,32 @@ function forwardTo(chatId2) {
 
 
 function scrollBottom(smooth = true) {
+  if (els.toBottom) els.toBottom.hidden = true;
+  autoScrolling = true;
   els.msgs.scrollTo({ top: els.msgs.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  clearTimeout(scrollBottom._t);
+  scrollBottom._t = setTimeout(() => {
+    /* страховка: если браузер не анимировал плавный скролл — прыгаем вниз */
+    if (!isNearBottom()) els.msgs.scrollTop = els.msgs.scrollHeight;
+    autoScrolling = false;
+    updateToBottom();
+  }, smooth ? 420 : 0);
+}
+
+function isNearBottom() {
+  return els.msgs.scrollHeight - els.msgs.scrollTop - els.msgs.clientHeight < 160;
+}
+
+function updateToBottom() {
+  if (!els.toBottom || autoScrolling) return;
+  els.toBottom.hidden = !S.active || isNearBottom();
 }
 
 /* ── разметка сообщения ────────────────────────────────────── */
 function msgHtml(m, first) {
   const mine = m.sender === 'u_me';
   const u = mine ? S.me : user(m.sender);
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}`;
+  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const tools = m.deleted ? '' : toolsHtml(m, mine);
@@ -523,32 +585,85 @@ function bubbleHtml(m, mine) {
 
 function pollHtml(m) {
   const opts = Array.isArray(m.poll?.o) ? m.poll.o : [];
-  const { counts, voters, mine } = tallyPoll(m);
+  const { counts, voters, mine, closed, votersByOption } = tallyPoll(m);
   const rows = opts.map((label, i) => {
     const pct = voters ? Math.round((counts[i] / voters) * 100) : 0;
     const on = mine.includes(i);
-    return `<button type="button" class="poll-opt${on ? ' on' : ''}" data-poll-opt="${i}">
+    const names = m.poll?.anon
+      ? ''
+      : (votersByOption[i] || [])
+        .map((uid) => user(uid).name)
+        .slice(0, 3)
+        .join(', ') + ((votersByOption[i] || []).length > 3 ? ' +' + ((votersByOption[i] || []).length - 3) : '');
+    return `<button type="button" class="poll-opt${on ? ' on' : ''}${closed ? ' closed' : ''}" data-poll-opt="${i}">
       <span class="poll-fill" style="width:${pct}%"></span>
       <span class="poll-mark">${on ? icon('check', 12) : ''}</span>
-      <span class="poll-label">${esc(label)}</span>
+      <span class="poll-text">
+        <span class="poll-label">${esc(label)}</span>
+        ${names ? `<span class="poll-who">${esc(names)}</span>` : ''}
+      </span>
       <span class="poll-count">${counts[i]}</span>
     </button>`;
   }).join('');
 
-  const hint = m.poll?.multi ? t('poll.hintMulti') : t('poll.hint');
-  return `<div class="poll">
+  const hint = closed
+    ? t('poll.closed')
+    : (mine.length ? t('poll.yourVote') : (m.poll?.multi ? t('poll.hintMulti') : t('poll.hint')));
+  const canClose = m.sender === 'u_me' && !closed;
+
+  return `<div class="poll${closed ? ' poll-ended' : ''}">
     <div class="poll-head">${icon('poll', 16)}<span>${esc(m.poll?.q || m.text || '')}</span></div>
     <div class="poll-opts">${rows}</div>
-    <div class="poll-meta"><span>${t('poll.votes')}: ${voters}</span><span>${mine.length ? t('poll.yourVote') : hint}</span></div>
+    <div class="poll-meta"><span>${t('poll.votes')}: ${voters}</span><span>${hint}</span></div>
+    ${canClose ? `<button type="button" class="poll-close" data-poll-close="${m.id}">${t('poll.close')}</button>` : ''}
   </div>`;
+}
+
+/* Реакции: последнее событие пользователя по каждому эмодзи */
+function tallyReactions(raw) {
+  const latest = new Map();
+
+  for (const x of raw) {
+    if (x.type !== 'rx' || !x.reaction) continue;
+    const r = x.reaction;
+    const key = `${x.sender}|${r.m}|${r.e}`;
+    const prev = latest.get(key);
+    if (!prev || (x.ts || 0) >= (prev.ts || 0)) latest.set(key, x);
+  }
+
+  const touched = new Set();
+  const byMessage = new Map();
+
+  for (const x of latest.values()) {
+    const id = x.reaction.m;
+    touched.add(id);
+    if (!x.reaction.on) continue;
+    if (!byMessage.has(id)) byMessage.set(id, new Map());
+    const emojiMap = byMessage.get(id);
+    if (!emojiMap.has(x.reaction.e)) emojiMap.set(x.reaction.e, []);
+    emojiMap.get(x.reaction.e).push(x.sender);
+  }
+
+  const out = new Map();
+  for (const id of touched) {
+    const emojiMap = byMessage.get(id);
+    out.set(id, emojiMap
+      ? [...emojiMap.entries()].map(([e, by]) => ({ e, by }))
+      : []);
+  }
+  return out;
 }
 
 /* Последний голос каждого участника; для мультивыбора — весь набор */
 function tallyPoll(pollMsg) {
   const all = S.messages[S.active] || [];
   const latest = new Map();
+  let closed = false;
 
   for (const m of all) {
+    if (m.type === 'pollclose' && m.close?.p === pollMsg.id && m.sender === pollMsg.sender) {
+      closed = true;
+    }
     if (m.type !== 'vote' || !m.vote || m.vote.p !== pollMsg.id) continue;
     const prev = latest.get(m.sender);
     if (!prev || (m.ts || 0) >= (prev.ts || 0)) latest.set(m.sender, m);
@@ -556,6 +671,7 @@ function tallyPoll(pollMsg) {
 
   const total = Array.isArray(pollMsg.poll?.o) ? pollMsg.poll.o.length : 0;
   const counts = Array(total).fill(0);
+  const votersByOption = Array.from({ length: total }, () => []);
   let voters = 0;
   let mine = [];
 
@@ -563,15 +679,19 @@ function tallyPoll(pollMsg) {
     const v = (m.vote.v || []).filter((i) => Number.isInteger(i) && i >= 0 && i < total);
     if (!v.length) continue;
     voters++;
-    for (const i of v) counts[i]++;
+    for (const i of v) {
+      counts[i]++;
+      votersByOption[i].push(uid);
+    }
     if (uid === 'u_me' || uid === S.me?.id) mine = v;
   }
 
-  return { counts, voters, mine };
+  return { counts, voters, mine, closed, votersByOption };
 }
 
 function votePollOption(m, index) {
-  const { mine } = tallyPoll(m);
+  const { mine, closed } = tallyPoll(m);
+  if (closed) return;
   let next;
 
   if (m.poll?.multi) {
@@ -625,15 +745,9 @@ const fmtSize = (b) => b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 
 
 /* ── реакции ───────────────────────────────────────────────── */
 function toggleReaction(m, emoji) {
-  m.reactions = m.reactions || [];
-  const r = m.reactions.find((x) => x.e === emoji);
-  if (r?.by.includes('u_me')) {
-    r.by = r.by.filter((x) => x !== 'u_me');
-    if (!r.by.length) m.reactions = m.reactions.filter((x) => x.e !== emoji);
-  } else if (r) r.by.push('u_me');
-  else m.reactions.push({ e: emoji, by: ['u_me'] });
+  const mine = (m.reactions || []).some((r) => r.e === emoji && r.by.includes('u_me'));
   S.reactOpen = null;
-  idb.put('messages', m).then(renderMessages);
+  sendReaction(m, emoji, !mine);
 }
 
 /* ── голосовые: реальное аудио или демо-анимация ───────────── */

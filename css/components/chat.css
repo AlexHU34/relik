@@ -69,7 +69,8 @@
 .msg-img img{width:100%;display:block}
 
 /* Файл */
-.file-row{display:flex;align-items:center;gap:10px;padding:3px 2px 2px}
+.file-row{display:flex;align-items:center;gap:10px;padding:3px 2px 2px;cursor:pointer;border-radius:10px}
+.file-row:hover{background:var(--surface-2)}
 .file-ic{width:42px;height:42px;border-radius:12px;background:var(--accent-soft);color:var(--indigo);display:grid;place-items:center;flex:none}
 .file-info{display:grid;gap:2px;min-width:0}
 .file-name{font-weight:600;font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -93,6 +94,7 @@
 }
 .rx b{font-size:var(--fs-2xs);font-weight:600;color:var(--tx-2)}
 .rx:hover{transform:scale(1.1)}
+.rx{animation:pop .18s var(--ease)}
 .rx.mine{background:var(--accent-soft);border-color:var(--accent-glow)}
 
 /* Быстрый выбор реакции (панель) */
@@ -113,6 +115,8 @@
   transition:opacity var(--t-fast),translate var(--t-fast);box-shadow:var(--sh-1);
 }
 .msg:hover .tools{opacity:1;pointer-events:auto;translate:0 0}
+.msg.tools-open .tools{opacity:1;pointer-events:auto;translate:0 0}
+.msg.tools-open .bubble{border-color:var(--accent-glow)}
 .msg.mine .tools{right:auto;left:10px}
 .tools button{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--tx-2)}
 .tools button:hover{background:var(--surface-3);color:var(--tx)}
@@ -172,11 +176,28 @@
 }
 .poll-opt.on .poll-fill{background:linear-gradient(90deg,var(--accent-soft),transparent)}
 .poll-mark{position:relative;width:16px;flex:none;color:var(--indigo);display:grid;place-items:center}
-.poll-label{position:relative;flex:1;min-width:0;font-size:var(--fs-sm);line-height:1.35;word-break:break-word}
+.poll-text{position:relative;flex:1;min-width:0;display:grid;gap:1px}
+.poll-label{font-size:var(--fs-sm);line-height:1.35;word-break:break-word}
+.poll-who{font-size:10px;color:var(--tx-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .poll-count{position:relative;font-size:var(--fs-xs);font-weight:700;color:var(--tx-2);font-variant-numeric:tabular-nums;flex:none}
 .poll-meta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:var(--fs-2xs);color:var(--tx-3)}
+.poll-opt.closed{cursor:default}
+.poll-ended .poll-opt:hover{border-color:var(--line);background:var(--surface-2)}
+.poll-close{justify-self:start;font-size:var(--fs-xs);font-weight:600;color:var(--indigo);padding:2px 0}
+.poll-close:hover{text-decoration:underline}
 
 /* Редактор опроса в модалке */
 .poll-options-edit{display:grid;gap:6px;margin-bottom:8px}
 .poll-opt-edit{display:flex;gap:6px;align-items:center}
 .poll-opt-edit .input{flex:1;min-width:0}
+
+/* Кнопка «вниз» */
+.to-bottom{
+  position:absolute;right:max(14px,calc((100% - 920px)/2));bottom:calc(88px + env(safe-area-inset-bottom));
+  width:42px;height:42px;border-radius:50%;display:grid;place-items:center;
+  background:var(--raise);border:1px solid var(--line-2);color:var(--tx-2);
+  box-shadow:var(--sh-pop);z-index:8;
+  transition:background var(--t-fast),color var(--t-fast),transform var(--t-fast);
+}
+.to-bottom:hover{background:var(--surface-3);color:var(--tx);transform:translateY(-2px)}
+html[data-device="phone"] .to-bottom{right:12px;bottom:calc(78px + env(safe-area-inset-bottom));width:40px;height:40px}
