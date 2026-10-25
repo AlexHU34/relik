@@ -5,7 +5,7 @@ import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
 import { SUPABASE } from '../config.js';
-import { deliverMessage, markRead, renderMessages, refreshPollCard, refreshMessageReactions } from './chatView.js';
+import { deliverMessage, renderMessages, refreshPollCard, refreshMessageReactions } from './chatView.js';
 import { renderSidebar } from './sidebar.js';
 import { toast } from './toast.js';
 import { playSent } from './sounds.js';
@@ -312,7 +312,6 @@ export async function sendCurrent() {
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
-    setTimeout(() => markRead(chat.id, msg.id), 1300);
   } catch (err) {
     console.error('Send message error:', err);
     msg.status = 'error';
@@ -339,7 +338,6 @@ export async function retryMessage(m) {
     m.status = 'sent';
     delete m.error;
     await idb.put('messages', m);
-    setTimeout(() => markRead(chat.id, m.id), 1300);
   } catch (err) {
     console.error('Retry message error:', err);
     m.status = 'error';
@@ -660,7 +658,6 @@ async function sendMediaPayload(payload, chatId = S.active) {
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
-    setTimeout(() => markRead(chat.id, msg.id), 1300);
   } catch (err) {
     console.error('Media send error:', err);
     msg.status = 'error';

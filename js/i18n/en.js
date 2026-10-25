@@ -150,6 +150,8 @@ export default {
   'msg.file': 'File',
   'msg.voice': 'Voice message',
   'msg.deleted': 'Message deleted',
+  'msg.delivered': 'Delivered',
+  'msg.read': 'Read',
   'msg.edited': 'edited',
   'msg.reply': 'Reply',
   'msg.react': 'React',

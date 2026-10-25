@@ -16,7 +16,7 @@ import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
-import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia } from '../backend/messages.js';
+import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead } from '../backend/messages.js';
 
 const PAGE_SIZE = 240;
 
@@ -32,6 +32,8 @@ let pollTimer = null;           // страховочный опрос акти�
 let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
 let autoScrolling = false;
+const readMarks = new Map();    // chatId -> { upto, at } — последняя отправленная отметка
+const demoReads = new Set();    // сообщения, для которых демо уже «прочитало»
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
@@ -193,6 +195,7 @@ export function initChatView() {
   /* вернулись в браузер/вкладку — сразу подтягиваем новые сообщения */
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && activeSyncTick) activeSyncTick();
+    if (document.visibilityState === 'visible' && S.active) sendReadUpto(S.active);
   });
 
   /* тап мимо сообщения закрывает панель действий */
@@ -322,9 +325,143 @@ function closeReact() {
 function mergeMessages(server, local) {
   const map = new Map(server.map((m) => [m.id, m]));
   for (const m of local) {
-    if (!map.has(m.id)) map.set(m.id, m);
+    const s = map.get(m.id);
+    if (!s) map.set(m.id, m);
+    else if (m.status === 'read') s.status = 'read'; // локальная отметка прочтения не теряется
   }
   return [...map.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
+/* ── Прочтение: скрытые read-события, без новых таблиц и RLS ── */
+function readUptos(raw) {
+  const map = new Map();
+  for (const x of raw) {
+    if (x.type !== 'read' || !x.read) continue;
+    if (x.sender === 'u_me' || x.sender === S.me?.id) continue;
+    const upto = Number(x.read.upto) || 0;
+    if (upto > (map.get(x.sender) || 0)) map.set(x.sender, upto);
+  }
+  return map;
+}
+
+function requiredReaders(chat) {
+  if (!chat) return [];
+  if (chat.kind === 'group') return [...new Set((chat.members || []).filter(Boolean))];
+  return chat.userId ? [chat.userId] : [];
+}
+
+/* Пересчитать галочки у своих сообщений по последним read-событиям */
+function applyReadState(chatId) {
+  const chat = chatById(chatId);
+  if (!chat) return;
+  const raw = S.messages[chatId] || [];
+  const reads = readUptos(raw);
+  const req = requiredReaders(chat);
+  if (!req.length) return;
+
+  /* в группе две галочки — когда прочитали все участники */
+  let upto = Infinity;
+  for (const uid of req) upto = Math.min(upto, reads.get(uid) || 0);
+  if (!Number.isFinite(upto)) upto = 0;
+
+  const changed = [];
+  for (const m of raw) {
+    if (m.sender !== 'u_me' || m.hidden || m.deleted) continue;
+    if (m.status === 'sending' || m.status === 'error') continue;
+    const desired = upto > 0 && m.ts <= upto ? 'read' : 'sent';
+    if (m.status !== desired) {
+      m.status = desired;
+      changed.push(m);
+      refreshTicks(m);
+    }
+  }
+  if (changed.length) idb.bulkPut('messages', changed).catch(() => {});
+}
+
+function refreshTicks(m) {
+  if (S.active !== m.chatId) return;
+  const el = els.msgs?.querySelector(`[data-mid="${nonzeroEscape(m.id)}"]`);
+  if (!el) return;
+  const meta = el.querySelector('.msg-meta');
+  if (!meta) return;
+  const html = ticksHtml(m, true);
+  const old = meta.querySelector('.ticks');
+  if (html) {
+    if (old) old.outerHTML = html;
+    else meta.insertAdjacentHTML('beforeend', html);
+  } else if (old) {
+    old.remove();
+  }
+}
+
+/* Сообщить другим, что мы дочитали до upto (не чаще раза в ~1,5 с) */
+function sendReadUpto(chatId) {
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+  const chat = chatById(chatId);
+  if (!chat) return;
+  const list = (S.messages[chatId] || []).filter((m) => !m.hidden && !m.deleted);
+  const last = list[list.length - 1];
+  const upto = last?.ts || 0;
+  if (!upto) return;
+
+  const prev = readMarks.get(chatId) || { upto: 0, at: 0, timer: 0 };
+  if (upto <= prev.upto) return;
+
+  const now = Date.now();
+  const wait = 1400 - (now - prev.at);
+  if (wait > 0) {
+    clearTimeout(prev.timer);
+    prev.timer = setTimeout(() => sendReadUpto(chatId), wait);
+    readMarks.set(chatId, prev);
+    return;
+  }
+
+  readMarks.set(chatId, { upto, at: now, timer: 0 });
+  const event = {
+    id: newId(), chatId, sender: 'u_me', ts: now,
+    type: 'read', hidden: true, read: { upto }, text: '', reactions: [], status: 'sending',
+  };
+  S.messages[chatId] = S.messages[chatId] || [];
+  S.messages[chatId].push(event);
+  idb.put('messages', event).catch(() => {});
+
+  sendMessage(chatId, encodeRead(upto), null, chat.kind, chat.publicKey, event.id)
+    .then(() => { event.status = 'sent'; idb.put('messages', event).catch(() => {}); })
+    .catch((err) => {
+      console.warn('Read receipt error:', err);
+      S.messages[chatId] = (S.messages[chatId] || []).filter((x) => x.id !== event.id);
+      idb.del('messages', event.id).catch(() => {});
+      readMarks.delete(chatId);
+    });
+}
+
+/* В демо нет второго устройства — имитируем прочтение, чтобы было видно ✓✓ */
+function scheduleDemoRead(chatId, msg) {
+  if (SUPABASE.url && SUPABASE.anonKey) return;
+  if (!msg || msg.sender !== 'u_me' || msg.hidden || msg.type === 'read') return;
+  if (demoReads.has(msg.id)) return;
+  demoReads.add(msg.id);
+  const chat = chatById(chatId);
+  if (!chat) return;
+  const readers = chat.kind === 'group'
+    ? [...new Set((chat.members || []).filter(Boolean))]
+    : (chat.userId ? [chat.userId] : []);
+  if (!readers.length) return;
+
+  setTimeout(() => {
+    if (!chatById(chatId)) return;
+    if (!(S.messages[chatId] || []).some((x) => x.id === msg.id)) return;
+    for (const uid of readers) {
+      const ev = {
+        id: newId(), chatId, sender: uid, ts: Date.now(),
+        type: 'read', hidden: true, read: { upto: msg.ts }, text: '', reactions: [], status: 'sent',
+      };
+      S.messages[chatId] = S.messages[chatId] || [];
+      S.messages[chatId].push(ev);
+      idb.put('messages', ev).catch(() => {});
+    }
+    applyReadState(chatId);
+  }, 2400 + Math.random() * 900);
 }
 
 function stopActiveSync() {
@@ -364,14 +501,20 @@ function startActiveSync(id, chat) {
         }
       }
 
+      applyReadState(id);
+
       if (added) {
         /* сообщения пришли сами — перерисовываем без перезагрузки страницы */
         const st = els.msgs.scrollTop + els.msgs.clientHeight >= els.msgs.scrollHeight - 140;
         const incoming = fresh.some((m) => m.sender !== 'u_me' && !m.hidden);
         if (!st && incoming) unseenCount += fresh.filter((m) => m.sender !== 'u_me' && !m.hidden).length;
         renderMessages();
-        if (st) scrollBottom();
-        else updateToBottom();
+        if (st) {
+          scrollBottom();
+          sendReadUpto(id);
+        } else {
+          updateToBottom();
+        }
         if (incoming) updateReadReceipt(id).catch(() => {});
       }
 
@@ -432,9 +575,11 @@ export async function openChat(id) {
 
   /* Мгновенно показываем кэш, сеть — фоном */
   S.messages[id] = await idb.messagesOf(id);
+  applyReadState(id);
   showChat();
   scrollToStartPosition(id);
   renderSidebar();
+  sendReadUpto(id);
 
   /* черновик и закреплённое */
   try {
@@ -456,9 +601,18 @@ export async function openChat(id) {
         if (S.active !== id) return;
         /* сервер — источник правды, но локальные «отправляется/ошибка» не теряем */
         S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
+        applyReadState(id);
         renderMessages();
         await updateReadReceipt(id).catch(() => {});
         setReadAt(id);
+        sendReadUpto(id);
+        /* зависшие в «отправляется» после аварийного закрытия — пробуем дослать */
+        if (navigator.onLine !== false) {
+          S.messages[id]
+            .filter((m) => m.sender === 'u_me' && m.status === 'sending' && Date.now() - (m.ts || 0) > 20000)
+            .slice(0, 8)
+            .forEach((m) => retryMessage(m));
+        }
         const lastMsg = [...msgs].reverse().find((m) => !m.hidden);
         if (lastMsg) {
           chat.last = { ts: lastMsg.ts, from: lastMsg.sender, type: lastMsg.type, text: lastMsg.text || '' };
@@ -482,10 +636,11 @@ export async function openChat(id) {
         S.messages[id] = S.messages[id] || [];
         if (S.messages[id].some((x) => x.id === msg.id)) return;
         S.messages[id].push(msg);
-        if (msg.sender !== 'u_me' && !isMuted(id)) playMessage();
+        if (msg.sender !== 'u_me' && !msg.hidden && !isMuted(id)) playMessage();
         if (msg.hidden) {
-          /* голос/реакция/закрытие: обновляем только нужный блок */
-          if (msg.type === 'vote' && msg.vote?.p) refreshPollCard(msg.vote.p);
+          /* голос/реакция/закрытие/прочтение: обновляем только нужный блок */
+          if (msg.type === 'read') applyReadState(id);
+          else if (msg.type === 'vote' && msg.vote?.p) refreshPollCard(msg.vote.p);
           else if (msg.type === 'pollclose' && msg.close?.p) refreshPollCard(msg.close.p);
           else if (msg.type === 'rx' && msg.reaction?.m) refreshMessageReactions(msg.reaction.m);
           else if (S.active === id) renderMessages();
@@ -495,8 +650,12 @@ export async function openChat(id) {
           const near = isNearBottom();
           if (!near && msg.sender !== 'u_me') unseenCount++;
           renderMessages();
-          if (near) scrollBottom();
-          else updateToBottom();
+          if (near) {
+            scrollBottom();
+            if (!document.hidden) sendReadUpto(id);
+          } else {
+            updateToBottom();
+          }
         }
         const c = chatById(id);
         if (c) {
@@ -892,11 +1051,13 @@ function isNearBottom() {
 
 function updateToBottom() {
   if (!els.toBottom || autoScrolling) return;
-  const show = !!(S.active && (!isNearBottom() || unseenCount > 0));
+  const near = isNearBottom();
+  const show = !!(S.active && (!near || unseenCount > 0));
   els.toBottom.hidden = !show;
   if (!show) unseenCount = 0;
   els.toBottom.innerHTML = icon('arrowDown', 18) +
     (unseenCount ? `<span class="tb-count">${unseenCount > 9 ? '9+' : unseenCount}</span>` : '');
+  if (near && S.active && document.visibilityState !== 'hidden') sendReadUpto(S.active);
 }
 
 /* ── разметка сообщения ────────────────────────────────────── */
@@ -1125,21 +1286,23 @@ function votePollOption(m, index) {
   votePoll(m, next);
 }
 
+function ticksHtml(m, mine) {
+  if (!mine || m.deleted) return '';
+  if (m.status === 'error') {
+    return `<button class="ticks err" data-act="retry" title="${t('comp.sendOffline')}">${icon('alert', 13)}</button>`;
+  }
+  if (m.status === 'sending') {
+    return `<span class="ticks sending" title="${t('comp.sending')}">${icon('clock', 13)}</span>`;
+  }
+  if (m.status === 'read') {
+    return `<span class="ticks read" title="${t('msg.read')}">${icon('check2', 13)}</span>`;
+  }
+  return `<span class="ticks" title="${t('msg.delivered')}">${icon('check', 13)}</span>`;
+}
+
 function metaHtml(m, mine) {
   const edited = m.edited ? `<span class="msg-edited">${t('msg.edited')}</span>` : '';
-  let ticks = '';
-  if (mine && !m.deleted) {
-    if (m.status === 'error') {
-      ticks = `<button class="ticks err" data-act="retry" title="${t('comp.sendOffline')}">${icon('alert', 13)}</button>`;
-    } else if (m.status === 'sending') {
-      ticks = `<span class="ticks sending" title="${t('comp.sending')}">${icon('clock', 13)}</span>`;
-    } else if (m.status === 'read') {
-      ticks = `<span class="ticks read">${icon('check2', 13)}</span>`;
-    } else {
-      ticks = `<span class="ticks">${icon('check', 13)}</span>`;
-    }
-  }
-  return `<div class="msg-meta"><span>${fmtTime(m.ts)}</span>${edited}${ticks}</div>`;
+  return `<div class="msg-meta"><span>${fmtTime(m.ts)}</span>${edited}${ticksHtml(m, mine)}</div>`;
 }
 
 function toolsHtml(m, mine) {
@@ -1301,6 +1464,7 @@ export async function deliverMessage(chatId, msg) {
   chat.last = { ts: msg.ts, from: msg.sender, type: msg.type, text: msg.text || '' };
   if (S.active !== chatId) chat.unread = (chat.unread || 0) + 1;
   await idb.put('chats', chat);
+  if (msg.sender === 'u_me' && !msg.hidden) scheduleDemoRead(chatId, msg);
   if (S.active === chatId) {
     const near = isNearBottom();
     if (!near && msg.sender !== 'u_me') unseenCount++;
@@ -1311,14 +1475,6 @@ export async function deliverMessage(chatId, msg) {
   }
   renderSidebar();
   if (msg.sender !== 'u_me' && !isMuted(chatId)) playMessage();
-}
-
-/* «Доставлено → прочитано» имитация для своих сообщений */
-export function markRead(chatId, msgId) {
-  const m = (S.messages[chatId] || []).find((x) => x.id === msgId);
-  if (!m || m.status === 'read') return;
-  m.status = 'read';
-  idb.put('messages', m).then(renderMessages);
 }
 
 /* Перечитать (при смене языка/обновлении) */

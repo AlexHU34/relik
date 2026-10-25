@@ -311,14 +311,16 @@ export async function loadChats() {
       try {
         const latest = await loadLatestPreviews();
         for (const chat of S.chats) {
-          const row = latest.get(chat.id);
-          if (!row) continue;
-          const ts = new Date(row.created_at).getTime();
-          if ((chat.last?.ts || 0) >= ts) continue;
-          const text = await previewTextFor(row, chat);
-          if (text == null) continue;
-          const mine = row.sender_id === S.me?.id;
-          chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
+          const rows = latest.get(chat.id) || [];
+          for (const row of rows) {
+            const ts = new Date(row.created_at).getTime();
+            if ((chat.last?.ts || 0) >= ts) break;
+            const text = await previewTextFor(row, chat);
+            if (text == null) continue;
+            const mine = row.sender_id === S.me?.id;
+            chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
+            break;
+          }
         }
       } catch (err) {
         /* превью не критичны */

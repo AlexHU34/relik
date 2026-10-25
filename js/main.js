@@ -505,22 +505,24 @@ async function refreshChatListQuiet() {
     let audible = false;
 
     for (const chat of S.chats) {
-      const row = latest.get(chat.id);
-      if (!row) continue;
-      const ts = new Date(row.created_at).getTime();
-      if ((chat.last?.ts || 0) >= ts) continue;
+      const rows = latest.get(chat.id) || [];
+      for (const row of rows) {
+        const ts = new Date(row.created_at).getTime();
+        if ((chat.last?.ts || 0) >= ts) break;
 
-      const text = await previewTextFor(row, chat);
-      if (text == null) continue; // голос в опросе
-      const mine = row.sender_id === S.me.id;
-      chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
-      if (!mine) {
-        if (S.active !== chat.id) chat.unread = (chat.unread || 0) + 1;
-        incoming = true;
-        if (!isMuted(chat.id)) audible = true;
+        const text = await previewTextFor(row, chat);
+        if (text == null) continue; // голос/реакция/опрос/прочтение
+        const mine = row.sender_id === S.me.id;
+        chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
+        if (!mine) {
+          if (S.active !== chat.id) chat.unread = (chat.unread || 0) + 1;
+          incoming = true;
+          if (!isMuted(chat.id)) audible = true;
+        }
+        await idb.put('chats', chat);
+        changed = true;
+        break;
       }
-      await idb.put('chats', chat);
-      changed = true;
     }
 
     if (changed) renderSidebar();

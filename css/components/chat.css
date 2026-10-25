@@ -51,6 +51,9 @@
 .msg-meta{display:flex;justify-content:flex-end;align-items:center;gap:5px;font-size:var(--fs-2xs);color:var(--tx-3);margin-top:-1px}
 .msg.mine .msg-meta{color:var(--meta-mine,#a2abff)}
 .ticks{display:inline-flex;line-height:0}
+.ticks.sending .ic{animation:tickSpin 2.2s linear infinite;transform-origin:50% 50%}
+@keyframes tickSpin{to{transform:rotate(360deg)}}
+html[data-motion="off"] .ticks.sending .ic{animation:none}
 .ticks.read{color:var(--tick-read,#7ea6ff)}
 .ticks.sending{opacity:.6}
 .ticks.err{color:var(--bad);cursor:pointer;background:none;border:0;padding:0}

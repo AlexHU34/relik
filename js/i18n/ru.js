@@ -150,6 +150,8 @@ export default {
   'msg.file': 'Файл',
   'msg.voice': 'Голосовое',
   'msg.deleted': 'Сообщение удалено',
+  'msg.delivered': 'Доставлено',
+  'msg.read': 'Прочитано',
   'msg.edited': 'изменено',
   'msg.reply': 'Ответить',
   'msg.react': 'Реакция',

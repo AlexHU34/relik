@@ -20,6 +20,7 @@ const VOTE_PREFIX = '__relik_vote__:';
 const RX_PREFIX = '__relik_rx__:';
 const CLOSE_PREFIX = '__relik_pollclose__:';
 const MEDIA_PREFIX = '__relik_media__:';
+const READ_PREFIX = '__relik_read__:';
 
 export function encodePoll(poll) {
   return POLL_PREFIX + JSON.stringify(poll);
@@ -39,6 +40,10 @@ export function encodePollClose(pollId) {
 
 export function encodeMedia(media) {
   return MEDIA_PREFIX + JSON.stringify(media);
+}
+
+export function encodeRead(upto) {
+  return READ_PREFIX + JSON.stringify({ upto: Number(upto) || 0 });
 }
 
 export function decodeSpecial(text) {
@@ -62,6 +67,11 @@ export function decodeSpecial(text) {
   if (text.startsWith(CLOSE_PREFIX)) {
     try {
       return { kind: 'pollclose', close: JSON.parse(text.slice(CLOSE_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(READ_PREFIX)) {
+    try {
+      return { kind: 'read', read: JSON.parse(text.slice(READ_PREFIX.length)), text: '' };
     } catch (err) { return null; }
   }
   if (text.startsWith(MEDIA_PREFIX)) {
@@ -98,6 +108,11 @@ function applySpecial(m) {
       const v = s.media.voice || {};
       m.voice = { dur: v.dur || 0, bars: v.bars || [], rate: v.rate || 1, src: s.media.src };
     }
+    m.text = '';
+  } else if (s.kind === 'read') {
+    m.type = 'read';
+    m.hidden = true;
+    m.read = s.read;
     m.text = '';
   } else {
     m.type = 'pollclose';
@@ -157,7 +172,7 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     type: 'text',
     text,
     reactions: [],
-    status: 'read',
+    status: 'sent',
     replyTo: m.reply_to ? { id: m.reply_to } : null,
     edited: m.edited,
     deleted: m.deleted,
@@ -209,13 +224,17 @@ export async function loadLatestPreviews() {
     .from('messages')
     .select('conversation_id, sender_id, ciphertext, iv, created_at')
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(300);
 
   if (error) throw error;
 
+  /* на чат — несколько последних строк: служебные (реакции, голоса,
+     отметки прочтения) не должны скрывать обычное сообщение */
   const byChat = new Map();
   for (const row of data) {
-    if (!byChat.has(row.conversation_id)) byChat.set(row.conversation_id, row);
+    if (!byChat.has(row.conversation_id)) byChat.set(row.conversation_id, []);
+    const list = byChat.get(row.conversation_id);
+    if (list.length < 12) list.push(row);
   }
   return byChat;
 }
