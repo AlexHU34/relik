@@ -107,15 +107,29 @@
   function ms(n) { return Math.round(n) + ' мс'; }
 
   async function timeFetch(url, opts) {
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 8000);
     var t0 = performance.now();
-    var res = await fetch(url, Object.assign({ cache: 'no-store' }, opts || {}));
-    return { res: res, ms: performance.now() - t0 };
+    try {
+      var res = await fetch(url, Object.assign({ cache: 'no-store', signal: ctrl.signal }, opts || {}));
+      return { res: res, ms: performance.now() - t0 };
+    } finally {
+      clearTimeout(to);
+    }
   }
 
   async function run() {
     report.textContent = '—';
     sub.textContent = 'Проверяем…';
+    try {
+      await runChecks();
+    } catch (e) {
+      sub.textContent = 'Проверка прервана: ' + (e.message || e);
+    }
+  }
 
+  async function runChecks() {
+    var demo = /[?&]demo=1/.test(location.search);
     var cfgText = '';
     var cfg = { url: '', anon: '', turn: [], stun: [], version: '?' };
     try {
@@ -132,8 +146,8 @@
     }
 
     /* Supabase REST */
-    if (!cfg.url) {
-      set('db', 'warn', '—', 'Supabase не настроен (демо-режим)');
+    if (!cfg.url || demo) {
+      set('db', 'warn', '—', demo ? 'демо-режим: база не используется' : 'Supabase не настроен');
     } else {
       try {
         var t = await timeFetch(cfg.url + '/rest/v1/profiles?select=id&limit=1', {
@@ -147,7 +161,7 @@
     }
 
     /* Auth */
-    if (cfg.url) {
+    if (cfg.url && !demo) {
       try {
         var a = await timeFetch(cfg.url + '/auth/v1/health', { headers: { apikey: cfg.anon } });
         set('auth', a.res.ok ? 'ok' : 'warn', ms(a.ms), 'HTTP ' + a.res.status);
@@ -191,7 +205,8 @@
     /* IndexedDB */
     try {
       var dbs = indexedDB.databases ? await indexedDB.databases() : [];
-      set('idb', dbs.length ? 'ok' : 'warn', dbs.map(function (d) { return d.name; }).join(', ') || '—');
+      set('idb', dbs.length ? 'ok' : 'warn', dbs.map(function (d) { return d.name; }).join(', ') || '—',
+        dbs.length ? 'базы доступны' : 'IndexedDB пуста');
     } catch (e) {
       set('idb', 'warn', '—', 'нет доступа к IndexedDB');
     }
