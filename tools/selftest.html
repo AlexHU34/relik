@@ -76,6 +76,7 @@
 import * as keygen from '../js/crypto/keygen.js';
 import * as ecdh from '../js/crypto/ecdh.js';
 import * as enc from '../js/crypto/encryption.js';
+import { fingerprintForPair, rawPublicKeyBytes, formatFingerprint, fingerprintsEqual } from '../js/crypto/fingerprint.js';
 import { encodeMedia, decodeSpecial } from '../js/backend/messages.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from '../js/ui/richText.js';
 import { idb } from '../js/db/idb.js';
@@ -181,6 +182,59 @@ async function run() {
     const raw2 = keygen.toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', unwrapped)));
     if (raw1 !== raw2) throw new Error('self wrap mismatch');
     return 'same device pair';
+  });
+
+  await test('Fingerprint: канонизация публичного ключа', async () => {
+    const b64u = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const jwk = { kty: 'EC', crv: 'P-256', x: b64u(new Uint8Array(32).fill(1)), y: b64u(new Uint8Array(32).fill(2)) };
+    const raw = rawPublicKeyBytes(jwk);
+    if (raw.length !== 64) throw new Error('expected 64 bytes');
+    let failed = false;
+    try { rawPublicKeyBytes({ kty: 'EC', crv: 'P-384', x: jwk.x, y: jwk.y }); } catch (e) { failed = true; }
+    if (!failed) throw new Error('wrong curve accepted');
+    return 'x||y, 64 bytes';
+  });
+
+  await test('Fingerprint: одинаковый у обоих участников', async () => {
+    const a = await keygen.generateKeyPair();
+    const b = await keygen.generateKeyPair();
+    const ka = await keygen.exportPublicKey(a);
+    const kb = await keygen.exportPublicKey(b);
+    const x = await fingerprintForPair('user-a', ka, 'user-b', kb);
+    const y = await fingerprintForPair('user-b', kb, 'user-a', ka);
+    if (x.fullHex !== y.fullHex) throw new Error('order changed fingerprint');
+    return x.display;
+  });
+
+  await test('Fingerprint: известный вектор', async () => {
+    const b64u = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const ka = { kty: 'EC', crv: 'P-256', x: b64u(new Uint8Array(32).fill(1)), y: b64u(new Uint8Array(32).fill(2)) };
+    const kb = { kty: 'EC', crv: 'P-256', x: b64u(new Uint8Array(32).fill(3)), y: b64u(new Uint8Array(32).fill(4)) };
+    const r = await fingerprintForPair('user-a', ka, 'user-b', kb);
+    const expected = '9E4E-4EC2-FBD9-F0C1-43BA-47A9-C09F-167C';
+    if (r.display !== expected) throw new Error('got ' + r.display);
+    return 'SHA-256 v1';
+  });
+
+  await test('Fingerprint: смена id или ключа меняет код', async () => {
+    const a = await keygen.generateKeyPair();
+    const b = await keygen.generateKeyPair();
+    const ka = await keygen.exportPublicKey(a);
+    const kb = await keygen.exportPublicKey(b);
+    const base = await fingerprintForPair('user-a', ka, 'user-b', kb);
+    const otherId = await fingerprintForPair('user-c', ka, 'user-b', kb);
+    const otherKey = await fingerprintForPair('user-a', kb, 'user-b', kb);
+    if (base.fullHex === otherId.fullHex) throw new Error('id not bound');
+    if (base.fullHex === otherKey.fullHex) throw new Error('key not bound');
+    return 'id + key';
+  });
+
+  await test('Fingerprint: формат и сравнение', async () => {
+    const formatted = formatFingerprint('9e4e4ec2fbd9f0c1', 4, 4);
+    if (formatted !== '9E4E-4EC2-FBD9-F0C1') throw new Error('bad format: ' + formatted);
+    if (!fingerprintsEqual('9e4e-4ec2-fbd9-f0c1', '9E4E4EC2FBD9F0C1')) throw new Error('equal failed');
+    if (fingerprintsEqual('9E4E', '9E4F')) throw new Error('different accepted');
+    return '8×4 hex';
   });
 
   await test('Файл: шифрование байтов', async () => {

@@ -291,6 +291,7 @@ export default {
   'settings.lang': 'Interface language',
   'settings.diag': 'Voice & calls diagnostics',
   'settings.selftest': 'Module self-test',
+  'settings.security': 'Cryptography & threat model',
   'settings.install': 'Install the app',
   'settings.installed': 'Relik installed',
   'settings.theme': 'Theme',

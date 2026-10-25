@@ -291,6 +291,7 @@ export default {
   'settings.lang': 'Язык интерфейса',
   'settings.diag': 'Диагностика звонков и голоса',
   'settings.selftest': 'Самопроверка модулей',
+  'settings.security': 'Криптография и модель угроз',
   'settings.install': 'Установить приложение',
   'settings.installed': 'Relik установлен',
   'settings.theme': 'Тема',
