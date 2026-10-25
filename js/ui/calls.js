@@ -563,7 +563,12 @@ function endCall(notify = true, reason = '') {
   if (state === 'idle') return;
 
   if (notify && peerId && callId) {
-    sendCallSignal(peerId, { type: 'end', callId, from: me() });
+    const signal = { type: 'end', callId, from: me() };
+    const to = peerId;
+    sendCallSignal(to, signal);
+    /* Broadcast может потеряться при плохой сети — повторяем */
+    setTimeout(() => sendCallSignal(to, signal), 450);
+    setTimeout(() => sendCallSignal(to, signal), 1200);
   }
 
   clearTimeout(ringTimeout);

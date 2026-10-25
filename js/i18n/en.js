@@ -66,6 +66,8 @@ export default {
   'auth.welcomeLogin': 'Welcome back!',
   'auth.welcomeSignup': 'Account created. Welcome!',
   'auth.note': 'Demo mode: data stays in this browser only',
+  'auth.sessionExpired': 'Your session has expired. Sign in again — users and messages will load after that.',
+  'auth.otherTab': 'Another account signed in in another tab. For two accounts, use a separate incognito window or browser profile.',
   'auth.demo': 'Explore the demo without signing up',
   'auth.forgot': 'Forgot password?',
   'auth.resetSent': 'Password reset email sent',
@@ -305,6 +307,7 @@ export default {
   'group.e2eChecking': 'Checking group encryption…',
   'group.e2eOn': '🔒 Group end-to-end encryption is on',
   'group.e2eOff': '⚠️ E2E is off: run supabase/v1.4.sql in the Supabase SQL Editor',
+  'group.searchError': 'Could not load users. Check your session and connection, then type again.',
 
   'settings.title': 'Settings',
   'settings.name': 'Name',

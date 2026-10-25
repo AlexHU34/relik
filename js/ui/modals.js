@@ -969,6 +969,7 @@ async function paintGroupContacts() {
   const q = $('#gcSearch').value.toLowerCase().trim();
 
   let users;
+  let failed = false;
   if (SUPABASE.url && SUPABASE.anonKey) {
     try {
       const profiles = await searchUsers(q);
@@ -978,6 +979,7 @@ async function paintGroupContacts() {
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
+      failed = true;
       users = S.users.filter((u) => !u.id.startsWith('u_') && (!q || u.name.toLowerCase().includes(q.toLowerCase())));
     }
   } else {
@@ -993,7 +995,7 @@ async function paintGroupContacts() {
         <span class="n">${esc(u.name)}${adminBadge(u)}</span>
       </span>
     </button>
-  `).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
+  `).join('') || `<div class="nc-hint">${t(failed ? 'group.searchError' : 'newchat.empty')}</div>`;
 
   wrap.querySelectorAll('[data-gc-uid]').forEach((btn) => {
     btn.addEventListener('click', () => {

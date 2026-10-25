@@ -197,26 +197,30 @@ export async function getProfile(userId) {
 /* ── Поиск пользователей по имени или @username (пустой запрос — все контакты) ── */
 export async function searchUsers(query) {
   const q = String(query || '').trim().replace(/^@+/, '');
-  const withUser = await hasUsernameColumn();
-  const withAvatar = await hasAvatarColumn();
-  const withRole = await hasRoleColumn();
-  const cols = `id, display_name, avatar_hue, public_key, last_seen${withAvatar ? ', avatar' : ''}${withUser ? ', username' : ''}${withRole ? ', role' : ''}`;
-  let req = sb
-    .from('profiles')
-    .select(cols)
-    .order('display_name')
-    .limit(30);
+  const safe = q.replace(/[,()]/g, ' ').trim();
+  const attempts = [
+    { username: true, avatar: true, role: true },
+    { username: true, avatar: true, role: false },
+    { username: true, avatar: false, role: false },
+    { username: false, avatar: false, role: false },
+  ];
 
-  if (q) {
-    const safe = q.replace(/[,()]/g, ' ').trim();
-    req = withUser
-      ? req.or(`display_name.ilike.%${safe}%,username.ilike.%${safe}%`)
-      : req.ilike('display_name', `%${safe}%`);
+  let lastError = null;
+  for (const cols of attempts) {
+    const select = `id, display_name, avatar_hue, public_key, last_seen${cols.avatar ? ', avatar' : ''}${cols.username ? ', username' : ''}${cols.role ? ', role' : ''}`;
+    let req = sb.from('profiles').select(select).order('display_name').limit(50);
+    if (q) {
+      req = cols.username
+        ? req.or(`display_name.ilike.%${safe}%,username.ilike.%${safe}%`)
+        : req.ilike('display_name', `%${safe}%`);
+    }
+    const { data, error } = await req;
+    if (!error) return data || [];
+    lastError = error;
+    /* 42703 / schema cache — колонки нет: пробуем следующий набор */
+    if (!/42703|column.*does not exist|schema cache/i.test(error.message || '')) break;
   }
-
-  const { data, error } = await req;
-  if (error) throw error;
-  return data;
+  throw lastError || new Error('Profiles search failed');
 }
 
 /* ── Получение участников чата ── */

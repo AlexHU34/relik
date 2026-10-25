@@ -445,6 +445,28 @@ function routeAfterLogin() {
   renderSidebar();
 }
 
+/* ── проверка, что Supabase-сессия ещё жива ───────────────── */
+let sessionCheckedAt = 0;
+async function validateSession(force = false) {
+  if (!isRealBackend || !S.me?.id) return;
+  if (!force && Date.now() - sessionCheckedAt < 60000) return;
+  sessionCheckedAt = Date.now();
+  try {
+    const { data, error } = await sb.auth.getUser();
+    if (error || !data?.user) {
+      const msg = error?.message || '';
+      if (/jwt|session|401|invalid|missing/i.test(msg)) {
+        S.me = null;
+        S.chats = [];
+        S.active = null;
+        S.messages = {};
+        showAuth();
+        toast(t('auth.sessionExpired'), { type: 'error' });
+      }
+    }
+  } catch (e) { /* офлайн — не выкидываем из аккаунта */ }
+}
+
 /* ── кнопки сайдбара и шапки ── */
 function initChrome() {
   $('#newChatBtn').addEventListener('click', openNewChat);
@@ -757,9 +779,10 @@ async function boot() {
   if (isRealBackend) {
     setInterval(updateLastSeen, 30000);
     /* при возврате в окно — обновить чаты и статусы */
-    window.addEventListener('focus', () => {
-      if (S.me) reloadChats().then(() => retryOutbox()).catch(() => {});
-    });
+  window.addEventListener('focus', () => {
+    if (S.me) reloadChats().then(() => retryOutbox()).catch(() => {});
+    validateSession();
+  });
   }
 
   /* сервис-воркер регистрируется в initServiceWorker() выше */
@@ -888,9 +911,29 @@ window.addEventListener('online', () => {
   reloadChats().catch(() => {});
 });
 
+/* Вторая вкладка не должна незаметно ломать сессию первой */
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'relik-auth' || !e.newValue || !S.me) return;
+  try {
+    const data = JSON.parse(e.newValue);
+    const uid = data?.user?.id || data?.currentSession?.user?.id;
+    if (uid && uid !== S.me.id) {
+      S.me = null;
+      S.chats = [];
+      S.active = null;
+      S.messages = {};
+      showAuth();
+      toast(t('auth.otherTab'), { type: 'error', duration: 0 });
+    }
+  } catch (err) { /* не session JSON */ }
+});
+
 /* Вернулись во вкладку — тоже проверяем очередь исходящих */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && S.me) retryOutbox();
+  if (document.visibilityState === 'visible' && S.me) {
+    retryOutbox();
+    validateSession();
+  }
 });
 
 /* Заголовок и версия */
