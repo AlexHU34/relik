@@ -1,10 +1,10 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.5.1';
+const VER = 'relik-v1.6.0';
 const ASSETS = [
   './', './index.html', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
   './css/components/chat.css', './css/components/composer.css', './css/components/modals.css', './css/components/call.css',
-  './js/main.js', './js/config.js', './js/vendor/supabase.js',
+  './js/main.js', './js/config.js', './js/vendor/supabase.js', './js/vendor/qrcode.js',
   './js/i18n/i18n.js', './js/i18n/ru.js', './js/i18n/en.js',
   './js/db/idb.js', './js/data/mock.js', './js/data/emoji.js',
   './js/ui/state.js', './js/ui/utils.js', './js/ui/icons.js', './js/ui/toast.js',

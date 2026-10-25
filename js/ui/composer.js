@@ -34,7 +34,8 @@ export function initComposer() {
     emojiBtn: $('#emojiBtn'), emojiPop: $('#emojiPop'),
     recUi: $('#recUi'), recTime: $('#recTime'), recCancel: $('#recCancel'),
     attPhoto: $('#attPhoto'), attFile: $('#attFile'), attPoll: $('#attPoll'),
-    attAlbum: $('#attAlbum'), attVideo: $('#attVideo'), attCircle: $('#attCircle'),
+    attAlbum: $('#attAlbum'), attVideo: $('#attVideo'), attCircle: $('#attCircle'), attLater: $('#attLater'),
+    scheduleOv: $('#scheduleOv'), scheduleAt: $('#scheduleAt'), schedulePreview: $('#schedulePreview'), scheduleGo: $('#scheduleGo'),
     pollOv: $('#pollOv'), pollQuestion: $('#pollQuestion'), pollOptions: $('#pollOptions'), pollMulti: $('#pollMulti'), pollAnon: $('#pollAnon'),
   };
 
@@ -53,6 +54,7 @@ export function initComposer() {
   $('#attAlbumIc').innerHTML = icon('album', 17);
   $('#attVideoIc').innerHTML = icon('video', 17);
   $('#attCircleIc').innerHTML = icon('circle', 17);
+  $('#attLaterIc').innerHTML = icon('clock', 17);
   setSendMode('mic');
   initCircleRecorder();
 
@@ -105,10 +107,18 @@ export function initComposer() {
   els.attAlbum.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('album'); });
   els.attVideo.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('video'); });
   els.attCircle.addEventListener('click', () => { els.attachMenu.hidden = true; openCircleRecorder(); });
+  els.attLater.addEventListener('click', () => { els.attachMenu.hidden = true; openScheduleDialog(); });
   els.attFile.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('file'); });
   els.attPoll.addEventListener('click', () => { els.attachMenu.hidden = true; openPollCreator(); });
   $('#pollAddOpt').addEventListener('click', () => addPollOption());
   $('#pollCreate').addEventListener('click', createPollFromForm);
+  els.scheduleGo.addEventListener('click', saveScheduledFromDialog);
+  setInterval(processScheduled, 20000);
+  window.addEventListener('online', processScheduled);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') processScheduled();
+  });
+  processScheduled();
   els.pollOptions.addEventListener('click', (e) => {
     const rm = e.target.closest('[data-rm-opt]');
     if (!rm) return;
@@ -327,6 +337,98 @@ export async function sendCurrent() {
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
     toast(friendlySendError(err));
+  }
+}
+
+/* ── отложенные сообщения ─────────────────────────────────── */
+function localDateTimeValue(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function openScheduleDialog() {
+  if (!chatById(S.active)) return;
+  const text = els.ta.value.trim();
+  if (!text) { toast(t('sched.needText')); return; }
+  els.schedulePreview.textContent = text;
+  const inHour = new Date(Date.now() + 60 * 60 * 1000);
+  inHour.setSeconds(0, 0);
+  els.scheduleAt.value = localDateTimeValue(inHour.getTime());
+  els.scheduleOv.hidden = false;
+  setTimeout(() => els.scheduleAt.focus(), 50);
+}
+
+async function saveScheduledFromDialog() {
+  const chat = chatById(S.active);
+  const text = els.ta.value.trim();
+  const dueAt = new Date(els.scheduleAt.value || '').getTime();
+  if (!chat) return;
+  if (!text) { toast(t('sched.needText')); return; }
+  if (!Number.isFinite(dueAt) || dueAt < Date.now() + 1000) {
+    toast(t('sched.badTime'), { type: 'error' });
+    return;
+  }
+  const record = {
+    id: newId(),
+    chatId: chat.id,
+    text,
+    dueAt,
+    replyId: S.reply?.id || null,
+    replyBox: S.reply ? { ...S.reply } : null,
+  };
+  await idb.put('settings', { key: 'sched:' + record.id, value: record });
+  els.scheduleOv.hidden = true;
+  clearReplyEdit();
+  toast(t('sched.saved'), { type: 'success' });
+}
+
+let schedBusy = false;
+
+async function sendScheduled(item) {
+  const chat = chatById(item?.chatId);
+  if (!chat || !item?.text) return;
+  const msg = {
+    id: item.id || newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+    type: 'text', text: item.text, reactions: [],
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+    ...(item.replyBox ? { replyTo: item.replyBox } : {}),
+  };
+  await deliverMessage(chat.id, msg);
+  playSent();
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+  try {
+    await sendMessage(chat.id, item.text, item.replyId || null, chat.kind, chat.publicKey, msg.id);
+    msg.status = 'sent';
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+  } catch (err) {
+    console.error('Scheduled send error:', err);
+    msg.status = 'error';
+    msg.error = String(err?.message || '');
+    await idb.put('messages', msg);
+    if (S.active === chat.id) renderMessages();
+  }
+}
+
+export async function processScheduled() {
+  if (schedBusy || !S.me) return;
+  schedBusy = true;
+  try {
+    const all = await idb.getAll('settings');
+    const now = Date.now();
+    const due = all
+      .filter((rec) => String(rec.key).startsWith('sched:') && Number(rec.value?.dueAt) <= now)
+      .sort((a, b) => (a.value?.dueAt || 0) - (b.value?.dueAt || 0))
+      .slice(0, 20);
+    for (const rec of due) {
+      await idb.del('settings', rec.key);
+      await sendScheduled(rec.value);
+    }
+  } catch (err) {
+    console.warn('Scheduled messages error:', err);
+  } finally {
+    schedBusy = false;
   }
 }
 

@@ -22,6 +22,7 @@ const RX_PREFIX = '__relik_rx__:';
 const CLOSE_PREFIX = '__relik_pollclose__:';
 const MEDIA_PREFIX = '__relik_media__:';
 const READ_PREFIX = '__relik_read__:';
+const TTL_PREFIX = '__relik_ttl__:';
 
 export function encodePoll(poll) {
   return POLL_PREFIX + JSON.stringify(poll);
@@ -45,6 +46,10 @@ export function encodeMedia(media) {
 
 export function encodeRead(upto) {
   return READ_PREFIX + JSON.stringify({ upto: Number(upto) || 0 });
+}
+
+export function encodeTtl(seconds) {
+  return TTL_PREFIX + JSON.stringify({ sec: Number(seconds) || 0 });
 }
 
 export function decodeSpecial(text) {
@@ -78,6 +83,11 @@ export function decodeSpecial(text) {
   if (text.startsWith(MEDIA_PREFIX)) {
     try {
       return { kind: 'media', media: JSON.parse(text.slice(MEDIA_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(TTL_PREFIX)) {
+    try {
+      return { kind: 'ttl', ttl: JSON.parse(text.slice(TTL_PREFIX.length)), text: '' };
     } catch (err) { return null; }
   }
   return null;
@@ -141,6 +151,11 @@ function applySpecial(m) {
     m.hidden = true;
     m.read = s.read;
     m.text = '';
+  } else if (s.kind === 'ttl') {
+    m.type = 'ttl';
+    m.hidden = true;
+    m.ttl = s.ttl;
+    m.text = '';
   } else {
     m.type = 'pollclose';
     m.hidden = true;
@@ -163,6 +178,7 @@ function previewOfText(text) {
     if (s.media.kind === 'album') return `🖼 ${t('msg.album')}`;
     return `📄 ${s.media.name || t('msg.file')}`;
   }
+  if (s.kind === 'ttl') return null;
   return null;
 }
 

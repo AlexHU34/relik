@@ -6,12 +6,16 @@ import { t } from '../i18n/i18n.js';
 import { toast } from './toast.js';
 import { startRing, stopRing, playTest } from './sounds.js';
 import { SUPABASE } from '../config.js';
+import { RELAY } from '../config.js';
 import { initCallSignaling, stopCallSignaling, sendCallSignal } from '../backend/calls.js';
 
 const ICE = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' },
+    ...(Array.isArray(RELAY.urls) && RELAY.urls.length
+      ? [{ urls: RELAY.urls, username: RELAY.username || undefined, credential: RELAY.credential || undefined }]
+      : []),
   ],
 };
 

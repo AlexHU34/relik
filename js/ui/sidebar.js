@@ -8,7 +8,7 @@ import { loadChats as loadChatsFromBackend } from '../backend/chats.js';
 import { loadLatestPreviews, previewTextFor } from '../backend/messages.js';
 import { SUPABASE } from '../config.js';
 import { getStatuses, refreshChatStatuses } from '../backend/presence.js';
-import { isPinned, isMuted, togglePinned, toggleMuted, setReadAt, clearChatPrefs } from './prefs.js';
+import { isPinned, isMuted, togglePinned, toggleMuted, setReadAt, clearChatPrefs, getChatFolder, setChatFolder } from './prefs.js';
 import { openMenu, bindLongPress } from './menu.js';
 import { confirmAction } from './dialog.js';
 import { toast } from './toast.js';
@@ -54,8 +54,12 @@ export function renderSidebar() {
   const list = $('#sideList');
   if (!list) return;
   const q = S.filter.toLowerCase().trim();
+  const folder = S.folder || 'all';
   const rows = S.chats
     .filter((c) => {
+      if (folder === 'dm' && c.kind !== 'dm') return false;
+      if (folder === 'group' && c.kind !== 'group') return false;
+      if ((folder === 'work' || folder === 'archive') && getChatFolder(c.id) !== folder) return false;
       if (!q) return true;
       if (chatTitle(c).toLowerCase().includes(q)) return true;
       if (String(c.username || '').toLowerCase().includes(q)) return true;
@@ -68,10 +72,14 @@ export function renderSidebar() {
       return (b.last?.ts || 0) - (a.last?.ts || 0);
     });
 
+  document.querySelectorAll('#folderRow [data-folder]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.folder === folder);
+  });
+
   if (!rows.length) {
     list.innerHTML = q
       ? `<div class="side-empty"><span class="se-ic">${icon('search', 18)}</span><b>${t('side.empty')}</b></div>`
-      : `<div class="side-empty"><span class="se-ic">${icon('plus', 20)}</span><b>${t('side.noChats')}</b><span>${t('side.noChatsHint')}</span></div>`;
+      : `<div class="side-empty"><span class="se-ic">${icon('plus', 20)}</span><b>${t(folder === 'all' ? 'side.noChats' : 'folder.empty')}</b><span>${t(folder === 'all' ? 'side.noChatsHint' : 'folder.emptyHint')}</span></div>`;
   } else {
     list.innerHTML = rows.map(chatRow).join('');
   }
@@ -124,6 +132,12 @@ function openChatMenu(chat, pos) {
       disabled: !chat.unread,
       onClick: () => markChatRead(chat),
     },
+    {
+      label: t('folder.move'),
+      icon: 'folder',
+      hint: getChatFolder(chat.id) ? t('folder.' + getChatFolder(chat.id)) : '',
+      onClick: () => openFolderMenu(chat, pos),
+    },
     { sep: true },
     {
       label: t('side.clear'),
@@ -137,6 +151,24 @@ function openChatMenu(chat, pos) {
       onClick: () => leaveOrDelete(chat),
     },
   ], pos);
+}
+
+function openFolderMenu(chat, pos) {
+  const current = getChatFolder(chat.id);
+  const options = [
+    { key: '', label: t('folder.none') },
+    { key: 'work', label: t('folder.work') },
+    { key: 'archive', label: t('folder.archive') },
+  ];
+  openMenu(options.map((opt) => ({
+    label: opt.label,
+    icon: current === opt.key ? 'check' : 'folder',
+    onClick: () => {
+      setChatFolder(chat.id, opt.key);
+      renderSidebar();
+      toast(t(opt.key ? 'folder.moved' : 'folder.removed'), { type: 'success' });
+    },
+  })), pos);
 }
 
 function markChatRead(chat) {
@@ -260,6 +292,13 @@ export function initSidebar() {
     if (e.key !== 'Escape') return;
     e.target.value = '';
     S.filter = '';
+    renderSidebar();
+  });
+
+  $('#folderRow')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-folder]');
+    if (!btn) return;
+    S.folder = btn.dataset.folder || 'all';
     renderSidebar();
   });
 

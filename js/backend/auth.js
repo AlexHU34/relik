@@ -185,7 +185,7 @@ async function clearLocalData() {
     for (const rec of settings) {
       if (rec.key === 'me' || rec.key === 'keyPair' ||
           String(rec.key).startsWith('draft:') || String(rec.key).startsWith('pin:') ||
-          String(rec.key).startsWith('gkeys:')) {
+          String(rec.key).startsWith('gkeys:') || String(rec.key).startsWith('sched:')) {
         await idb.del('settings', rec.key);
       }
     }

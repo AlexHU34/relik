@@ -15,11 +15,12 @@ import { notifyMessage } from './notify.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
-import { getReadAt, setReadAt, isMuted, prefs } from './prefs.js';
+import { getReadAt, setReadAt, isMuted, prefs, getChatTtl, getChatTtlSince, setChatTtl } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
-import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead } from '../backend/messages.js';
+import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead, encodeTtl } from '../backend/messages.js';
 import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
+import { fingerprintForPair } from '../crypto/fingerprint.js';
 
 const PAGE_SIZE = 240;
 
@@ -39,6 +40,9 @@ let showLocked = false;         // показывать недоступные (
 const readMarks = new Map();    // chatId -> { upto, at } — последняя отправленная отметка
 const demoReads = new Set();    // сообщения, для которых демо уже «прочитало»
 let groupMigrationWarned = false;
+const FP_KEY = 'relik.fp.v1';
+let profileFp = null;          // { chatId, peerId, fullHex, display, changed }
+const fpWarned = new Set();    // чтобы не повторять тост при каждом открытии
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
@@ -76,6 +80,25 @@ export function initChatView() {
     const chat = chatById(S.active);
     $('#profileOv').hidden = true;
     if (chat) startCall(chat, { video: true });
+  });
+  $('#fpCopy') && ($('#fpCopy').innerHTML = icon('copy', 16));
+  $('#fpCopy')?.addEventListener('click', copyProfileFingerprint);
+  $('#fpCode')?.addEventListener('click', copyProfileFingerprint);
+  $('#fpAccept')?.addEventListener('click', () => {
+    if (!profileFp) return;
+    saveFpSeen(profileFp.peerId, profileFp.fullHex);
+    profileFp.changed = false;
+    const warn = $('#fpWarn');
+    if (warn) warn.hidden = true;
+    const accept = $('#fpAccept');
+    if (accept) accept.hidden = true;
+    toast(t('fp.accepted'), { type: 'success' });
+  });
+  $('#fpQrBtn')?.addEventListener('click', toggleProfileQr);
+  $('#ttlSeg')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ttl]');
+    const chat = chatById(S.active);
+    if (btn && chat) changeChatTtl(chat, Number(btn.dataset.ttl));
   });
 
   /* поиск по чату: подсветка совпадений + переход между ними */
@@ -188,11 +211,13 @@ export function initChatView() {
   bus.addEventListener('chat:cleared', (e) => {
     const id = e.detail?.id;
     if (!id) return;
+    clearTtlForChat(id);
     S.messages[id] = [];
     if (S.unreadFrom) S.unreadFrom[id] = 0;
     if (S.active === id) renderMessages();
   });
   bus.addEventListener('chat:removed', (e) => {
+    clearTtlForChat(e.detail?.id);
     if (S.active === e.detail?.id) {
       S.active = null;
       showChat();
@@ -430,6 +455,7 @@ function afterMessageRemoved(m) {
 }
 
 function deleteMessageLocal(m) {
+  clearTtlTimer(m.id);
   m.hidden = true;
   m.localDeleted = true;
   idb.put('messages', m).then(() => {
@@ -440,6 +466,7 @@ function deleteMessageLocal(m) {
 }
 
 function deleteMessageEverywhere(m) {
+  clearTtlTimer(m.id);
   if (SUPABASE.url && SUPABASE.anonKey) {
     deleteMessageBackend(m.id).catch((err) => console.error('Delete error:', err));
   }
@@ -478,6 +505,8 @@ function mergeMessages(server, local) {
     else {
       if (m.status === 'read') s.status = 'read'; // локальная отметка прочтения не теряется
       if (m.localDeleted) { s.hidden = true; s.localDeleted = true; } // «удалено у себя»
+      if (m.ttlStartedAt && !s.ttlStartedAt) s.ttlStartedAt = m.ttlStartedAt;
+      if (m.expired) { s.hidden = true; s.expired = true; s.localDeleted = true; }
     }
   }
   return [...map.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0));
@@ -526,6 +555,7 @@ function applyReadState(chatId) {
     }
   }
   if (changed.length) idb.bulkPut('messages', changed).catch(() => {});
+  if (changed.length) scheduleTtlForChat(chatId);
 }
 
 function refreshTicks(m) {
@@ -671,11 +701,14 @@ function startActiveSync(id, chat) {
         const i = S.messages[id].findIndex((x) => x.id === m.id);
         if (i >= 0) {
           const old = S.messages[id][i];
-          S.messages[id][i] = {
+          const merged = {
             ...old,
             ...m,
             reactions: old.reactions?.length ? old.reactions : m.reactions,
           };
+          if (old.ttlStartedAt && !m.ttlStartedAt) merged.ttlStartedAt = old.ttlStartedAt;
+          if (old.expired) { merged.hidden = true; merged.expired = true; merged.localDeleted = true; }
+          S.messages[id][i] = merged;
         } else {
           S.messages[id].push(m);
           added++;
@@ -698,6 +731,7 @@ function startActiveSync(id, chat) {
         }
         if (incoming) updateReadReceipt(id).catch(() => {});
       }
+      scheduleTtlForChat(id);
 
       const last = S.messages[id].filter((m) => !m.hidden).pop();
       if (last) {
@@ -762,10 +796,13 @@ export async function openChat(id) {
       if (!ok) toast(t('chat.groupE2eOff'), { type: 'warn', duration: 7000 });
     }).catch(() => {});
   }
+  if (chat.kind === 'dm') warnPeerKeyChange(chat).catch(() => {});
 
   /* Мгновенно показываем кэш, сеть — фоном */
   S.messages[id] = await idb.messagesOf(id);
   applyReadState(id);
+  applyTtlFromHistory(id);
+  scheduleTtlForChat(id);
   showChat();
   scrollToStartPosition(id);
   renderSidebar();
@@ -797,6 +834,8 @@ export async function openChat(id) {
         /* сервер — источник правды, но локальные «отправляется/ошибка» не теряем */
         S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
         applyReadState(id);
+        applyTtlFromHistory(id);
+        scheduleTtlForChat(id);
         renderMessages();
         hydrateMessagesMedia(S.messages[id]).then((changed) => {
           if (changed && S.active === id) renderMessages();
@@ -839,6 +878,16 @@ export async function openChat(id) {
         if (msg.hidden) {
           /* голос/реакция/закрытие/прочтение: обновляем только нужный блок */
           if (msg.type === 'read') applyReadState(id);
+          else if (msg.type === 'ttl' && msg.ttl) {
+            if (msg.sender !== 'u_me') {
+              setChatTtl(id, Number(msg.ttl.sec) || 0, msg.ts);
+              scheduleTtlForChat(id);
+              if (S.active === id) {
+                paintTtl(chatById(id));
+                toast(t('ttl.updated'), { type: 'info' });
+              }
+            }
+          }
           else if (msg.type === 'vote' && msg.vote?.p) refreshPollCard(msg.vote.p);
           else if (msg.type === 'pollclose' && msg.close?.p) refreshPollCard(msg.close.p);
           else if (msg.type === 'rx' && msg.reaction?.m) refreshMessageReactions(msg.reaction.m);
@@ -849,6 +898,7 @@ export async function openChat(id) {
           const near = isNearBottom();
           if (!near && msg.sender !== 'u_me') unseenCount++;
           renderMessages();
+          scheduleTtlForChat(id);
           if (near) {
             scrollBottom();
             if (!document.hidden) sendReadUpto(id);
@@ -869,6 +919,13 @@ export async function openChat(id) {
         const m = (S.messages[id] || []).find((x) => x.id === msgId);
         if (m) {
           Object.assign(m, updates);
+          if (updates.deleted && !m.expired && getChatTtl(id) && (m.ts || 0) >= getChatTtlSince(id)) {
+            clearTtlTimer(m.id);
+            m.hidden = true;
+            m.localDeleted = true;
+            m.expired = true;
+            idb.put('messages', m).catch(() => {});
+          }
           if (S.active === id) renderMessages();
           const chat = chatById(id);
           const last = (S.messages[id] || []).filter((x) => !x.hidden).pop();
@@ -908,6 +965,263 @@ export function showChat() {
   if (has) { renderHeader(); renderMessages(); }
 }
 
+/* ── код безопасности (fingerprint) ───────────────────────── */
+function loadFpSeen() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FP_KEY) || '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveFpSeen(peerId, fullHex) {
+  if (!peerId || !fullHex) return;
+  try {
+    const all = loadFpSeen();
+    all[peerId] = fullHex;
+    localStorage.setItem(FP_KEY, JSON.stringify(all));
+  } catch (e) { /* приватный режим */ }
+}
+
+async function peerFingerprint(chat) {
+  if (!chat || chat.kind !== 'dm' || !chat.userId) return null;
+  if (!S.me?.id || !S.me?.publicKey || !chat.publicKey) return null;
+  try {
+    const fp = await fingerprintForPair(S.me.id, S.me.publicKey, chat.userId, chat.publicKey);
+    const seen = loadFpSeen();
+    const previous = seen[chat.userId] || '';
+    return { ...fp, peerId: chat.userId, changed: !!previous && previous !== fp.fullHex };
+  } catch (err) {
+    return null;
+  }
+}
+
+async function renderProfileFingerprint(chat) {
+  const block = $('#profileFp');
+  if (!block) return;
+  profileFp = null;
+  block.hidden = true;
+  const qrBox = $('#fpQr');
+  if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
+  const qrBtn = $('#fpQrBtn');
+  if (qrBtn) qrBtn.textContent = t('fp.qr');
+  const fp = await peerFingerprint(chat);
+  if (!fp || S.active !== chat.id) return;
+
+  profileFp = { chatId: chat.id, ...fp };
+  block.hidden = false;
+  const code = $('#fpCode');
+  if (code) {
+    code.textContent = fp.display;
+    code.title = t('fp.copy');
+  }
+  const warn = $('#fpWarn');
+  if (warn) warn.hidden = !fp.changed;
+  const accept = $('#fpAccept');
+  if (accept) accept.hidden = !fp.changed;
+  if (!loadFpSeen()[chat.userId]) saveFpSeen(chat.userId, fp.fullHex);
+}
+
+async function warnPeerKeyChange(chat) {
+  const fp = await peerFingerprint(chat);
+  if (!fp || S.active !== chat.id) return;
+  if (!loadFpSeen()[chat.userId]) {
+    saveFpSeen(chat.userId, fp.fullHex);
+    return;
+  }
+  if (fp.changed) {
+    if (fpWarned.has(chat.id)) return;
+    fpWarned.add(chat.id);
+    toast(t('fp.changedToast'), {
+      type: 'warn',
+      duration: 0,
+      action: {
+        label: t('fp.check'),
+        onClick: () => {
+          if (chatById(chat.id)) {
+            S.active = chat.id;
+            location.hash = `#/chat/${chat.id}`;
+            openChatProfile();
+          }
+        },
+      },
+    });
+  }
+}
+
+function copyProfileFingerprint() {
+  if (!profileFp?.display) return;
+  const text = profileFp.display;
+  const done = () => toast(t('fp.copied'), { type: 'success' });
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => toast(text));
+  } else {
+    toast(text);
+  }
+}
+
+function toggleProfileQr() {
+  const box = $('#fpQr');
+  const btn = $('#fpQrBtn');
+  if (!box || !profileFp) return;
+  if (!box.hidden) {
+    box.hidden = true;
+    box.innerHTML = '';
+    if (btn) btn.textContent = t('fp.qr');
+    return;
+  }
+  if (typeof qrcode !== 'function') {
+    toast(t('fp.qrError'), { type: 'error' });
+    return;
+  }
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(profileFp.fullHex);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1 });
+    box.hidden = false;
+    if (btn) btn.textContent = t('fp.qrHide');
+  } catch (err) {
+    console.warn('QR error:', err);
+    toast(t('fp.qrError'), { type: 'error' });
+  }
+}
+
+/* ── исчезающие сообщения ─────────────────────────────────── */
+const ttlTimers = new Map(); // messageId -> timeout
+const ttlChat = new Map();   // messageId -> chatId
+
+function clearTtlTimer(messageId) {
+  const timer = ttlTimers.get(messageId);
+  if (timer) clearTimeout(timer);
+  ttlTimers.delete(messageId);
+  ttlChat.delete(messageId);
+}
+
+function clearTtlForChat(chatId) {
+  for (const [id, cid] of [...ttlChat]) {
+    if (cid === chatId) clearTtlTimer(id);
+  }
+}
+
+export function clearTtlTimers() {
+  for (const timer of ttlTimers.values()) clearTimeout(timer);
+  ttlTimers.clear();
+}
+
+function ttlWindow(m) {
+  if (!m || m.hidden || m.deleted || m.expired) return 0;
+  const seconds = getChatTtl(m.chatId);
+  if (!seconds) return 0;
+  const since = getChatTtlSince(m.chatId);
+  if ((m.ts || 0) < since) return 0;
+  return seconds * 1000;
+}
+
+function scheduleTtlForChat(chatId) {
+  const list = S.messages[chatId] || [];
+  const now = Date.now();
+  const alive = new Set(list.map((m) => m.id));
+  for (const [id, timer] of [...ttlTimers]) {
+    if (!alive.has(id)) { clearTimeout(timer); ttlTimers.delete(id); }
+  }
+
+  for (const m of list) {
+    const ttl = ttlWindow(m);
+    if (!ttl) { clearTtlTimer(m.id); continue; }
+
+    let started = Number(m.ttlStartedAt) || 0;
+    if (!started) {
+      /* Отправитель ждёт прочтения; получатель — открытия чата. */
+      if (m.sender === 'u_me') {
+        if (m.status !== 'read') continue;
+      } else if (S.active !== chatId) {
+        continue;
+      }
+      started = now;
+      m.ttlStartedAt = now;
+      idb.put('messages', m).catch(() => {});
+    }
+
+    const left = started + ttl - now;
+    if (left <= 0) { expireTtlMessage(chatId, m); continue; }
+    clearTtlTimer(m.id);
+    ttlTimers.set(m.id, setTimeout(() => expireTtlMessage(chatId, m), Math.min(left, 2147483647)));
+    ttlChat.set(m.id, chatId);
+  }
+}
+
+function expireTtlMessage(chatId, m) {
+  clearTtlTimer(m.id);
+  if (!m || m.hidden || m.expired) return;
+  m.expired = true;
+  m.hidden = true;
+  m.localDeleted = true;
+  if (m.sender === 'u_me' && SUPABASE.url && SUPABASE.anonKey) {
+    deleteMessageBackend(m.id).catch(() => {});
+  }
+  idb.put('messages', m).catch(() => {});
+
+  const chat = chatById(chatId);
+  if (chat) {
+    if (chat.pin?.id === m.id) {
+      delete chat.pin;
+      idb.del('settings', 'pin:' + chat.id).catch(() => {});
+      renderPin();
+    }
+    const last = (S.messages[chatId] || []).filter((x) => !x.hidden && !x.expired).pop();
+    chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
+    idb.put('chats', chat).catch(() => {});
+  }
+  if (S.active === chatId) renderMessages();
+  renderSidebar();
+}
+
+function paintTtl(chat) {
+  if (!chat) return;
+  const current = getChatTtl(chat.id);
+  document.querySelectorAll('#ttlSeg [data-ttl]').forEach((b) => {
+    b.classList.toggle('on', Number(b.dataset.ttl) === current);
+  });
+}
+
+function applyTtlFromHistory(chatId) {
+  const events = (S.messages[chatId] || []).filter((m) => m.type === 'ttl' && m.ttl);
+  if (!events.length) return;
+  const last = events.reduce((a, b) => ((b.ts || 0) > (a.ts || 0) ? b : a), events[0]);
+  const sec = Number(last.ttl.sec) || 0;
+  if ((last.ts || 0) > getChatTtlSince(chatId)) {
+    setChatTtl(chatId, sec, last.ts || Date.now());
+  }
+}
+
+async function changeChatTtl(chat, seconds) {
+  if (!chat) return;
+  const sec = Number(seconds) || 0;
+  setChatTtl(chat.id, sec);
+  paintTtl(chat);
+  scheduleTtlForChat(chat.id);
+
+  if (SUPABASE.url && SUPABASE.anonKey) {
+    const event = {
+      id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
+      type: 'ttl', hidden: true, ttl: { sec }, text: '', reactions: [], status: 'sending',
+    };
+    S.messages[chat.id] = S.messages[chat.id] || [];
+    S.messages[chat.id].push(event);
+    idb.put('messages', event).catch(() => {});
+    sendMessage(chat.id, encodeTtl(sec), null, chat.kind, chat.publicKey, event.id)
+      .then(() => { event.status = 'sent'; idb.put('messages', event).catch(() => {}); })
+      .catch((err) => {
+        console.warn('TTL signal error:', err);
+        S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== event.id);
+        idb.del('messages', event.id).catch(() => {});
+      });
+  }
+  toast(t('ttl.saved'), { type: 'success' });
+}
+
 /* ── профиль собеседника / группы ── */
 function openChatProfile() {
   const chat = chatById(S.active);
@@ -935,6 +1249,8 @@ function openChatProfile() {
       openGroupManager(chat);
     };
   }
+  renderProfileFingerprint(chat).catch(() => {});
+  paintTtl(chat);
   $('#profileOv').hidden = false;
 }
 
@@ -1791,6 +2107,7 @@ export async function deliverMessage(chatId, msg) {
   }
   renderSidebar();
   if (msg.sender !== 'u_me' && !isMuted(chatId)) playMessage();
+  scheduleTtlForChat(chatId);
 }
 
 /* Перечитать (при смене языка/обновлении) */

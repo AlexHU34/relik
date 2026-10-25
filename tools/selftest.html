@@ -72,6 +72,7 @@
   </section>
 </div>
 
+<script src="../js/vendor/qrcode.js"></script>
 <script type="module">
 import * as keygen from '../js/crypto/keygen.js';
 import * as ecdh from '../js/crypto/ecdh.js';
@@ -237,6 +238,16 @@ async function run() {
     return '8×4 hex';
   });
 
+  await test('QR: генерация кода безопасности', async () => {
+    if (typeof qrcode !== 'function') throw new Error('QR library not loaded');
+    const qr = qrcode(0, 'M');
+    qr.addData('9E4E4EC2FBD9F0C143BA47A9C09F167CCBE59DB0685F1312DDF31E1527FC5170');
+    qr.make();
+    const svg = qr.createSvgTag({ cellSize: 4, margin: 1 });
+    if (!svg.includes('<svg') || svg.length < 500) throw new Error('bad svg');
+    return svg.length + ' bytes';
+  });
+
   await test('Файл: шифрование байтов', async () => {
     const key = await enc.generateGroupKey();
     const bytes = crypto.getRandomValues(new Uint8Array(4096));
@@ -262,6 +273,25 @@ async function run() {
     if (html.includes('<img')) throw new Error('raw html leaked');
     if (!html.includes('<strong>жирный</strong>')) throw new Error('format lost');
     return 'escaped';
+  });
+
+  await test('Markdown: списки и цитата', async () => {
+    const ul = formatText('- один\n- два');
+    const ol = formatText('1. первый\n2. второй');
+    const quote = formatText('> цитата\n> вторая строка');
+    if (!ul.includes('<ul class="msg-list">') || (ul.match(/<li>/g) || []).length !== 2) throw new Error('ul');
+    if (!ol.includes('<ol class="msg-list">') || !ol.includes('<li>первый</li>')) throw new Error('ol');
+    if (!quote.includes('<blockquote class="msg-quote">') || !quote.includes('цитата')) throw new Error('quote');
+    return 'ul/ol/quote';
+  });
+
+  await test('Markdown: блок кода экранируется', async () => {
+    const dangerous = '<scr' + 'ipt>alert(1)</scr' + 'ipt>';
+    const html = formatText('```js\n' + dangerous + '\n```');
+    if (!html.includes('<pre class="msg-code">')) throw new Error('pre missing');
+    if (html.includes('<script>')) throw new Error('script leaked');
+    if (!html.includes('&lt;script&gt;')) throw new Error('escape missing');
+    return 'fenced code';
   });
 
   await test('Ссылки: только http(s)/www', async () => {
@@ -299,7 +329,7 @@ async function run() {
   const passed = results.length - failed;
   sumEl.textContent = failed
     ? `Провалено ${failed} из ${results.length}. Проверьте отчёт.`
-    : `Все ${passed} проверок пройдены.`;
+    : `Все проверки пройдены: ${passed}.`;
   sumEl.className = 'summary ' + (failed ? 'bad' : 'ok');
   dotEl.className = 'dot ' + (failed ? 'bad' : 'ok');
   reportEl.value = JSON.stringify({

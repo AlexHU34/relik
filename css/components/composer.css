@@ -89,3 +89,6 @@
 .attach-menu .c-album{color:#f59e0b;background:rgba(245,158,11,.15)}
 .attach-menu .c-video{color:#f0566e;background:rgba(240,86,110,.15)}
 .attach-menu .c-circle{color:#2dd4bf;background:rgba(45,212,191,.15)}
+.attach-menu .c-later{color:#22c55e;background:rgba(34,197,94,.15)}
+.sched-preview{padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
+  font-size:var(--fs-sm);color:var(--tx-2);max-height:110px;overflow:auto;white-space:pre-wrap;word-break:break-word}

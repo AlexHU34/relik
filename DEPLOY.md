@@ -9,6 +9,7 @@
    - Включите Realtime для `messages` и `reactions`
    - Получите Project URL и anon key
    - Вставьте в `js/config.js`
+   - Для звонков за строгими NAT заполните `RELAY` в `js/config.js` (TURN); без него остаётся только STUN
 
 2. **Git репозиторий**
    - Инициализируйте: `git init`

@@ -8,8 +8,7 @@ import { $ } from './ui/utils.js';
 import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
-import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll } from './ui/chatView.js';
-import { initComposer, refreshBar, retryFailedMessages, retryOutbox } from './ui/composer.js';
+import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat } from './ui/modals.js';
 import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
@@ -299,6 +298,7 @@ async function enterApp(welcomeKey) {
   maybeDemo();
   startGlobalRealtime();
   initCalls();
+  processScheduled().catch(() => {});
   syncPrefsFromCloud().catch(() => {});
 }
 
@@ -445,6 +445,7 @@ function initChrome() {
     S.typingChat = null;
     clearGroupKeyCache().catch(() => {});
     clearMediaObjectUrls();
+    clearTtlTimers();
     document.title = 'Relik';
     try { navigator.clearAppBadge?.(); } catch (e) { /* ignore */ }
     stopCalls();

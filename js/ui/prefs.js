@@ -36,6 +36,9 @@ const DEFAULTS = () => ({
   pinned: {},          // chatId -> true
   muted: {},           // chatId -> true
   readAt: {},          // chatId -> timestamp последнего прочтения
+  folders: {},         // chatId -> 'work' | 'archive'
+  ttl: {},             // chatId -> секунды (0 = выкл)
+  ttlSince: {},        // chatId -> когда включили TTL
   textSize: 'normal',  // compact | normal | large
   wallpaper: 'none',   // см. WALLPAPERS
   customWall: null,    // data URL для «Свои обои»
@@ -55,6 +58,9 @@ function load() {
       pinned: { ...(raw.pinned || {}) },
       muted: { ...(raw.muted || {}) },
       readAt: { ...(raw.readAt || {}) },
+      folders: { ...(raw.folders || {}) },
+      ttl: { ...(raw.ttl || {}) },
+      ttlSince: { ...(raw.ttlSince || {}) },
     };
   } catch (e) {
     return DEFAULTS();
@@ -88,6 +94,48 @@ export function isMuted(chatId) {
   return !!prefs.muted[chatId];
 }
 
+/* ── папки чатов ─────────────────────────────────────────── */
+export const CHAT_FOLDERS = ['work', 'archive'];
+
+export function getChatFolder(chatId) {
+  const value = prefs.folders[chatId];
+  return CHAT_FOLDERS.includes(value) ? value : '';
+}
+
+export function setChatFolder(chatId, folder) {
+  if (!chatId) return '';
+  if (CHAT_FOLDERS.includes(folder)) prefs.folders[chatId] = folder;
+  else delete prefs.folders[chatId];
+  savePrefs();
+  return getChatFolder(chatId);
+}
+
+/* ── исчезающие сообщения ─────────────────────────────────── */
+export const TTL_OPTIONS = [0, 5, 60, 86400];
+
+export function getChatTtl(chatId) {
+  const value = Number(prefs.ttl[chatId]) || 0;
+  return TTL_OPTIONS.includes(value) ? value : 0;
+}
+
+export function getChatTtlSince(chatId) {
+  return Number(prefs.ttlSince[chatId]) || 0;
+}
+
+export function setChatTtl(chatId, seconds, since = Date.now()) {
+  if (!chatId) return 0;
+  const value = TTL_OPTIONS.includes(Number(seconds)) ? Number(seconds) : 0;
+  if (value) {
+    prefs.ttl[chatId] = value;
+    prefs.ttlSince[chatId] = Number(since) || Date.now();
+  } else {
+    delete prefs.ttl[chatId];
+    delete prefs.ttlSince[chatId];
+  }
+  savePrefs();
+  return value;
+}
+
 export function toggleMuted(chatId) {
   if (!chatId) return false;
   if (prefs.muted[chatId]) delete prefs.muted[chatId];
@@ -110,6 +158,9 @@ export function clearChatPrefs(chatId) {
   delete prefs.pinned[chatId];
   delete prefs.muted[chatId];
   delete prefs.readAt[chatId];
+  delete prefs.folders[chatId];
+  delete prefs.ttl[chatId];
+  delete prefs.ttlSince[chatId];
   savePrefs();
 }
 
@@ -200,6 +251,9 @@ export function applyRemotePrefs(remote) {
   }
   if (remote.muted && typeof remote.muted === 'object') {
     prefs.muted = { ...remote.muted };
+  }
+  if (remote.folders && typeof remote.folders === 'object') {
+    prefs.folders = { ...remote.folders };
   }
   if (TEXT_SIZES.includes(remote.textSize)) prefs.textSize = remote.textSize;
   if (WALLPAPERS.some((w) => w.id === remote.wallpaper) && remote.wallpaper !== 'custom') {

@@ -270,6 +270,13 @@
         <input class="input" id="searchInput" placeholder="" data-i18n-ph="side.search">
         <span class="search-ic" id="searchIc"></span>
       </div>
+      <div class="folder-row" id="folderRow">
+        <button class="folder-chip" type="button" data-folder="all" data-i18n="folder.all">Все</button>
+        <button class="folder-chip" type="button" data-folder="dm" data-i18n="folder.dm">Личные</button>
+        <button class="folder-chip" type="button" data-folder="group" data-i18n="folder.groups">Группы</button>
+        <button class="folder-chip" type="button" data-folder="work" data-i18n="folder.work">Работа</button>
+        <button class="folder-chip" type="button" data-folder="archive" data-i18n="folder.archive">Архив</button>
+      </div>
       <nav class="side-list" id="sideList"></nav>
       <div class="side-foot">
         <button class="me-chip" id="meChip">
@@ -367,6 +374,7 @@
                 <button id="attCircle"><span class="amb c-circle" id="attCircleIc"></span><span data-i18n="comp.circle"></span></button>
                 <button id="attFile"><span class="amb c-file" id="attFileIc"></span><span data-i18n="comp.file"></span></button>
                 <button id="attPoll"><span class="amb c-poll" id="attPollIc"></span><span data-i18n="comp.poll"></span></button>
+                <button id="attLater"><span class="amb c-later" id="attLaterIc"></span><span data-i18n="comp.schedule"></span></button>
               </div>
             </div>
             <textarea id="ta" rows="1" placeholder="" data-i18n-ph="comp.ph"></textarea>
@@ -635,6 +643,28 @@
           <button class="btn btn-ghost" id="profileVideo" data-i18n="profile.video">Видеозвонок</button>
           <button class="btn btn-ghost" id="profileManage" data-i18n="group.manage">Управление группой</button>
         </div>
+        <div class="fp-block" id="profileFp" hidden>
+          <div class="fp-head">
+            <span data-i18n="fp.title">Код безопасности</span>
+            <button class="icon-btn" type="button" id="fpCopy" title="Copy"></button>
+          </div>
+          <button class="fp-code" type="button" id="fpCode"></button>
+          <span class="fp-hint" data-i18n="fp.hint">Сверьте код с собеседником по другому каналу — он должен совпадать.</span>
+          <span class="fp-warn" id="fpWarn" hidden data-i18n="fp.changed">Код безопасности изменился. Один из ключей другой — сверьте лично.</span>
+          <button class="btn btn-ghost" type="button" id="fpAccept" hidden data-i18n="fp.accept">Запомнить новый код</button>
+          <button class="btn btn-ghost" type="button" id="fpQrBtn" data-i18n="fp.qr">Показать QR</button>
+          <div class="fp-qr" id="fpQr" hidden></div>
+        </div>
+        <div class="field" id="profileTtlField">
+          <span data-i18n="ttl.title">Исчезающие сообщения</span>
+          <div class="seg seg-4" id="ttlSeg">
+            <button type="button" data-ttl="0" data-i18n="ttl.off">Выкл</button>
+            <button type="button" data-ttl="5" data-i18n="ttl.5s">5 сек</button>
+            <button type="button" data-ttl="60" data-i18n="ttl.1m">1 мин</button>
+            <button type="button" data-ttl="86400" data-i18n="ttl.1d">1 день</button>
+          </div>
+          <span class="field-hint" data-i18n="ttl.hint">Отсчёт начинается после прочтения. Пока приложение закрыто, таймер не идёт.</span>
+        </div>
       </div>
     </div>
   </div>
@@ -653,7 +683,32 @@
     </div>
   </div>
 
-  <!-- ══════════ НОВЫЙ ОПРОС ══════════ -->
+  <!-- ══════════ ОТЛОЖЕННОЕ СООБЩЕНИЕ ══════════ -->
+  <div class="overlay" id="scheduleOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="sched.title">Отправить позже</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="sched.at">Когда отправить</span>
+          <input class="input" id="scheduleAt" type="datetime-local">
+        </div>
+        <div class="field">
+          <span data-i18n="sched.preview">Сообщение</span>
+          <div class="sched-preview" id="schedulePreview"></div>
+          <span class="field-hint" data-i18n="sched.hint">Пока приложение закрыто, отправка ждёт следующего запуска.</span>
+        </div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
+        <button class="btn" id="scheduleGo" data-i18n="sched.send">Запланировать</button>
+      </div>
+    </div>
+  </div>
+
+
   <div class="overlay" id="pollOv" hidden>
     <div class="modal" role="dialog" aria-modal="true">
       <header class="m-head">
@@ -805,6 +860,7 @@
 
   <!-- SDK грузим с defer: он больше не блокирует разбор страницы и первую отрисовку -->
   <script defer src="js/vendor/supabase.js"></script>
+  <script defer src="js/vendor/qrcode.js"></script>
   <script nomodule>
     document.addEventListener('DOMContentLoaded', function () {
       if (window.relikBoot) window.relikBoot.fail('Браузер не поддерживает современный JavaScript', 'Обновите браузер или откройте ссылку в Chrome / Safari.');

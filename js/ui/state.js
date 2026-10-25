@@ -10,6 +10,7 @@ export const S = {
   editing: null,     // id сообщения в режиме изменения
   reactOpen: null,   // id сообщения с открытой панелью реакций
   filter: '',        // поиск по чатам
+  folder: 'all',     // all | dm | group | work | archive
   typingChat: null,  // chatId, где показать «печатает…»
   typingUser: null,  // кто именно печатает (для групп)
   demoShown: false,  // тост про демо-медиа показывали

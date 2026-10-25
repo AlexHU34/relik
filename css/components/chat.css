@@ -377,3 +377,13 @@ html[data-motion="off"] .msg-loading .ic{animation:none}
 .file-row.retry .file-dl{color:var(--warn)}
 .msg-loading.as-btn{background:none;border:0;cursor:pointer;text-align:left}
 .msg-loading.as-btn:hover{color:var(--tx)}
+
+/* ---------- Markdown: списки, цитаты, блок кода ---------- */
+.msg-text .msg-list{margin:3px 0 3px 18px;padding:0;white-space:normal;display:grid;gap:2px}
+.msg-text .msg-list li{padding-left:0;line-height:1.45}
+.msg-text .msg-quote{margin:3px 0;padding:4px 10px;border-left:3px solid var(--accent);
+  background:rgba(0,0,0,.16);border-radius:0 8px 8px 0;color:var(--tx-2);white-space:pre-wrap}
+.msg-text .msg-code{display:block;margin:4px 0;padding:9px 11px;border-radius:10px;overflow:auto;
+  background:rgba(0,0,0,.34);border:1px solid var(--line);white-space:pre;font-family:ui-monospace,Consolas,monospace;
+  font-size:var(--fs-xs);line-height:1.5;max-width:100%}
+.msg-text .msg-code code{font:inherit;background:none;padding:0}

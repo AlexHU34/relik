@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.5.1',
+  version: '1.6.0',
   phase: 'E2E Encrypted Messenger',
 };
 
@@ -22,6 +22,14 @@ try {
 /* Supabase: вставьте Project URL + anon public key.
    Без ключей приложение работает в демо-режиме (IndexedDB). */
 export const SUPABASE = forcedDemo ? { url: '', anonKey: '' } : REAL_SUPABASE;
+
+/* TURN для звонков. STUN работает не за всеми NAT; для надёжности
+   укажите свой TURN (coturn и т.п.). Пустые значения = только STUN. */
+export const RELAY = {
+  urls: [],              // например ['turn:turn.example.com:3478']
+  username: '',
+  credential: '',
+};
 
 /* Быстрые реакции на сообщение */
 export const EMOJI_QUICK = ['👍', '❤️', '🔥', '😂', '😮', '😢'];

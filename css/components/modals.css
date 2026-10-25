@@ -266,3 +266,19 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .lx-count{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));
   font-size:12px;font-weight:600;color:#fff;background:rgba(20,24,33,.72);padding:4px 10px;border-radius:999px}
 @media (max-width:560px){.lightbox .lx-prev,.lightbox .lx-next{width:40px;height:40px;font-size:22px}}
+
+/* ---------- Код безопасности ---------- */
+.fp-block{width:100%;margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);display:grid;gap:7px;text-align:left}
+.fp-head{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);font-weight:700}
+.fp-head .icon-btn{margin-left:auto;width:30px;height:30px}
+.fp-code{font-family:ui-monospace,Consolas,monospace;font-size:13px;letter-spacing:.06em;line-height:1.5;
+  color:var(--tx);background:var(--surface-3);border:1px dashed var(--line-2);border-radius:10px;padding:10px 12px;
+  cursor:pointer;text-align:center;word-break:break-word}
+.fp-code:hover{border-color:var(--accent-glow);color:#fff}
+.fp-hint{font-size:var(--fs-2xs);color:var(--tx-3);line-height:1.45}
+.fp-warn{font-size:var(--fs-xs);color:var(--warn);line-height:1.45;background:rgba(245,181,68,.1);border:1px solid rgba(245,181,68,.35);border-radius:9px;padding:7px 9px}
+.fp-warn[hidden]{display:none!important}
+.seg.seg-4{grid-template-columns:repeat(4,1fr)}
+.fp-qr{display:grid;place-items:center;padding:10px;background:#fff;border-radius:12px;margin-top:2px}
+.fp-qr svg{width:min(190px,70vw);height:auto;display:block}
+.fp-qr[hidden]{display:none!important}

@@ -35,10 +35,7 @@ function textHtml(text) {
   return esc(text).replace(MENTION_RE, '$1<span class="mention">@$2</span>');
 }
 
-/* Основное: сырой текст → безопасный HTML. */
-export function formatText(raw) {
-  const text = String(raw ?? '');
-  if (!text) return '';
+function inlineHtml(text) {
   let out = '';
   let last = 0;
   TOKEN_RE.lastIndex = 0;
@@ -61,6 +58,73 @@ export function formatText(raw) {
   }
   if (last < text.length) out += textHtml(text.slice(last));
   return out;
+}
+
+/* Block-level Markdown: code fences, quotes, unordered/ordered lists.
+   Всё остальное — обычный текст с inline-разметкой. */
+function blocksHtml(raw) {
+  const lines = String(raw).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let i = 0;
+
+  const isFence = (line) => /^\s*```/.test(line);
+  const isQuote = (line) => /^\s*>/.test(line);
+  const isUl = (line) => /^\s*[-*]\s+/.test(line);
+  const isOl = (line) => /^\s*\d+[.)]\s+/.test(line);
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (isFence(line)) {
+      i++;
+      const code = [];
+      while (i < lines.length && !isFence(lines[i])) code.push(lines[i++]);
+      if (i < lines.length) i++;
+      out.push(`<pre class="msg-code"><code>${esc(code.join('\n'))}</code></pre>`);
+      continue;
+    }
+
+    if (isQuote(line)) {
+      const quote = [];
+      while (i < lines.length && isQuote(lines[i])) {
+        quote.push(lines[i].replace(/^\s*>\s?/, ''));
+        i++;
+      }
+      out.push(`<blockquote class="msg-quote">${inlineHtml(quote.join('\n'))}</blockquote>`);
+      continue;
+    }
+
+    if (isUl(line) || isOl(line)) {
+      const ordered = isOl(line);
+      const items = [];
+      while (i < lines.length) {
+        const m = ordered
+          ? /^\s*\d+[.)]\s+(.*)$/.exec(lines[i])
+          : /^\s*[-*]\s+(.*)$/.exec(lines[i]);
+        if (!m) break;
+        items.push(`<li>${inlineHtml(m[1])}</li>`);
+        i++;
+      }
+      const tag = ordered ? 'ol' : 'ul';
+      out.push(`<${tag} class="msg-list">${items.join('')}</${tag}>`);
+      continue;
+    }
+
+    const buf = [];
+    while (i < lines.length && !isFence(lines[i]) && !isQuote(lines[i]) && !isUl(lines[i]) && !isOl(lines[i])) {
+      buf.push(lines[i++]);
+    }
+    out.push(inlineHtml(buf.join('\n')));
+  }
+
+  return out.join('');
+}
+
+/* Основное: сырой текст → безопасный HTML. */
+export function formatText(raw) {
+  const text = String(raw ?? '');
+  if (!text) return '';
+  return blocksHtml(text);
 }
 
 /* Сообщение из одних эмодзи — показываем крупно. */

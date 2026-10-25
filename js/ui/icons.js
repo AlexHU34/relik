@@ -68,6 +68,7 @@ const P = {
   switchCamera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><path d="M9 13a3 3 0 0 0 5.2 2"/><path d="M15 13a3 3 0 0 0-5.2-2"/><path d="M9 10v1.5h1.5"/><path d="M15 16v-1.5h-1.5"/>',
   record: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
 };
 
 /* icon('send', 18) → строка <svg> (текущий цвет наследуется) */

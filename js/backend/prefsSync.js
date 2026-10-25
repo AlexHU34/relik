@@ -32,6 +32,7 @@ export function saveRemotePrefs(prefs) {
   const payload = {
     pinned: prefs.pinned || {},
     muted: prefs.muted || {},
+    folders: prefs.folders || {},
     textSize: prefs.textSize,
     wallpaper: prefs.wallpaper === 'custom' ? 'none' : prefs.wallpaper,
     accent: prefs.accent,
