@@ -79,6 +79,8 @@
 .auth-trust{display:flex;gap:9px;align-items:flex-start;font-size:11.5px;line-height:1.5;color:var(--tx-3);border-top:1px solid var(--line);padding-top:14px}
 .auth-trust .trust-ic{color:var(--ok);display:grid;flex:none}
 .auth-note{font-size:11px;color:var(--tx-3);line-height:1.5;max-width:38ch}
+.auth-legal{font-size:11px;color:var(--tx-3);text-decoration:underline;text-underline-offset:2px;align-self:flex-start}
+.auth-legal:hover{color:var(--tx-2)}
 .auth-demo{
   display:flex;align-items:center;gap:10px;padding:11px 14px;
   border:1px dashed var(--line-2);border-radius:14px;color:var(--tx-2);

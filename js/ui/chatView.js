@@ -20,6 +20,7 @@ import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
 import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead, encodeTtl } from '../backend/messages.js';
 import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
+import { ensureDmMember } from '../backend/chats.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 
 const PAGE_SIZE = 240;
@@ -827,6 +828,11 @@ export async function openChat(id) {
   renderPin();
 
   if (SUPABASE.url && SUPABASE.anonKey) {
+    /* старый личный чат мог остаться без второго участника —
+       тогда собеседник не видит сообщения. Чиним один раз. */
+    if (chat.kind === 'dm' && chat.userId) {
+      ensureDmMember(id, chat.userId).catch(() => {});
+    }
     /* свежие сообщения из бэкенда (не блокируем UI) */
     loadMessages(id, chat.kind, chat.publicKey)
       .then(async (msgs) => {

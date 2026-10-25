@@ -278,6 +278,15 @@ export async function signOutAll() {
   await clearLocalData();
 }
 
+/* ── Полное удаление аккаунта (RPC из supabase/privacy.sql) ── */
+export async function deleteAccount() {
+  const { error } = await sb.rpc('delete_my_account');
+  if (error) throw error;
+  /* после удаления профиля сессия недействительна */
+  try { await sb.auth.signOut({ scope: 'global' }); } catch (e) { /* не критично */ }
+  await clearLocalData();
+}
+
 /* ── Получение текущего пользователя ── */
 export async function getCurrentUser() {
   const { data: { user }, error } = await sb.auth.getUser();

@@ -249,6 +249,7 @@
             <span class="ad-arrow">→</span>
           </a>
           <p class="auth-note" data-i18n="auth.note">Демо-режим: данные хранятся только в этом браузере</p>
+          <a class="auth-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
         </div>
       </section>
     </div>
@@ -525,10 +526,16 @@
             </div>
           </div>
           <p class="e2e" data-i18n="settings.e2eNote"></p>
+          <a class="about-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
           <button class="btn btn-ghost" type="button" id="installBtn" hidden data-i18n="settings.install">Установить приложение</button>
           <a class="btn btn-ghost" style="justify-content:center" href="tools/diagnostics.html" target="_blank" rel="noopener" data-i18n="settings.diag">Диагностика звонков и голоса</a>
           <a class="btn btn-ghost" style="justify-content:center" href="tools/selftest.html" target="_blank" rel="noopener" data-i18n="settings.selftest">Самопроверка модулей</a>
           <a class="btn btn-ghost" style="justify-content:center" href="https://github.com/AlexHU34/relik/blob/main/CRYPTO.md" target="_blank" rel="noopener" data-i18n="settings.security">Криптография и модель угроз</a>
+        </div>
+        <div class="field" style="margin-top:16px">
+          <span data-i18n="settings.account">Аккаунт</span>
+          <span class="field-hint" data-i18n="settings.accountHint">Удаление необратимо: профиль, сообщения, контакты и настройки будут стёрты.</span>
+          <button class="btn btn-ghost btn-danger-soft" type="button" id="deleteAccountBtn" data-i18n="settings.deleteAccount">Удалить аккаунт</button>
         </div>
       </div>
     </div>
@@ -548,6 +555,13 @@
           <span class="info">
             <span class="n" data-i18n="newchat.group">Создать группу</span>
             <span class="s" data-i18n="newchat.groupSub">До 200 участников</span>
+          </span>
+        </button>
+        <button class="contact" id="ncPeople">
+          <span class="c-ic" id="ncPeopleIc"></span>
+          <span class="info">
+            <span class="n" data-i18n="newchat.findPeople">Найти людей</span>
+            <span class="s" data-i18n="newchat.findPeopleSub">Поиск по @username и заявка в контакты</span>
           </span>
         </button>
         <span class="nc-hint" data-i18n="newchat.contacts">Контакты</span>

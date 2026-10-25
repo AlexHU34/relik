@@ -981,6 +981,13 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+/* Очередь исходящих не должна ждать фокуса: раз в 20 секунд пробуем снова,
+   пока приложение открыто и есть сеть. */
+setInterval(() => {
+  if (!S.me || document.visibilityState !== 'visible') return;
+  retryOutbox();
+}, 20000);
+
 /* Заголовок и версия */
 document.title = APP.name;
 console.info(`%cRelik v${APP.version}`, 'color:#5b6cf9;font-weight:bold', `· ${APP.phase}`);

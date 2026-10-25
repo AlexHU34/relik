@@ -58,6 +58,8 @@ html[data-device="phone"] .m-foot .btn{flex:1;min-width:120px}
 .about .nm{font-weight:700;font-size:var(--fs-md)}
 .about .ver{font-size:var(--fs-2xs);color:var(--tx-3)}
 .about .e2e{font-size:var(--fs-xs);color:var(--tx-2);line-height:1.5}
+.about-legal{font-size:var(--fs-2xs);color:var(--tx-3);text-decoration:underline;text-underline-offset:2px;justify-self:start}
+.about-legal:hover{color:var(--tx-2)}
 
 /* Сегмент (RU/EN) */
 .seg {display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:13px;padding:3px}

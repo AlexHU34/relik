@@ -247,6 +247,44 @@ export async function searchUsers(query) {
   throw lastError || new Error('Не удалось получить список пользователей');
 }
 
+/* ── Починка старых личных чатов ───────────────────────────────
+   Чат мог быть создан до dm_fix.sql с одним участником: тогда
+   собеседник физически не видит сообщения. Функция из
+   supabase/privacy.sql добавляет второго участника один раз. */
+const repaired = new Set();
+export async function ensureDmMember(chatId, peerId) {
+  if (!chatId || !peerId) return false;
+  if (!SUPABASE.url || !SUPABASE.anonKey) return false;
+  const key = `${chatId}:${peerId}`;
+  if (repaired.has(key)) return false;
+  repaired.add(key);
+  try {
+    const { data, error } = await sb.rpc('ensure_dm_member', { conv: chatId, other_user: peerId });
+    if (error) {
+      /* миграция ещё не выполнена — тихо работаем как раньше */
+      if (!/could not find|does not exist|schema cache|function/i.test(error.message || '')) {
+        console.warn('ensure_dm_member:', error.message);
+      }
+      return false;
+    }
+    return !!data;
+  } catch (err) {
+    return false;
+  }
+}
+
+/* ── Профили по списку id (для экрана «только контакты») ── */
+export async function profilesByIds(ids) {
+  if (!Array.isArray(ids) || !ids.length) return [];
+  const withAvatar = await hasAvatarColumn();
+  const withUsername = await hasUsernameColumn();
+  const withRole = await hasRoleColumn();
+  const select = `id, display_name, avatar_hue, last_seen${withAvatar ? ', avatar' : ''}${withUsername ? ', username' : ''}${withRole ? ', role' : ''}`;
+  const { data, error } = await sb.from('profiles').select(select).in('id', ids).limit(200);
+  if (error) throw error;
+  return data || [];
+}
+
 /* ── Получение участников чата ── */
 export async function getChatMembers(chatId) {
   const { data, error } = await sb

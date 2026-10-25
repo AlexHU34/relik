@@ -7,8 +7,8 @@ import { idb, newId } from '../db/idb.js';
 import { APP, SUPABASE } from '../config.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
-import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll } from '../backend/auth.js';
-import { searchUsers, createDmChat, listProfiles, setUserRole } from '../backend/chats.js';
+import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll, deleteAccount } from '../backend/auth.js';
+import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } from '../backend/chats.js';
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
@@ -48,6 +48,7 @@ export function initModals() {
   $('#lbDl').title = t('media.download');
   $('#lbDl').setAttribute('aria-label', t('media.download'));
   $('#ncGroupIc').innerHTML = icon('users', 18);
+  if ($('#ncPeopleIc')) $('#ncPeopleIc').innerHTML = icon('search', 18);
 
   /* закрытие по крестику и клику по фону любого оверлея */
   document.querySelectorAll('.overlay').forEach((ov) => {
@@ -86,8 +87,16 @@ export function initModals() {
   /* ── новый чат ── */
   $('#ncSearch').addEventListener('input', paintContactsDebounced);
   $('#ncGroup').addEventListener('click', openGroupCreator);
+  $('#ncPeople').addEventListener('click', () => {
+    $('#ncOv').hidden = true;
+    openPeople();
+  });
   $('#ncList').addEventListener('click', (e) => {
     if (e.target.closest('[data-retry-contacts]')) paintContacts();
+    if (e.target.closest('[data-find-people]')) {
+      $('#ncOv').hidden = true;
+      openPeople();
+    }
   });
   $('#lbX').addEventListener('click', closeLightbox);
   $('#lbDl').addEventListener('click', downloadLightbox);
@@ -155,6 +164,34 @@ export function initModals() {
   $('#avatarInput').addEventListener('change', handleAvatar);
   $('#adminUsersBtn').addEventListener('click', openAdminUsers);
   $('#adminSearch').addEventListener('input', paintAdminUsersDebounced);
+
+  /* ── удаление аккаунта ── */
+  $('#deleteAccountBtn')?.addEventListener('click', async () => {
+    const ok = await confirmAction({
+      title: t('settings.deleteAccountTitle'),
+      text: t('settings.deleteAccountText'),
+      ok: t('settings.deleteAccountOk'),
+      danger: true,
+      iconName: 'trash',
+    });
+    if (!ok) return;
+    try {
+      if (SUPABASE.url && SUPABASE.anonKey) {
+        await deleteAccount();
+      } else {
+        await idb.clear('messages').catch(() => {});
+        await idb.del('settings', 'me').catch(() => {});
+      }
+      toast(t('settings.accountDeleted'));
+      setTimeout(() => location.reload(), 600);
+    } catch (err) {
+      console.error('Delete account error:', err);
+      const msg = String(err?.message || '');
+      toast(/could not find|does not exist|schema cache|function/i.test(msg)
+        ? t('settings.deleteAccountSql')
+        : (msg || t('toast.error')), { type: 'error' });
+    }
+  });
 
   /* ── оформление: размер текста, обои, анимации, Enter ── */
   $('#textSizeSeg')?.addEventListener('click', (e) => {
@@ -892,45 +929,88 @@ async function paintAdminUsers() {
   }
 }
 
-/* ── НОВЫЙ ЧАТ ── */
+/* ── НОВЫЙ ЧАТ: только принятые контакты ── */
 export function openNewChat() {
   $('#ncSearch').value = '';
   $('#ncOv').hidden = false;
   paintContacts();
 }
 
+function mapProfile(p) {
+  return {
+    id: p.id,
+    name: p.display_name,
+    hue: p.avatar_hue,
+    avatar: p.avatar || null,
+    username: p.username || null,
+    role: p.role || 'user',
+    seen: 'offline',
+  };
+}
+
 async function paintContacts() {
   const wrap = $('#ncList');
   if (!wrap || $('#ncOv').hidden) return;
-  const q = $('#ncSearch').value.trim();
+  const q = $('#ncSearch').value.trim().toLowerCase();
   if (!wrap.querySelector('.contact')) wrap.innerHTML = `<div class="nc-hint">${t('newchat.loading')}</div>`;
 
-  let users;
+  let users = [];
   let failed = false;
   let errMsg = '';
-  if (SUPABASE.url && SUPABASE.anonKey) {
+  let noContacts = false;
+  const real = SUPABASE.url && SUPABASE.anonKey;
+
+  if (real) {
     try {
-      const profiles = await searchUsers(q);
-      users = profiles
-        .filter((p) => p.id !== S.me?.id)
-        .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null, role: p.role || 'user', seen: 'offline' }));
-      mergeUsers(users);
+      const ready = await contactsReady();
+      if (ready) {
+        await refreshRequests();
+        const ids = [...new Set(S.contacts.map((c) => c.userId))].filter((id) => id && id !== S.me?.id);
+        if (ids.length) {
+          const profiles = await profilesByIds(ids);
+          users = profiles.map(mapProfile);
+          mergeUsers(users);
+        } else {
+          noContacts = true;
+        }
+      } else {
+        /* миграции контактов нет — работаем по-старому, показываем всех */
+        const profiles = await searchUsers(q);
+        users = profiles.map(mapProfile).filter((u) => u.id !== S.me?.id);
+        mergeUsers(users);
+      }
     } catch (err) {
-      console.error('Search users error:', err);
+      console.error('Contacts load error:', err);
       failed = true;
       errMsg = String(err?.message || err || '').trim().slice(0, 160);
-      /* офлайн-запасной вариант: собеседники из уже сохранённых чатов */
-      users = S.users.filter((u) => !u.id.startsWith('u_') && (!q || u.name.toLowerCase().includes(q.toLowerCase())));
+      users = S.users.filter((u) => !u.id.startsWith('u_'));
       for (const c of S.chats) {
         if (c.kind !== 'dm' || !c.userId) continue;
         if (users.some((u) => u.id === c.userId)) continue;
-        const name = c.title || '';
-        if (q && !name.toLowerCase().includes(q.toLowerCase())) continue;
-        users.push({ id: c.userId, name, hue: c.hue ?? 210, avatar: null, username: null, role: 'user', seen: 'offline' });
+        users.push({ id: c.userId, name: c.title || '', hue: c.hue ?? 210, avatar: null, username: null, role: 'user', seen: 'offline' });
       }
     }
   } else {
-    users = S.users.filter((u) => !q || u.name.toLowerCase().includes(q.toLowerCase()));
+    /* демо: тоже только принятые контакты */
+    await refreshRequests();
+    const ids = new Set(S.contacts.map((c) => c.userId));
+    noContacts = ids.size === 0;
+    users = S.users.filter((u) => u.id !== S.me?.id && ids.has(u.id));
+  }
+
+  if (q) {
+    users = users.filter((u) => String(u.name || '').toLowerCase().includes(q)
+      || String(u.username || '').toLowerCase().includes(q));
+  }
+
+  if (!users.length) {
+    const hint = failed ? 'newchat.loadError' : noContacts ? 'newchat.noContacts' : 'newchat.empty';
+    wrap.innerHTML = `<div class="nc-hint">${t(hint)}
+      ${noContacts || failed ? `<button class="btn btn-ghost" type="button" data-find-people>${t('newchat.findPeople')}</button>` : ''}
+      ${failed ? `<button class="btn btn-ghost" type="button" data-retry-contacts>${t('newchat.retry')}</button>` : ''}
+      ${failed && errMsg ? `<div class="nc-err">${esc(errMsg)}</div>` : ''}
+    </div>`;
+    return;
   }
 
   wrap.innerHTML = users.map((u) => {
@@ -942,10 +1022,7 @@ async function paintContacts() {
         <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + u.seen)}</span>
       </span>
     </button>`;
-  }).join('') || `<div class="nc-hint">${t(failed ? 'newchat.loadError' : 'newchat.empty')}
-    ${failed ? `<button class="btn btn-ghost" type="button" data-retry-contacts>${t('newchat.retry')}</button>` : ''}
-    ${failed && errMsg ? `<div class="nc-err">${esc(errMsg)}</div>` : ''}
-  </div>`;
+  }).join('');
 }
 
 /* Добавить/обновить контакты в общем состоянии */
