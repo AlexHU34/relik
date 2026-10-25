@@ -423,6 +423,7 @@ export default {
   'settings.accountDeleted': 'Account deleted',
   'settings.deleteAccountSql': 'Deletion unavailable: run supabase/privacy.sql in the Supabase SQL Editor.',
   'settings.status': 'Service status',
+  'settings.preflight': 'Device preflight',
   'settings.push': 'Push when the app is closed',
   'settings.pushHint': 'Works in Chrome, Edge and the installed app. On iPhone push is not available in the browser.',
   'settings.pushOn': 'Push enabled',

@@ -423,6 +423,7 @@ export default {
   'settings.accountDeleted': 'Аккаунт удалён',
   'settings.deleteAccountSql': 'Удаление недоступно: выполните supabase/privacy.sql в Supabase SQL Editor.',
   'settings.status': 'Статус сервиса',
+  'settings.preflight': 'Предпроверка устройства',
   'settings.push': 'Push при закрытом приложении',
   'settings.pushHint': 'Работает в Chrome, Edge и в установленном приложении. На iPhone push в браузере недоступен.',
   'settings.pushOn': 'Push включён',

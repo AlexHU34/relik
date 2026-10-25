@@ -1,0 +1,341 @@
+#!/usr/bin/env node
+/* Relik — e2e-проверка двумя аккаунтами в двух изолированных профилях Chrome.
+   Ничего не воспроизводит звук (Chrome запускается с --mute-audio).
+
+   Подготовка (PowerShell):
+     $env:EMAIL_A='admin@example.com'; $env:PASS_A='...'; $env:NAME_A='Admin'
+     $env:EMAIL_B='grandma@example.com'; $env:PASS_B='...'; $env:NAME_B='Grandma'
+     $env:USERNAME_B='Grandma'      # @username второго аккаунта (для заявки)
+     node scripts/e2e.mjs
+
+   Флаги:
+     --url https://alexhu34.github.io/relik/   адрес приложения
+     --demo                                    гонять демо-режим (один браузер, без аккаунтов)
+     --keep                                    не закрывать браузеры после прогона
+*/
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const argv = process.argv.slice(2);
+const has = (n) => argv.includes(`--${n}`);
+const arg = (n, d) => {
+  const i = argv.indexOf(`--${n}`);
+  return i >= 0 && argv[i + 1] ? argv[i + 1] : d;
+};
+
+const BASE = arg('url', 'https://alexhu34.github.io/relik/').replace(/\/?$/, '/');
+const DEMO = has('demo');
+const KEEP = has('keep');
+const TIMEOUT = Number(arg('timeout', '30000'));
+
+const CHROME = [
+  process.env.CHROME_PATH,
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+].filter(Boolean).find((p) => existsSync(p));
+
+if (!CHROME) {
+  console.error('Chrome не найден. Укажи CHROME_PATH.');
+  process.exit(2);
+}
+
+const env = {
+  a: { email: process.env.EMAIL_A || '', pass: process.env.PASS_A || '', name: process.env.NAME_A || 'A' },
+  b: { email: process.env.EMAIL_B || '', pass: process.env.PASS_B || '', name: process.env.NAME_B || 'B' },
+};
+const USERNAME_B = process.env.USERNAME_B || '';
+
+if (!DEMO && (!env.a.email || !env.a.pass || !env.b.email || !env.b.pass)) {
+  console.error('Нужны EMAIL_A/PASS_A/EMAIL_B/PASS_B (или запусти с --demo).');
+  process.exit(2);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+const record = (name, ok, info = '') => {
+  results.push({ name, ok, info });
+  console.log(`${ok ? '  OK  ' : ' FAIL '} ${name}${info ? ' — ' + info : ''}`);
+};
+
+async function launch(tag, port) {
+  const dir = mkdtempSync(join(tmpdir(), `relik-e2e-${tag}-`));
+  const child = spawn(CHROME, [
+    '--headless=new',
+    '--disable-gpu',
+    '--mute-audio',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--use-fake-ui-for-media-stream',
+    '--autoplay-policy=user-gesture-required',
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${dir}`,
+    '--window-size=1280,900',
+    'about:blank',
+  ], { stdio: 'ignore' });
+
+  let page = null;
+  for (let i = 0; i < 60 && !page; i += 1) {
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      page = list.find((t) => t.type === 'page');
+    } catch (e) { /* ещё грузится */ }
+    if (!page) await sleep(250);
+  }
+  if (!page) throw new Error(`Chrome ${tag} не поднялся`);
+
+  const ws = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((res, rej) => {
+    ws.addEventListener('open', res, { once: true });
+    ws.addEventListener('error', rej, { once: true });
+  });
+
+  let id = 0;
+  const pending = new Map();
+  ws.addEventListener('message', (e) => {
+    const m = JSON.parse(e.data);
+    if (m.id && pending.has(m.id)) {
+      pending.get(m.id)(m.result || {});
+      pending.delete(m.id);
+    }
+  });
+  const send = (method, params = {}) => new Promise((resolve) => {
+    const n = (id += 1);
+    pending.set(n, resolve);
+    ws.send(JSON.stringify({ id: n, method, params }));
+  });
+
+  const evaluate = async (expression) => {
+    const r = await send('Runtime.evaluate', {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (r.exceptionDetails) {
+      return { __error: r.exceptionDetails.text || 'js error' };
+    }
+    return r.result ? r.result.value : undefined;
+  };
+
+  await send('Runtime.enable');
+  await send('Page.enable');
+  await send('Page.navigate', { url: BASE });
+  await sleep(1500);
+
+  return {
+    tag, port, dir, child, ws, send, evaluate,
+    close() {
+      try { ws.close(); } catch (e) { /* ignore */ }
+      try { child.kill(); } catch (e) { /* ignore */ }
+      if (!KEEP) {
+        setTimeout(() => { try { rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ } }, 500);
+      }
+    },
+  };
+}
+
+async function waitFor(ctx, expression, timeout = TIMEOUT, step = 400) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const v = await ctx.evaluate(expression);
+    if (v && v !== '__error') return v;
+    await sleep(step);
+  }
+  return null;
+}
+
+async function login(ctx, creds) {
+  await waitFor(ctx, `!!document.getElementById('authForm')`);
+  const filled = await ctx.evaluate(`(function(){
+    var e=document.getElementById('authEmail'), p=document.getElementById('authPass');
+    if(!e||!p) return false;
+    e.value=${JSON.stringify(creds.email)};
+    p.value=${JSON.stringify(creds.pass)};
+    document.getElementById('authForm').requestSubmit();
+    return true;
+  })()`);
+  if (!filled) throw new Error('форма входа не найдена');
+  const ok = await waitFor(ctx, `!document.getElementById('appView').hidden`, 20000);
+  if (!ok) {
+    const err = await ctx.evaluate(`(document.querySelector('.toast')?.textContent || document.body.innerText.slice(0,120))`);
+    throw new Error('вход не выполнен: ' + String(err).slice(0, 120));
+  }
+}
+
+async function openPeopleSearch(ctx) {
+  await ctx.evaluate(`document.getElementById('peopleBtn').click()`);
+  await waitFor(ctx, `!document.getElementById('peopleOv').hidden`);
+}
+
+async function sendContactRequest(ctx, username) {
+  await openPeopleSearch(ctx);
+  await ctx.evaluate(`(function(){
+    var i=document.getElementById('peopleSearch');
+    i.value=${JSON.stringify(username)};
+    i.dispatchEvent(new Event('input'));
+  })()`);
+  await sleep(900);
+  const clicked = await ctx.evaluate(`(function(){
+    var b=[...document.querySelectorAll('#peopleList [data-pact="add"]')][0];
+    if(!b) return false; b.click(); return true;
+  })()`);
+  return Boolean(clicked);
+}
+
+async function acceptFirstRequest(ctx) {
+  await ctx.evaluate(`document.getElementById('requestsBtn').click()`);
+  await waitFor(ctx, `!document.getElementById('reqOv').hidden`);
+  await sleep(600);
+  const clicked = await ctx.evaluate(`(function(){
+    var b=document.querySelector('#reqIn [data-pact="accept"]');
+    if(!b) return false; b.click(); return true;
+  })()`);
+  return Boolean(clicked);
+}
+
+async function openChatWith(ctx, name) {
+  await ctx.evaluate(`document.getElementById('newChatBtn').click()`);
+  await waitFor(ctx, `!document.getElementById('ncOv').hidden`);
+  await sleep(700);
+  const clicked = await ctx.evaluate(`(function(){
+    var rows=[...document.querySelectorAll('#ncList .contact[data-uid]')];
+    var row=rows.find(function(r){return (r.textContent||'').includes(${JSON.stringify(name)});}) || rows[0];
+    if(!row) return false;
+    row.click();
+    return true;
+  })()`);
+  if (!clicked) return false;
+  return Boolean(await waitFor(ctx, `!document.getElementById('chatActive').hidden`, 15000));
+}
+
+async function typeAndSend(ctx, text) {
+  const sent = await ctx.evaluate(`(function(){
+    var ta=document.getElementById('ta');
+    if(!ta) return false;
+    ta.value=${JSON.stringify(text)};
+    ta.dispatchEvent(new Event('input'));
+    var b=document.getElementById('sendBtn');
+    if(!b) return false;
+    b.click();
+    return true;
+  })()`);
+  return Boolean(sent);
+}
+
+async function lastMessageText(ctx) {
+  return ctx.evaluate(`(function(){
+    var list=[...document.querySelectorAll('#chatActive .msg')];
+    var m=list[list.length-1];
+    return m ? (m.textContent||'').trim() : '';
+  })()`);
+}
+
+async function runDemo() {
+  const ctx = await launch('demo', 9341);
+  try {
+    await ctx.send('Page.navigate', { url: BASE + '?demo=1' });
+    await sleep(3500);
+    const hasAuth = await ctx.evaluate(`!document.getElementById('authView').hidden`);
+    if (hasAuth) {
+      await ctx.evaluate(`(function(){
+        document.getElementById('authEmail').value='ui@relik.app';
+        document.getElementById('authPass').value='123456';
+        document.getElementById('authForm').requestSubmit();
+      })()`);
+      await sleep(2500);
+    }
+    record('вход в демо', Boolean(await ctx.evaluate(`!document.getElementById('appView').hidden`)));
+
+    await ctx.evaluate(`document.querySelector('.chat-item')?.click()`);
+    const opened = await waitFor(ctx, `!document.getElementById('chatActive').hidden`, 8000);
+    record('открытие чата', Boolean(opened));
+
+    const marker = 'e2e-' + Date.now();
+    await typeAndSend(ctx, marker);
+    const ok = await waitFor(ctx, `document.body.innerText.includes(${JSON.stringify(marker)})`, 8000);
+    record('отправка сообщения', Boolean(ok), marker);
+
+    const before = await ctx.evaluate(`document.querySelectorAll('#chatActive .msg').length`);
+    await ctx.evaluate(`document.getElementById('newChatBtn').click()`);
+    await sleep(600);
+    record('окно нового чата', Boolean(await ctx.evaluate(`!document.getElementById('ncOv').hidden`)));
+    await ctx.evaluate(`document.getElementById('ncOv').hidden = true`);
+
+    await ctx.evaluate(`document.getElementById('peopleBtn').click()`);
+    await sleep(600);
+    record('поиск людей', Boolean(await ctx.evaluate(`!document.getElementById('peopleOv').hidden`)));
+    await ctx.evaluate(`document.getElementById('peopleOv').hidden = true`);
+
+    record('лента не сломалась', Number(before) >= 1, 'сообщений: ' + before);
+  } finally {
+    ctx.close();
+  }
+}
+
+async function runLive() {
+  const A = await launch('a', 9342);
+  const B = await launch('b', 9343);
+  try {
+    await login(A, env.a);
+    record('вход A', true, env.a.name);
+    await login(B, env.b);
+    record('вход B', true, env.b.name);
+
+    /* заявка в контакты A → B */
+    const requested = USERNAME_B ? await sendContactRequest(A, USERNAME_B.replace(/^@/, '')) : false;
+    record('заявка в контакты', requested, USERNAME_B || 'USERNAME_B не задан');
+
+    if (requested) {
+      const accepted = await acceptFirstRequest(B);
+      record('принятие заявки', accepted);
+    }
+
+    const opened = await openChatWith(A, env.b.name);
+    record('чат с B открыт', opened);
+
+    if (opened) {
+      const marker = 'e2e-' + Date.now();
+      await typeAndSend(A, marker);
+      record('A отправил', true, marker);
+
+      /* B: обновляем список и открываем чат с A */
+      await B.evaluate(`window.dispatchEvent(new Event('focus'))`);
+      await sleep(1500);
+      const bOpened = await openChatWith(B, env.a.name);
+      const got = bOpened
+        ? await waitFor(B, `document.body.innerText.includes(${JSON.stringify(marker)})`, 25000)
+        : null;
+      record('B получил сообщение', Boolean(got), got ? '' : 'не найдено в ленте B');
+
+      if (bOpened) {
+        const back = 'reply-' + Date.now();
+        await typeAndSend(B, back);
+        const gotBack = await waitFor(A, `document.body.innerText.includes(${JSON.stringify(back)})`, 25000);
+        record('A получил ответ', Boolean(gotBack));
+      }
+    }
+  } finally {
+    A.close();
+    B.close();
+  }
+}
+
+(async () => {
+  console.log('Relik e2e · ' + BASE + (DEMO ? ' (демо)' : ''));
+  try {
+    if (DEMO) await runDemo();
+    else await runLive();
+  } catch (err) {
+    record('исключение', false, err?.message || String(err));
+  }
+
+  const failed = results.filter((r) => !r.ok).length;
+  console.log('\nИтого: ' + (results.length - failed) + '/' + results.length + ' шагов пройдено');
+  if (failed) console.log('Провалено: ' + results.filter((r) => !r.ok).map((r) => r.name).join(', '));
+  await sleep(KEEP ? 0 : 800);
+  process.exit(failed ? 1 : 0);
+})();

@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Relik — предпроверка</title>
+<link rel="icon" href="../assets/icons/favicon-32.png" sizes="32x32">
+<style>
+  :root{
+    --bg:#0b0c12;--surface:#14161f;--surface2:#181b26;--line:#242836;--line2:#2e3344;
+    --tx:#eef0f7;--tx2:#b7bccd;--tx3:#7d8398;
+    --ok:#38b98a;--warn:#e0a23c;--bad:#e0575d;--accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px 16px 80px;background:
+    radial-gradient(900px 500px at 85% -10%, rgba(91,108,249,.18), transparent 60%),var(--bg);
+    color:var(--tx);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:860px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--tx3);font-size:12.5px;margin:2px 0 18px}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+  button{font:inherit;font-size:13px;color:var(--tx);background:var(--surface);border:1px solid var(--line2);border-radius:10px;padding:9px 14px;cursor:pointer}
+  button:hover{background:#1b1f2c}
+  button.primary{background:linear-gradient(135deg,#5b6cf9,#8a5cf6);border-color:transparent}
+  button:disabled{opacity:.5;cursor:default}
+  .grid{display:grid;gap:10px}
+  .row{display:grid;grid-template-columns:10px 1fr auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 15px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--tx3)}
+  .dot.ok{background:var(--ok);box-shadow:0 0 10px rgba(56,185,138,.55)}
+  .dot.warn{background:var(--warn)}
+  .dot.bad{background:var(--bad);box-shadow:0 0 10px rgba(224,87,93,.5)}
+  .nm{font-weight:600;font-size:14px}
+  .dt{color:var(--tx3);font-size:12px;margin-top:2px;word-break:break-word}
+  .val{font-size:12.5px;color:var(--tx2);white-space:nowrap;font-variant-numeric:tabular-nums}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3);margin:24px 0 8px}
+  pre{background:#0f121a;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:11.5px;line-height:1.5;color:var(--tx2);overflow:auto;max-height:300px;white-space:pre-wrap}
+  .note{margin-top:20px;color:var(--tx3);font-size:12px}
+  .sum{margin-top:18px;font-size:14px;color:var(--tx2)}
+  .sum b{color:var(--tx)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">R</div>
+    <div>
+      <h1>Предпроверка Relik</h1>
+      <div class="sub" id="sub">Готово к запуску</div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="run">Запустить проверку</button>
+    <button id="mic">Разрешить микрофон</button>
+    <button id="copy">Скопировать отчёт</button>
+    <button id="back">← В приложение</button>
+  </div>
+
+  <div class="grid" id="list"></div>
+
+  <h2>Отчёт</h2>
+  <pre id="report">—</pre>
+
+  <p class="note">
+    Страница ничего не воспроизводит и не пишет звук. Микрофон открывается только по кнопке
+    и сразу закрывается — проверяется, что браузер и устройство его видят.
+  </p>
+</div>
+
+<script>
+(function () {
+  var rows = {};
+  var out = document.getElementById('list');
+  var report = document.getElementById('report');
+  var sub = document.getElementById('sub');
+
+  function add(id, name) {
+    var el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML = '<span class="dot"></span><div><div class="nm"></div><div class="dt">ожидает…</div></div><span class="val">—</span>';
+    el.querySelector('.nm').textContent = name;
+    out.appendChild(el);
+    rows[id] = el;
+    return el;
+  }
+  function set(id, state, val, detail) {
+    var el = rows[id];
+    if (!el) return;
+    el.querySelector('.dot').className = 'dot ' + state;
+    if (val != null) el.querySelector('.val').textContent = val;
+    if (detail != null) el.querySelector('.dt').textContent = detail;
+  }
+  var ms = function (n) { return Math.round(n) + ' мс'; };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+
+  async function fetchConfig() {
+    var t = await (await fetch('../js/config.js?ts=' + Date.now(), { cache: 'no-store' })).text();
+    var get = function (re) { var m = t.match(re); return m ? m[1] : ''; };
+    return {
+      version: get(/version:\s*'([^']+)'/),
+      url: get(/url:\s*'([^']+)'/),
+      anon: get(/anonKey:\s*'([^']+)'/),
+      pushKey: get(/publicKey:\s*'([^']+)'/),
+      turn: (t.match(/'turn:[^']+'/g) || []).map(function (s) { return s.slice(1, -1); }),
+      stun: (t.match(/'stun:[^']+'/g) || []).map(function (s) { return s.slice(1, -1); }),
+    };
+  }
+
+  /* ICE: собираем кандидатов с принудительным relay — это доказывает,
+     что TURN реально выдаёт адрес из этой сети. */
+  function iceTest(cfg) {
+    return new Promise(function (resolve) {
+      var result = { relay: null, host: 0, srflx: 0, time: 0, error: '' };
+      if (!cfg.turn.length) { result.error = 'TURN не настроен'; return resolve(result); }
+      var started = performance.now();
+      var pc;
+      try {
+        pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: cfg.stun },
+            { urls: cfg.turn, username: 'relik', credential: 'NxMgeplZdnCJKJoO' },
+          ],
+          iceTransportPolicy: 'relay',
+        });
+      } catch (e) {
+        result.error = e.message || String(e);
+        return resolve(result);
+      }
+      var done = false;
+      var finish = function () {
+        if (done) return;
+        done = true;
+        result.time = Math.round(performance.now() - started);
+        try { pc.close(); } catch (e) {}
+        resolve(result);
+      };
+      pc.onicecandidate = function (e) {
+        if (!e.candidate) return finish();
+        var c = e.candidate.candidate;
+        if (c.indexOf('relay') !== -1) result.relay = c.split(' ')[4] || 'relay';
+        else if (c.indexOf('srflx') !== -1) result.srflx += 1;
+        else if (c.indexOf('host') !== -1) result.host += 1;
+      };
+      pc.createDataChannel('check');
+      pc.createOffer().then(function (o) { return pc.setLocalDescription(o); }).catch(function (err) {
+        result.error = err.message || String(err);
+        finish();
+      });
+      setTimeout(finish, 9000);
+    });
+  }
+
+  async function run() {
+    sub.textContent = 'Проверяем…';
+    report.textContent = '—';
+    var button = document.getElementById('run');
+    button.disabled = true;
+    var watchdog = setTimeout(function () {
+      sub.textContent = 'Проверка заняла слишком много времени';
+      button.disabled = false;
+    }, 30000);
+    var cfg = { version: '?', url: '', anon: '', pushKey: '', turn: [], stun: [] };
+    try { cfg = await fetchConfig(); } catch (e) { /* ignore */ }
+
+    var demo = /[?&]demo=1/.test(location.search);
+
+    /* 1. сайт */
+    set('site', 'ok', 'v' + cfg.version, location.origin + location.pathname);
+
+    /* 2. база */
+    if (!cfg.url || demo) {
+      set('db', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    } else {
+      try {
+        var t0 = performance.now();
+        var r = await fetch(cfg.url + '/rest/v1/profiles?select=id&limit=1', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon }, cache: 'no-store',
+        });
+        set('db', r.ok ? 'ok' : 'bad', ms(performance.now() - t0), 'HTTP ' + r.status);
+      } catch (e) {
+        set('db', 'bad', '—', 'нет соединения с Supabase');
+      }
+    }
+
+    /* 3. TURN / ICE relay */
+    set('ice', 'warn', '…', 'собираем ICE-кандидатов');
+    var ice = await iceTest(cfg);
+    if (ice.relay) {
+      set('ice', 'ok', ms(ice.time), 'relay-кандидат получен: ' + ice.relay);
+    } else if (ice.error) {
+      set('ice', 'bad', '—', ice.error);
+    } else {
+      set('ice', 'bad', ms(ice.time), 'relay не получен — TURN не отвечает из этой сети');
+    }
+
+    /* 4. микрофон */
+    var hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices);
+    if (!hasMedia) {
+      set('mic', 'bad', '—', 'браузер не даёт доступ к устройствам');
+    } else {
+      try {
+        var devices = await navigator.mediaDevices.enumerateDevices();
+        var mics = devices.filter(function (d) { return d.kind === 'audioinput'; });
+        var perms = 'неизвестно';
+        try {
+          if (navigator.permissions) {
+            var p = await navigator.permissions.query({ name: 'microphone' });
+            perms = p.state;
+          }
+        } catch (e) {}
+        set('mic', mics.length ? 'ok' : 'warn', mics.length + ' шт', 'разрешение: ' + perms);
+      } catch (e) {
+        set('mic', 'warn', '—', e.message || String(e));
+      }
+    }
+
+    /* 5. камера */
+    try {
+      var devs2 = await navigator.mediaDevices.enumerateDevices();
+      var cams = devs2.filter(function (d) { return d.kind === 'videoinput'; });
+      set('cam', cams.length ? 'ok' : 'warn', cams.length + ' шт', cams.length ? 'камера найдена' : 'камера не найдена');
+    } catch (e) {
+      set('cam', 'warn', '—', 'не удалось перечислить устройства');
+    }
+
+    /* 6. push */
+    var pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    if (!pushSupported) {
+      set('push', 'warn', 'нет', 'браузер без поддержки push (iOS Safari — норма)');
+    } else {
+      var perm = Notification.permission;
+      var subInfo = 'не подписано';
+      try {
+        var reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          var s = await reg.pushManager.getSubscription();
+          subInfo = s ? 'подписка есть' : 'подписки нет';
+        } else {
+          subInfo = 'service worker не зарегистрирован';
+        }
+      } catch (e) { subInfo = 'ошибка: ' + (e.message || e); }
+      set('push', perm === 'granted' && /есть/.test(subInfo) ? 'ok' : 'warn', perm, subInfo);
+    }
+
+    /* 7. service worker */
+    try {
+      var reg2 = await navigator.serviceWorker.getRegistration();
+      if (reg2) {
+        var keys = await caches.keys();
+        set('sw', 'ok', (reg2.active && reg2.active.state) || '—', 'кэши: ' + (keys.join(', ') || 'нет'));
+      } else {
+        set('sw', 'warn', 'нет', 'service worker не зарегистрирован');
+      }
+    } catch (e) {
+      set('sw', 'warn', '—', String(e.message || e));
+    }
+
+    /* 8. хранилище */
+    try {
+      if (navigator.storage && navigator.storage.estimate) {
+        var est = await navigator.storage.estimate();
+        var used = (est.usage || 0) / 1048576;
+        var quota = (est.quota || 0) / 1048576;
+        set('storage', used > quota * 0.9 ? 'warn' : 'ok',
+          used.toFixed(1) + ' МБ', 'доступно ' + Math.round(quota) + ' МБ');
+      } else {
+        set('storage', 'warn', '—', 'оценка хранилища недоступна');
+      }
+    } catch (e) {
+      set('storage', 'warn', '—', 'нет доступа');
+    }
+
+    /* 9. сеть */
+    var conn = navigator.connection || {};
+    set('net', navigator.onLine ? 'ok' : 'bad',
+      navigator.onLine ? 'online' : 'offline',
+      [conn.effectiveType || 'тип неизвестен', conn.downlink ? conn.downlink + ' Мбит/с' : '', conn.rtt ? 'RTT ' + conn.rtt + ' мс' : ''].filter(Boolean).join(' · '));
+
+    /* 10. экран/устройство */
+    set('device', 'ok', window.innerWidth + '×' + window.innerHeight,
+      'DPR ' + (window.devicePixelRatio || 1) + ' · ' + (navigator.maxTouchPoints ? 'touch' : 'mouse'));
+
+    var bad = out.querySelectorAll('.dot.bad').length;
+    var warn = out.querySelectorAll('.dot.warn').length;
+    sub.textContent = bad ? (bad + ' проблем(ы) — см. ниже') : (warn ? 'всё работает, предупреждений: ' + warn : 'все проверки пройдены');
+
+    report.textContent = JSON.stringify({
+      at: new Date().toISOString(),
+      version: cfg.version,
+      page: location.href,
+      ua: navigator.userAgent,
+      ice: { relay: ice.relay, time: ice.time, error: ice.error, host: ice.host, srflx: ice.srflx },
+      turn: cfg.turn,
+      status: { bad: bad, warn: warn },
+    }, null, 2);
+
+    clearTimeout(watchdog);
+    button.disabled = false;
+  }
+
+  /* микрофон по кнопке: открыть и сразу закрыть, без записи и звука */
+  document.getElementById('mic').addEventListener('click', async function () {
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      var tracks = stream.getAudioTracks();
+      var label = tracks[0] && tracks[0].label ? tracks[0].label : 'микрофон';
+      tracks.forEach(function (t) { t.stop(); });
+      set('mic', 'ok', 'ok', 'доступ получен: ' + label);
+    } catch (e) {
+      set('mic', 'bad', '—', (e && e.name ? e.name + ': ' : '') + (e && e.message ? e.message : 'ошибка доступа'));
+    }
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    navigator.clipboard.writeText(report.textContent).then(function () {
+      var b = document.getElementById('copy');
+      b.textContent = 'Скопировано';
+      setTimeout(function () { b.textContent = 'Скопировать отчёт'; }, 1500);
+    });
+  });
+  document.getElementById('back').addEventListener('click', function () { location.href = '../'; });
+
+  add('site', 'Сайт и версия');
+  add('db', 'База Supabase');
+  add('ice', 'TURN (ICE relay)');
+  add('mic', 'Микрофон');
+  add('cam', 'Камера');
+  add('push', 'Push-уведомления');
+  add('sw', 'Service worker и кэш');
+  add('storage', 'Локальное хранилище');
+  add('net', 'Сеть');
+  add('device', 'Экран и ввод');
+
+  run();
+  window.relikPreflight = run;
+})();
+</script>
+</body>
+</html>
