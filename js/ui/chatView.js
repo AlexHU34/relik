@@ -1629,7 +1629,7 @@ function msgHtml(m, first, hitIndex = -1) {
   const mine = m.sender === 'u_me';
   const u = mine ? S.me : user(m.sender);
   const searchCls = hitIndex >= 0 ? ` search-hit${hitIndex === searchIndex ? ' search-current' : ''}` : '';
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${searchCls}`;
+  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const tools = (m.deleted || m.decryptFailed) ? '' : toolsHtml(m, mine);

@@ -109,27 +109,41 @@ html[data-motion="off"] .ticks.sending .ic{animation:none}
 
 /* Быстрый выбор реакции (панель) */
 .rx-pick{
-  position:absolute;top:-40px;right:8px;display:flex;gap:2px;
-  background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-full);
-  padding:3px 7px;box-shadow:var(--sh-2);z-index:6;animation:pop .15s var(--ease);
+  position:absolute;top:50%;right:auto;left:calc(100% + 8px);
+  display:flex;flex-wrap:wrap;justify-content:center;gap:2px;width:132px;transform:translateY(-50%);
+  background:var(--raise);border:1px solid var(--line-2);border-radius:16px;
+  padding:5px;box-shadow:var(--sh-2);z-index:6;animation:pop .15s var(--ease);
 }
-.msg.mine .rx-pick{right:auto;left:8px}
+.msg.mine .rx-pick{left:auto;right:calc(100% + 8px)}
 .rx-pick button{font-size:17px;padding:2px 3px;border-radius:50%;transition:transform var(--t-fast)}
 .rx-pick button:hover{transform:scale(1.3)}
 
 /* Панель действий при наведении */
 .tools{
-  position:absolute;top:-14px;right:10px;display:flex;gap:2px;
-  background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-full);
-  padding:3px;opacity:0;pointer-events:none;translate:0 4px;z-index:7;
-  transition:opacity var(--t-fast),translate var(--t-fast);box-shadow:var(--sh-1);
+  position:absolute;top:50%;right:auto;left:calc(100% + 8px);display:flex;flex-wrap:wrap;justify-content:center;gap:2px;
+  width:128px;background:var(--raise);border:1px solid var(--line-2);border-radius:16px;
+  padding:4px;opacity:0;pointer-events:none;transform:translateY(-50%);z-index:7;
+  transition:opacity var(--t-fast);box-shadow:var(--sh-1);
 }
-.msg:hover .tools{opacity:1;pointer-events:auto;translate:0 0}
-.msg.tools-open .tools{opacity:1;pointer-events:auto;translate:0 0}
+.msg:hover .tools{opacity:1;pointer-events:auto}
+.msg.tools-open .tools{opacity:1;pointer-events:auto}
 .msg.tools-open .bubble{border-color:var(--accent-glow)}
-.msg.mine .tools{right:auto;left:10px}
-.tools button{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--tx-2)}
+.msg:hover,.msg.tools-open,.msg.react-open{z-index:8}
+.msg.mine .tools{right:calc(100% + 8px);left:auto}
+.msg.react-open .tools{opacity:0!important;pointer-events:none!important}
+.tools button{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--tx-2)}
 .tools button:hover{background:var(--surface-3);color:var(--tx)}
+
+/* На телефоне панель не помещается сбоку — ставим её над пузырём,
+   не закрывая текст сообщения. */
+@media (max-width:720px), (hover:none) {
+  .tools,.rx-pick{
+    top:auto;bottom:calc(100% + 6px);left:0;right:auto;transform:none;
+  }
+  .msg.mine .tools,.msg.mine .rx-pick{left:auto;right:0}
+  .tools{max-width:calc(100vw - 76px);overflow-x:auto;scrollbar-width:none}
+  .tools::-webkit-scrollbar{display:none}
+}
 
 /* Welcome-блок в пустом состоянии */
 .welcome{display:grid;place-items:center;gap:14px;text-align:center;padding:30px 24px}
