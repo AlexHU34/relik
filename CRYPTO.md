@@ -133,7 +133,7 @@ Relik шифрует **содержимое** переписки на клиен
 
 - WebRTC P2P, медиа не проходит через Supabase.
 - Сигналинг — Supabase Broadcast в канал `user:<id>`.
-- STUN: Google и Twilio. TURN подключается через `RELAY` в `js/config.js`; без него часть NAT не соединяется.
+- STUN: Google и Twilio. TURN подключается через `RELAY` в `js/config.js`; без него часть NAT не соединяется. TURN-логин/пароль видны клиенту — используйте одноразовые (ephemeral) credentials, а не постоянные.
 - Шифрование медиа — DTLS-SRTP, штатное для WebRTC.
 - Сервер сигналинга видит участников, время и SDP/ICE; собеседник видит IP друг друга.
 
