@@ -14,6 +14,16 @@ function jwkToString(v) {
   return typeof v === 'string' ? v : JSON.stringify(v);
 }
 
+/* Сетевые вызовы Supabase не должны вешать вход навсегда:
+   на медленной/заблокированной сети запрос может висеть без ответа. */
+function withTimeout(promise, ms = 15000, label = 'timeout') {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function avatarOf(profile, user) {
   return profile?.avatar || user?.user_metadata?.avatar || null;
 }
@@ -53,7 +63,7 @@ function pendingName(email) {
 /* ── Регистрация: шаг 1 — создать пользователя в Auth ── */
 export async function signUp(email, password) {
   sessionStorage.setItem('relik.pendingPass', password);
-  const { data, error } = await sb.auth.signUp({ email, password });
+  const { data, error } = await withTimeout(sb.auth.signUp({ email, password }), 20000, 'signup-timeout');
   if (error) throw error;
 
   // Если подтверждение email включено — сессии ещё нет, нужен код
@@ -64,7 +74,11 @@ export async function signUp(email, password) {
 
 /* ── Регистрация: шаг 2 — проверить код из письма ── */
 export async function verifySignupCode(email, token, password) {
-  const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'signup' });
+  const { data, error } = await withTimeout(
+    sb.auth.verifyOtp({ email, token, type: 'signup' }),
+    20000,
+    'signup-timeout',
+  );
   if (error) throw error;
 
   const pass = password || sessionStorage.getItem('relik.pendingPass') || '';
@@ -91,18 +105,29 @@ async function finalizeProfile(user, email, name, password) {
     key_backup: JSON.stringify(encryptedBackup),
   };
 
-  const { error: profileError } = await sb.from('profiles').insert(row);
+  const { error: profileError } = await withTimeout(
+    sb.from('profiles').insert(row),
+    15000,
+    'profile-timeout',
+  ).catch((err) => ({ error: err }));
+
   if (profileError) {
-    // 23505 — профиль уже есть (повторная попытка): обновляем ключи
+    /* 23505 — профиль уже есть: обновляем ключи. */
     if (profileError.code === '23505') {
-      const { error: updErr } = await sb.from('profiles').update({
-        display_name: name,
-        public_key: publicKeyJwk,
-        key_backup: JSON.stringify(encryptedBackup),
-      }).eq('id', user.id);
-      if (updErr) throw updErr;
+      const { error: updErr } = await withTimeout(
+        sb.from('profiles').update({
+          display_name: name,
+          public_key: publicKeyJwk,
+          key_backup: JSON.stringify(encryptedBackup),
+        }).eq('id', user.id),
+        15000,
+        'profile-timeout',
+      ).catch((err) => ({ error: err }));
+      if (updErr) await queuePendingProfile(row);
     } else {
-      throw profileError;
+      /* Не блокируем вход: сохраним профиль локально и досинхронизируем. */
+      console.warn('Profile insert deferred:', profileError.message || profileError);
+      await queuePendingProfile(row);
     }
   }
 
@@ -125,16 +150,47 @@ async function finalizeProfile(user, email, name, password) {
   return me;
 }
 
+const PENDING_PROFILE = 'pendingProfile';
+
+async function queuePendingProfile(row) {
+  try { await idb.put('settings', { key: PENDING_PROFILE, value: row }); } catch (e) { /* ignore */ }
+}
+
+/* Дослать профиль, который не успел сохраниться при регистрации. */
+export async function retryPendingProfile() {
+  let rec = null;
+  try { rec = await idb.get('settings', PENDING_PROFILE); } catch (e) { return false; }
+  if (!rec?.value?.id) return false;
+
+  try {
+    const { error } = await withTimeout(
+      sb.from('profiles').upsert(rec.value, { onConflict: 'id' }),
+      15000,
+      'profile-timeout',
+    );
+    if (error) throw error;
+    await idb.del('settings', PENDING_PROFILE);
+    return true;
+  } catch (err) {
+    console.warn('Profile retry deferred:', err?.message || err);
+    return false;
+  }
+}
+
 /* ── Вход ── */
 export async function signIn(email, password) {
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  const { data, error } = await withTimeout(
+    sb.auth.signInWithPassword({ email, password }),
+    20000,
+    'signin-timeout',
+  );
   if (error) throw error;
 
-  const { data: profile, error: profileError } = await sb
-    .from('profiles')
-    .select('*')
-    .eq('id', data.user.id)
-    .single();
+  const { data: profile, error: profileError } = await withTimeout(
+    sb.from('profiles').select('*').eq('id', data.user.id).single(),
+    15000,
+    'profile-timeout',
+  );
 
   if (profileError) throw profileError;
 
@@ -269,11 +325,11 @@ export async function restoreSession() {
   const { data: { session }, error } = await sb.auth.getSession();
   if (error || !session) return null;
 
-  const { data: profile, error: profileError } = await sb
-    .from('profiles')
-    .select('*')
-    .eq('id', session.user.id)
-    .single();
+  const { data: profile, error: profileError } = await withTimeout(
+    sb.from('profiles').select('*').eq('id', session.user.id).single(),
+    15000,
+    'profile-timeout',
+  );
   if (profileError) return null;
 
   const keyPairRec = await idb.get('settings', 'keyPair');

@@ -16,6 +16,7 @@ import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js'
 import { initDevice } from './ui/device.js';
 import { sb } from './backend/supabaseClient.js';
 import { signUp, signIn, signOut, restoreSession, updateLastSeen, verifySignupCode, saveAvatar } from './backend/auth.js';
+import { retryPendingProfile } from './backend/auth.js';
 import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
 import { playMessage } from './ui/sounds.js';
 import { notifyMessage } from './ui/notify.js';
@@ -302,6 +303,7 @@ async function enterApp(welcomeKey) {
   startGlobalRealtime();
   initCalls();
   if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
+  retryPendingProfile().catch(() => {});
   processScheduled().catch(() => {});
   syncPrefsFromCloud().catch(() => {});
 }
@@ -332,28 +334,48 @@ function showVerify(email, mode = 'email') {
 
 async function checkInviteCode(code) {
   const expected = 'RELIK2013';
-  try {
-    const { data, error } = await sb.rpc('check_signup_code', { code });
-    if (error) {
-      const missing = /could not find|does not exist|schema cache|function/i.test(error.message || '');
-      return missing ? code === expected : false;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), 8000));
+  const request = (async () => {
+    try {
+      const { data, error } = await sb.rpc('check_signup_code', { code });
+      if (error) {
+        const missing = /could not find|does not exist|schema cache|function/i.test(error.message || '');
+        return missing ? code === expected : false;
+      }
+      return data === true;
+    } catch (e) {
+      return code === expected;
     }
-    return data === true;
-  } catch (e) {
-    return code === expected;
-  }
+  })();
+  return await Promise.race([request, timeout]);
 }
 
 async function submitAccessCode() {
   const code = $('#verifyCode').value.trim().toUpperCase();
   if (!code) { toast(t('verify.needCode')); return; }
-  if (!(await checkInviteCode(code))) { toast(t('verify.wrongInvite')); return; }
+
+  $('#verifyGo').disabled = true;
+  $('#verifyGo').textContent = t('verify.checking');
+
+  const check = await checkInviteCode(code);
+  if (check === 'timeout') {
+    $('#verifyGo').disabled = false;
+    $('#verifyGo').textContent = t('verify.continue');
+    toast(t('verify.timeout'), { type: 'error' });
+    return;
+  }
+  if (!check) {
+    $('#verifyGo').disabled = false;
+    $('#verifyGo').textContent = t('verify.continue');
+    toast(t('verify.wrongInvite'));
+    return;
+  }
 
   const p = pendingSignup;
   if (!p) { $('#verifyOv').hidden = true; return; }
 
   try {
-    $('#verifyGo').disabled = true;
+    $('#verifyGo').textContent = t('verify.creating');
     sessionStorage.setItem('relik.pendingName', p.name);
     const res = await signUp(p.email, p.pass);
     if (res && res.pending) {
@@ -367,9 +389,11 @@ async function submitAccessCode() {
   } catch (err) {
     const msg = err.message || '';
     if (/rate limit|over_email_send_rate_limit/i.test(msg)) toast(t('verify.emailGate'));
+    else if (/profile-timeout|timeout/i.test(msg)) toast(t('verify.timeout'));
     else toast(msg || t('verify.error'));
   } finally {
     $('#verifyGo').disabled = false;
+    $('#verifyGo').textContent = t(verifyMode === 'invite' ? 'verify.continue' : 'verify.confirm');
   }
 }
 
@@ -860,6 +884,7 @@ window.addEventListener('online', () => {
   if (!S.me) return;
   retryFailedMessages();
   retryOutbox();
+  retryPendingProfile().catch(() => {});
   reloadChats().catch(() => {});
 });
 
