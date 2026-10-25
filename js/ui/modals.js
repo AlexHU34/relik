@@ -7,14 +7,14 @@ import { idb, newId } from '../db/idb.js';
 import { APP, SUPABASE } from '../config.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
-import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn } from '../backend/auth.js';
+import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll } from '../backend/auth.js';
 import { searchUsers, createDmChat, listProfiles, setUserRole } from '../backend/chats.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
 import { soundsEnabled, setSounds } from './sounds.js';
 import { notificationsEnabled, setNotifications } from './notify.js';
-import { prefs, WALLPAPERS, setTextSize, setWallpaper, setMotion, setEnterToSend, clearChatPrefs } from './prefs.js';
+import { prefs, WALLPAPERS, ACCENTS, setTextSize, setWallpaper, setMotion, setEnterToSend, setAccent, setCustomWall, clearChatPrefs } from './prefs.js';
 import { confirmAction } from './dialog.js';
 import { addMemberToGroup, removeMemberFromGroup, updateGroupTitle, leaveGroup } from '../backend/groups.js';
 import { canInstall, promptInstall } from './install.js';
@@ -56,7 +56,7 @@ export function initModals() {
     else {
       closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
       closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv'));
-      closeOv($('#groupOv'));
+      closeOv($('#groupOv')); closeOv($('#readOv'));
     }
   });
 
@@ -135,12 +135,49 @@ export function initModals() {
   $('#wallGrid')?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-wall]');
     if (!b) return;
+    if (b.dataset.wall === 'custom' && !prefs.customWall) {
+      $('#wallUpload').click();
+      return;
+    }
     setWallpaper(b.dataset.wall);
     paintWalls();
+  });
+  $('#accentGrid')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-accent]');
+    if (!b) return;
+    setAccent(b.dataset.accent);
+    applyTheme(currentTheme(), false);
+    paintAccents();
+  });
+  $('#wallUploadBtn')?.addEventListener('click', () => $('#wallUpload').click());
+  $('#wallUpload')?.addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const src = await wallToDataUrl(f);
+      setCustomWall(src);
+      paintWalls();
+      toast(t('settings.saved'), { type: 'success' });
+    } catch (err) {
+      toast(t('settings.wallTooBig'), { type: 'error' });
+    }
   });
   $('#enterSendToggle')?.addEventListener('change', (e) => setEnterToSend(e.target.checked));
   $('#motionToggle')?.addEventListener('change', (e) => setMotion(e.target.checked));
   $('#clearLocalBtn')?.addEventListener('click', clearLocalCache);
+  $('#logoutAllBtn')?.addEventListener('click', async () => {
+    const ok = await confirmAction({
+      title: t('settings.logoutAll'),
+      text: t('settings.logoutAllText'),
+      ok: t('settings.logoutAllOk'),
+      danger: true,
+      iconName: 'logout',
+    });
+    if (!ok) return;
+    await signOutAll();
+    location.reload();
+  });
   $('#installBtn')?.addEventListener('click', async () => {
     const ok = await promptInstall();
     $('#installBtn').hidden = !canInstall();
@@ -169,6 +206,7 @@ export function initModals() {
   document.addEventListener('relik:lang', () => {
     paintTextSize();
     paintWalls();
+    paintAccents();
     paintThemes();
     paintFonts();
     paintLangSeg();
@@ -216,6 +254,7 @@ export function openSettings() {
   paintFonts();
   paintTextSize();
   paintWalls();
+  paintAccents();
   $('#soundsToggle').checked = soundsEnabled();
   $('#notifyToggle').checked = notificationsEnabled();
   const installBtn = $('#installBtn');
@@ -223,6 +262,8 @@ export function openSettings() {
   $('#enterSendToggle').checked = prefs.enterToSend !== false;
   $('#motionToggle').checked = prefs.motion !== false;
   $('#adminField').hidden = S.me?.role !== 'admin';
+  const allBtn = $('#logoutAllBtn');
+  if (allBtn) allBtn.hidden = !(SUPABASE.url && SUPABASE.anonKey);
   paintAvatar();
   const body = $('#settingsOv .m-body');
   if (body) body.scrollTop = 0;
@@ -240,11 +281,57 @@ function paintWalls() {
   if (!wrap) return;
   wrap.innerHTML = WALLPAPERS.map((w) => {
     const label = t(w.labelKey) || w.name;
+    const custom = w.id === 'custom' && prefs.customWall
+      ? ` style="background-image:url('${prefs.customWall}');background-size:cover;background-position:center"`
+      : '';
     return `
     <button type="button" class="wall-swatch wsw-${w.id}${w.id === prefs.wallpaper ? ' on' : ''}"
-      data-wall="${w.id}" title="${esc(label)}" aria-label="${esc(label)}"><i></i></button>
+      data-wall="${w.id}" title="${esc(label)}" aria-label="${esc(label)}"${custom}><i></i></button>
   `;
   }).join('');
+}
+
+function paintAccents() {
+  const wrap = $('#accentGrid');
+  if (!wrap) return;
+  wrap.innerHTML = ACCENTS.map((a) => {
+    const bg = a.c
+      ? `background:linear-gradient(135deg,${a.c[0]},${a.c[1]} 55%,${a.c[2]})`
+      : 'background:linear-gradient(135deg,var(--blue),var(--violet))';
+    return `<button type="button" class="accent-swatch${a.id === prefs.accent ? ' on' : ''}"
+      data-accent="${a.id}" title="${esc(t(a.labelKey))}" aria-label="${esc(t(a.labelKey))}"
+      style="${bg}"></button>`;
+  }).join('');
+}
+
+/* Свои обои: ужимаем до 1600px и кладём в localStorage */
+function wallToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const variants = [[1600, 0.74], [1280, 0.68], [1000, 0.6]];
+        for (const [max, q] of variants) {
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * scale));
+          c.height = Math.max(1, Math.round(img.height * scale));
+          const g = c.getContext('2d');
+          g.drawImage(img, 0, 0, c.width, c.height);
+          const src = c.toDataURL('image/jpeg', q);
+          if (src.length <= 850000) { resolve(src); return; }
+        }
+        reject(new Error('too big'));
+      } catch (e) {
+        reject(e);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image')); };
+    img.src = url;
+  });
 }
 
 function paintThemes() {

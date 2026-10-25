@@ -176,8 +176,11 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .confirm-body p{font-size:var(--fs-sm);color:var(--tx-2);line-height:1.55;max-width:34ch}
 .confirm-ov.out{opacity:0;transition:opacity .16s}
 
+.read-list{display:grid;gap:6px}
+.read-mark{color:var(--tick-read,#7ea6ff);display:grid;flex:none;margin-left:auto}
+
 /* ---------- Обои ---------- */
-.wall-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.wall-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
 .wall-swatch{
   position:relative;height:46px;border-radius:12px;border:2px solid var(--line);
   overflow:hidden;background:var(--bg);transition:border-color var(--t-fast),transform var(--t-fast);
@@ -190,6 +193,13 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .wsw-dots i{background-image:radial-gradient(var(--tx-3) 1px,transparent 1px);background-size:8px 8px;background-color:var(--bg);opacity:.8}
 .wsw-grid i{background-image:linear-gradient(to right,var(--line-2) 1px,transparent 1px),linear-gradient(to bottom,var(--line-2) 1px,transparent 1px);background-size:12px 12px;background-color:var(--bg)}
 .wsw-waves i{background:repeating-linear-gradient(135deg,transparent 0 6px,var(--line-2) 6px 7px),var(--bg)}
+.accent-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.accent-swatch{
+  height:34px;border-radius:50%;border:2px solid var(--line);
+  transition:transform var(--t-fast),border-color var(--t-fast),box-shadow var(--t-fast);
+}
+.accent-swatch:hover{transform:translateY(-1px)}
+.accent-swatch.on{border-color:var(--tx);box-shadow:0 0 0 2px var(--accent-soft)}
 
 /* ---------- Управление группой ---------- */
 .group-modal{width:min(520px,100%)}

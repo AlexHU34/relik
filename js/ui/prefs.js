@@ -11,7 +11,25 @@ export const WALLPAPERS = [
   { id: 'dots', name: 'Точки', labelKey: 'wall.dots' },
   { id: 'grid', name: 'Сетка', labelKey: 'wall.grid' },
   { id: 'waves', name: 'Волны', labelKey: 'wall.waves' },
+  { id: 'custom', name: 'Свои', labelKey: 'wall.custom' },
 ];
+
+export const ACCENTS = [
+  { id: 'theme', labelKey: 'accent.theme', c: null },
+  { id: 'blue', labelKey: 'accent.blue', c: ['#4e7fff', '#5b6cf9', '#9f5cf6'] },
+  { id: 'teal', labelKey: 'accent.teal', c: ['#2dd4bf', '#0ea5e9', '#6366f1'] },
+  { id: 'green', labelKey: 'accent.green', c: ['#34d399', '#10b981', '#84cc16'] },
+  { id: 'amber', labelKey: 'accent.amber', c: ['#fbbf24', '#f59e0b', '#f97316'] },
+  { id: 'rose', labelKey: 'accent.rose', c: ['#fb7185', '#f43f5e', '#d946ef'] },
+  { id: 'violet', labelKey: 'accent.violet', c: ['#a78bfa', '#8b5cf6', '#d946ef'] },
+];
+
+const hexRgba = (hex, a) => {
+  const h = hex.replace('#', '');
+  const f = h.length === 3 ? h.split('').map((ch) => ch + ch).join('') : h;
+  const n = parseInt(f, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
 
 const DEFAULTS = () => ({
   pinned: {},          // chatId -> true
@@ -19,6 +37,8 @@ const DEFAULTS = () => ({
   readAt: {},          // chatId -> timestamp последнего прочтения
   textSize: 'normal',  // compact | normal | large
   wallpaper: 'none',   // см. WALLPAPERS
+  customWall: null,    // data URL для «Свои обои»
+  accent: 'theme',     // см. ACCENTS
   enterToSend: true,
   motion: true,
 });
@@ -99,6 +119,50 @@ export function applyPrefs() {
   root.dataset.textsize = size;
   root.dataset.wallpaper = wall;
   root.dataset.motion = prefs.motion === false ? 'off' : 'on';
+  if (wall === 'custom' && prefs.customWall) {
+    root.style.setProperty('--chat-wall', `url("${prefs.customWall}")`);
+  } else {
+    root.style.removeProperty('--chat-wall');
+  }
+}
+
+export function setCustomWall(dataUrl) {
+  prefs.customWall = dataUrl || null;
+  if (prefs.customWall) prefs.wallpaper = 'custom';
+  else if (prefs.wallpaper === 'custom') prefs.wallpaper = 'none';
+  savePrefs();
+  applyPrefs();
+}
+
+/* Акцент применяется после темы и перекрывает её цветовые переменные */
+export function applyAccent(root = document.documentElement) {
+  const a = ACCENTS.find((x) => x.id === prefs.accent);
+  if (!a || !a.c) {
+    delete root.dataset.accent;
+    return false;
+  }
+  const [c1, c2, c3] = a.c;
+  const vars = {
+    '--blue': c1,
+    '--indigo': c2,
+    '--violet': c3,
+    '--grad': `linear-gradient(135deg,${c1},${c2} 50%,${c3})`,
+    '--accent': c2,
+    '--accent-soft': hexRgba(c2, 0.15),
+    '--accent-glow': hexRgba(c2, 0.4),
+    '--bg-glow-1': hexRgba(c1, 0.09),
+    '--bg-glow-2': hexRgba(c3, 0.08),
+  };
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  root.dataset.accent = a.id;
+  return true;
+}
+
+export function setAccent(id) {
+  if (!ACCENTS.some((a) => a.id === id)) return;
+  prefs.accent = id;
+  savePrefs();
+  applyAccent();
 }
 
 export function setTextSize(size) {

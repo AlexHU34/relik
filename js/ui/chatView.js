@@ -6,6 +6,7 @@ import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
 import { EMOJI_QUICK, SUPABASE } from '../config.js';
 import { openLightbox, openGroupManager } from './modals.js';
+import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
 import { refreshBar, resetComposer, loadEdit, retryMessage, votePoll, sendReaction, closePoll } from './composer.js';
@@ -220,6 +221,8 @@ function onMsgClick(e) {
   const msgEl = e.target.closest('.msg');
   const m = msgEl && byId(msgEl.dataset.mid);
 
+  if (e.target.closest('.ticks.read') && m) { openReadInfo(m); return; }
+
   if (pickEl && m) { toggleReaction(m, pickEl.dataset.pick); return; }
   if (rxBt && m) { toggleReaction(m, rxBt.dataset.rx); return; }
   const pollEl = e.target.closest('[data-poll-opt]');
@@ -273,18 +276,21 @@ function onMsgClick(e) {
       closeReact();
     }
     else if (act === 'forward') { openForward(m); closeReact(); }
+    else if (act === 'readby') { openReadInfo(m); closeReact(); }
     else if (act === 'del') {
-      if (SUPABASE.url && SUPABASE.anonKey) {
-        deleteMessageBackend(m.id).catch((err) => console.error('Delete error:', err));
-      }
-      m.deleted = true; m.text = '';
-      idb.put('messages', m).then(() => { renderMessages(); renderSidebar(); });
-      const chat = chatById(S.active);
-      if (chat) {
-        const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
-        chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
-        idb.put('chats', chat);
-      }
+      openMenu([
+        {
+          label: t('msg.deleteMe'),
+          icon: 'trash',
+          onClick: () => deleteMessageLocal(m),
+        },
+        {
+          label: t('msg.deleteAll'),
+          icon: 'trash',
+          danger: true,
+          onClick: () => deleteMessageEverywhere(m),
+        },
+      ], { anchor: actEl, align: 'right' });
       closeReact();
     }
     return;
@@ -302,6 +308,44 @@ function onMsgClick(e) {
 
 function byId(id) {
   return (S.messages[S.active] || []).find((m) => m.id === id);
+}
+
+/* Удаление: у себя — скрываем только на этом устройстве; у всех — помечаем на сервере */
+function afterMessageRemoved(m) {
+  const chat = chatById(S.active);
+  if (!chat) return;
+  if (chat.pin?.id === m.id) {
+    delete chat.pin;
+    idb.del('settings', 'pin:' + chat.id);
+    renderPin();
+  }
+  const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
+  chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
+  idb.put('chats', chat);
+  renderSidebar();
+}
+
+function deleteMessageLocal(m) {
+  m.hidden = true;
+  m.localDeleted = true;
+  idb.put('messages', m).then(() => {
+    renderMessages();
+    afterMessageRemoved(m);
+  });
+  toast(t('msg.deletedLocal'), { type: 'success' });
+}
+
+function deleteMessageEverywhere(m) {
+  if (SUPABASE.url && SUPABASE.anonKey) {
+    deleteMessageBackend(m.id).catch((err) => console.error('Delete error:', err));
+  }
+  m.deleted = true;
+  m.text = '';
+  idb.put('messages', m).then(() => {
+    renderMessages();
+    afterMessageRemoved(m);
+  });
+  toast(t('msg.deletedEverywhere'), { type: 'success' });
 }
 
 /* ── ссылка-приглашение в чат ──────────────────────────────── */
@@ -327,7 +371,10 @@ function mergeMessages(server, local) {
   for (const m of local) {
     const s = map.get(m.id);
     if (!s) map.set(m.id, m);
-    else if (m.status === 'read') s.status = 'read'; // локальная отметка прочтения не теряется
+    else {
+      if (m.status === 'read') s.status = 'read'; // локальная отметка прочтения не теряется
+      if (m.localDeleted) { s.hidden = true; s.localDeleted = true; } // «удалено у себя»
+    }
   }
   return [...map.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0));
 }
@@ -359,10 +406,9 @@ function applyReadState(chatId) {
   const req = requiredReaders(chat);
   if (!req.length) return;
 
-  /* в группе две галочки — когда прочитали все участники */
-  let upto = Infinity;
-  for (const uid of req) upto = Math.min(upto, reads.get(uid) || 0);
-  if (!Number.isFinite(upto)) upto = 0;
+  /* в группе достаточно одного прочитавшего (по ответу в опросе) */
+  let upto = 0;
+  for (const uid of req) upto = Math.max(upto, reads.get(uid) || 0);
 
   const changed = [];
   for (const m of raw) {
@@ -392,6 +438,36 @@ function refreshTicks(m) {
   } else if (old) {
     old.remove();
   }
+}
+
+/* Кто прочитал конкретное сообщение (по скрытым read-событиям) */
+function readersFor(m) {
+  const raw = S.messages[S.active] || [];
+  const map = new Map();
+  for (const x of raw) {
+    if (x.type !== 'read' || !x.read || x.sender === 'u_me') continue;
+    const upto = Number(x.read.upto) || 0;
+    if (upto < m.ts) continue;
+    map.set(x.sender, Math.max(map.get(x.sender) || 0, upto));
+  }
+  return [...map.keys()].map((uid) => user(uid));
+}
+
+function openReadInfo(m) {
+  const list = readersFor(m);
+  const wrap = $('#readList');
+  if (!wrap) return;
+  wrap.innerHTML = list.length
+    ? list.map((u) => `<div class="member-row">
+        ${avatarHtml(u, { sm: true, online: u.seen === 'online' })}
+        <span class="info">
+          <span class="n">${esc(u.name)}${adminBadge(u)}</span>
+          <span class="s">${u.username ? '@' + esc(u.username) : t('msg.read')}</span>
+        </span>
+        <span class="read-mark">${icon('check2', 16)}</span>
+      </div>`).join('')
+    : `<div class="nc-hint">${t('msg.noReads')}</div>`;
+  $('#readOv').hidden = false;
 }
 
 /* Сообщить другим, что мы дочитали до upto (не чаще раза в ~1,5 с) */
@@ -1315,6 +1391,7 @@ function toolsHtml(m, mine) {
     canForward ? `<button data-act="forward" title="${t('msg.forward')}">${icon('forward', 15)}</button>` : '',
     `<button data-act="pin" title="${t('msg.pin')}">${icon('pin', 15)}</button>`,
     isText ? `<button data-act="copy" title="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
+    mine && m.status === 'read' ? `<button data-act="readby" title="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
     mine && isText ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
     canDelete ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
   ].join('');

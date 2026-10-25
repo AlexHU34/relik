@@ -301,6 +301,10 @@
             <span class="chip" data-i18n="chat.demoTitle">Демо-режим</span>
             <span class="chip" data-i18n="chat.demoText"></span>
           </div>
+          <div class="welcome-actions">
+            <button class="btn" type="button" id="emptyNewChat" data-i18n="side.newChat">Новый чат</button>
+            <button class="btn btn-ghost" type="button" id="emptySettings" data-i18n="side.settings">Настройки</button>
+          </div>
         </div>
       </section>
       <!-- Активный чат -->
@@ -435,6 +439,12 @@
         <div class="field">
           <span data-i18n="settings.wallpaper">Обои чата</span>
           <div class="wall-grid" id="wallGrid"></div>
+          <button class="btn btn-ghost" type="button" id="wallUploadBtn" data-i18n="settings.uploadWall">Загрузить свои обои</button>
+          <input type="file" id="wallUpload" accept="image/*" hidden>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.accent">Акцентный цвет</span>
+          <div class="accent-grid" id="accentGrid"></div>
         </div>
         <label class="switch-row">
           <span data-i18n="settings.enterSend">Отправлять по Enter</span>
@@ -469,6 +479,7 @@
             <span class="btn-ic" id="clearLocalIc"></span>
             <span data-i18n="settings.clearCache">Очистить локальный кэш</span>
           </button>
+          <button class="btn btn-ghost btn-danger-soft" type="button" id="logoutAllBtn" data-i18n="settings.logoutAll">Выйти на всех устройствах</button>
           <span class="field-hint" data-i18n="settings.clearCacheHint">Сообщения и чаты на этом устройстве. Ключи и профиль останутся.</span>
         </div>
         <div class="about">
@@ -567,6 +578,19 @@
       <div class="m-foot">
         <button class="btn btn-ghost btn-danger-soft" type="button" id="groupLeave" data-i18n="group.leave">Покинуть группу</button>
         <button class="btn" type="button" data-close data-i18n="common.done">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ КТО ПРОЧИТАЛ ══════════ -->
+  <div class="overlay" id="readOv" hidden>
+    <div class="modal read-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="msg.readBy">Прочитали</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="read-list" id="readList"></div>
       </div>
     </div>
   </div>

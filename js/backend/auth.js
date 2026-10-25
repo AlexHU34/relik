@@ -175,12 +175,7 @@ export async function signIn(email, password) {
 }
 
 /* ── Выход ── */
-export async function signOut() {
-  try {
-    await sb.auth.signOut();
-  } catch (e) {
-    console.warn('Sign out request failed:', e && e.message ? e.message : e);
-  }
+async function clearLocalData() {
   /* не оставляем расшифрованную переписку и черновики на устройстве */
   try {
     await idb.clear('messages');
@@ -196,6 +191,25 @@ export async function signOut() {
     await idb.del('settings', 'me');
     await idb.del('settings', 'keyPair');
   }
+}
+
+export async function signOut() {
+  try {
+    await sb.auth.signOut();
+  } catch (e) {
+    console.warn('Sign out request failed:', e && e.message ? e.message : e);
+  }
+  await clearLocalData();
+}
+
+/* Выход со всех устройств: завершаем все сессии аккаунта */
+export async function signOutAll() {
+  try {
+    await sb.auth.signOut({ scope: 'global' });
+  } catch (e) {
+    console.warn('Global sign out failed:', e && e.message ? e.message : e);
+  }
+  await clearLocalData();
 }
 
 /* ── Получение текущего пользователя ── */

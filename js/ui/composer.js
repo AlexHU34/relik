@@ -323,29 +323,42 @@ export async function sendCurrent() {
 }
 
 /* ── повторная отправка (клик по ошибке или возврат сети) ── */
-export async function retryMessage(m) {
-  if (!m || m.status !== 'error') return;
+export async function retryMessage(m, opts = {}) {
+  if (!m || m.status !== 'error') return false;
   const chat = chatById(m.chatId || S.active);
-  if (!chat) return;
+  if (!chat) return false;
 
   const wire = m.wire || m.text;
   m.status = 'sending';
   await idb.put('messages', m);
   if (S.active === chat.id) renderMessages();
 
+  let ok = false;
   try {
     await sendMessage(chat.id, wire, m.replyTo?.id || null, chat.kind, chat.publicKey, m.id);
     m.status = 'sent';
     delete m.error;
     await idb.put('messages', m);
+    ok = true;
   } catch (err) {
-    console.error('Retry message error:', err);
-    m.status = 'error';
-    m.error = String(err?.message || '');
-    await idb.put('messages', m);
-    toast(friendlySendError(err));
+    const msg = String(err?.message || '');
+    /* сообщение уже дошло раньше, но клиент не успел отметить — это успех */
+    if (err?.code === '23505' || /duplicate key|already exists/i.test(msg)) {
+      m.status = 'sent';
+      delete m.error;
+      await idb.put('messages', m);
+      ok = true;
+    } else {
+      console.error('Retry message error:', err);
+      m.status = 'error';
+      m.error = msg;
+      await idb.put('messages', m);
+      if (!opts.silent) toast(friendlySendError(err));
+    }
   }
   if (S.active === chat.id) renderMessages();
+  renderSidebar();
+  return ok;
 }
 
 /* Все недоставленные сообщения — при восстановлении связи */
@@ -355,6 +368,42 @@ export function retryFailedMessages() {
     for (const m of list) {
       if (m.sender === 'u_me' && m.status === 'error') retryMessage(m);
     }
+  }
+}
+
+/* Очередь исходящих: досылаем ошибки и «зависшие» отправки во всех чатах,
+   даже если чат сейчас не открыт (после перезагрузки/обрыва сети). */
+let outboxBusy = false;
+let outboxAt = 0;
+
+export async function retryOutbox() {
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+  if (navigator.onLine === false) return;
+  if (outboxBusy || Date.now() - outboxAt < 15000) return;
+  outboxBusy = true;
+  outboxAt = Date.now();
+  try {
+    const all = await idb.getAll('messages');
+    const now = Date.now();
+    const queue = all.filter((m) => m.sender === 'u_me' && !m.hidden && (
+      m.status === 'error' || (m.status === 'sending' && now - (m.ts || 0) > 25000)
+    )).slice(0, 20);
+
+    for (const m of queue) {
+      if (!chatById(m.chatId)) continue;
+      if (m.status === 'sending') {
+        m.status = 'error';
+        await idb.put('messages', m);
+      }
+      const list = S.messages[m.chatId] || (S.messages[m.chatId] = []);
+      if (!list.some((x) => x.id === m.id)) list.push(m);
+      await retryMessage(m, { silent: true });
+    }
+    if (queue.length) renderSidebar();
+  } catch (err) {
+    console.warn('Outbox retry failed:', err);
+  } finally {
+    outboxBusy = false;
   }
 }
 
@@ -594,6 +643,7 @@ async function saveEdit(text) {
 /* Медиа передаём внутри зашифрованного сообщения (data URL).
    Так фото и файлы работают без Storage и остаются E2E. */
 const MAX_MEDIA_CHARS = 900000;
+const MAX_VOICE_CHARS = 4000000;
 
 function loadImage(src) {
   return new Promise((res, rej) => {
@@ -606,20 +656,51 @@ function loadImage(src) {
 
 async function compressToDataUrl(file) {
   const url = URL.createObjectURL(file);
+  let source = null;
   try {
-    const img = await loadImage(url);
-    const variants = [[1400, .82], [1100, .76], [900, .7], [720, .64]];
-    for (const [max, quality] of variants) {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
+    if (typeof createImageBitmap === 'function') {
+      try {
+        source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      } catch (e) { /* браузер не умеет — ниже обычный Image */ }
+    }
+    if (!source) source = await loadImage(url);
+
+    const w = source.width || source.naturalWidth || 1;
+    const h = source.height || source.naturalHeight || 1;
+    const keepAlpha = /^image\/(png|webp|gif)$/i.test(String(file.type));
+    const bgColor = getComputedStyle(document.body).backgroundColor || '#0b0e14';
+
+    /* PNG/WebP с прозрачностью сначала пробуем сохранить как есть,
+       и только если не влезает — уменьшаем и уходим в JPEG */
+    const variants = keepAlpha
+      ? [
+        [1400, 0.92, 'image/png'], [1100, 0.9, 'image/png'],
+        [900, 0.88, 'image/png'], [720, 0.85, 'image/png'],
+        [1400, 0.82, 'image/jpeg'], [1100, 0.76, 'image/jpeg'],
+        [900, 0.7, 'image/jpeg'], [720, 0.64, 'image/jpeg'],
+      ]
+      : [
+        [1400, 0.82, 'image/jpeg'], [1100, 0.76, 'image/jpeg'],
+        [900, 0.7, 'image/jpeg'], [720, 0.64, 'image/jpeg'],
+      ];
+
+    for (const [max, quality, mime] of variants) {
+      const scale = Math.min(1, max / Math.max(w, h));
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      const src = canvas.toDataURL('image/jpeg', quality);
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      const g = canvas.getContext('2d');
+      if (mime === 'image/jpeg') {
+        g.fillStyle = bgColor;
+        g.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      g.drawImage(source, 0, 0, canvas.width, canvas.height);
+      const src = canvas.toDataURL(mime, quality);
       if (src.length <= MAX_MEDIA_CHARS) return src;
     }
     return null;
   } finally {
+    try { source?.close?.(); } catch (e) { /* ignore */ }
     URL.revokeObjectURL(url);
   }
 }
@@ -802,7 +883,7 @@ function cleanupRecording() {
 }
 
 async function sendVoiceData(src, dur, chatId = S.active) {
-  if (src.length > MAX_MEDIA_CHARS) {
+  if (src.length > MAX_VOICE_CHARS) {
     toast(t('media.tooBig'), { type: 'error' });
     return;
   }

@@ -9,7 +9,7 @@ import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll } from './ui/chatView.js';
-import { initComposer, refreshBar, retryFailedMessages } from './ui/composer.js';
+import { initComposer, refreshBar, retryFailedMessages, retryOutbox } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat } from './ui/modals.js';
 import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
@@ -274,7 +274,7 @@ function initAuth() {
 async function enterApp(welcomeKey) {
   showApp();
   if (isRealBackend) {
-    reloadChats().catch((err) => console.error('Load chats error:', err));
+    reloadChats().then(() => retryOutbox()).catch((err) => console.error('Load chats error:', err));
   }
   renderSidebar();
   showChat();
@@ -414,6 +414,8 @@ function routeAfterLogin() {
 /* ── кнопки сайдбара и шапки ── */
 function initChrome() {
   $('#newChatBtn').addEventListener('click', openNewChat);
+  $('#emptyNewChat').addEventListener('click', openNewChat);
+  $('#emptySettings').addEventListener('click', openSettings);
   $('#ncList').addEventListener('click', contactClicked);
   $('#sideLogo').addEventListener('click', () => { location.hash = '#/app'; S.active = null; showChat(); });
   $('#meChip').addEventListener('click', openSettings);
@@ -703,7 +705,7 @@ async function boot() {
     setInterval(updateLastSeen, 30000);
     /* при возврате в окно — обновить чаты и статусы */
     window.addEventListener('focus', () => {
-      if (S.me) reloadChats().catch(() => {});
+      if (S.me) reloadChats().then(() => retryOutbox()).catch(() => {});
     });
   }
 
@@ -760,7 +762,7 @@ async function boot() {
           maybeDemo();
           route();
         }
-        reloadChats().catch(() => {});
+        reloadChats().then(() => retryOutbox()).catch(() => {});
       })
       .catch((err) => console.warn('Session check failed:', err));
 
@@ -821,7 +823,13 @@ async function probeServer() {
 window.addEventListener('online', () => {
   if (!S.me) return;
   retryFailedMessages();
+  retryOutbox();
   reloadChats().catch(() => {});
+});
+
+/* Вернулись во вкладку — тоже проверяем очередь исходящих */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && S.me) retryOutbox();
 });
 
 /* Заголовок и версия */

@@ -1,4 +1,5 @@
 /* Relik — темы оформления (10 вариантов) */
+import { applyAccent } from './prefs.js';
 
 const hexRgba = (hex, a) => {
   const h = hex.replace('#', '');
@@ -150,6 +151,7 @@ export function applyTheme(id, persist = true) {
   if (theme.vars) {
     for (const [k, v] of Object.entries(theme.vars)) root.style.setProperty(k, v);
   }
+  applyAccent(root);
   root.dataset.theme = theme.id;
   root.style.colorScheme = theme.id === 'light' ? 'light' : 'dark';
   if (persist) localStorage.setItem('relik.theme', theme.id);

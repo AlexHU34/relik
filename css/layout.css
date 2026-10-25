@@ -180,7 +180,7 @@ html[data-device="phone"] .empty::before{width:320px;height:320px}
 .chat-item{
   position:relative;
   display:grid;grid-template-columns:min-content 1fr min-content;gap:11px;align-items:center;
-  padding:9px 10px;border-radius:14px;text-align:left;width:100%;
+  padding:10px 11px;border-radius:14px;text-align:left;width:100%;
   user-select:none;-webkit-touch-callout:none;
   transition:background var(--t-fast),transform var(--t-fast);
 }
