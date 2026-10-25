@@ -22,11 +22,14 @@ fi
 
 say "Обновление системы"
 export DEBIAN_FRONTEND=noninteractive
+APT_OPTS="-y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
 apt-get update -y
-apt-get upgrade -y
+# shellcheck disable=SC2086
+apt-get upgrade $APT_OPTS
 
 say "Установка пакетов"
-apt-get install -y coturn ufw curl ca-certificates
+# shellcheck disable=SC2086
+apt-get install $APT_OPTS coturn ufw curl ca-certificates
 
 say "Определение публичного IP"
 IP="$(curl -4 -fsS --max-time 10 https://ifconfig.me || true)"
@@ -39,7 +42,8 @@ fi
 echo "IP: $IP"
 
 say "Настройка coturn"
-sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+[ -f /etc/default/coturn ] || echo 'TURNSERVER_ENABLED=1' > /etc/default/coturn
+sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn || true
 grep -q '^TURNSERVER_ENABLED=1' /etc/default/coturn || echo 'TURNSERVER_ENABLED=1' >> /etc/default/coturn
 
 # пароль сохраняем между запусками
