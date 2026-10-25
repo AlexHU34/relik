@@ -362,6 +362,9 @@
               <button class="icon-btn" id="attachBtn"></button>
               <div class="attach-menu" id="attachMenu" hidden>
                 <button id="attPhoto"><span class="amb c-photo" id="attPhotoIc"></span><span data-i18n="comp.photo"></span></button>
+                <button id="attAlbum"><span class="amb c-album" id="attAlbumIc"></span><span data-i18n="comp.album"></span></button>
+                <button id="attVideo"><span class="amb c-video" id="attVideoIc"></span><span data-i18n="comp.video"></span></button>
+                <button id="attCircle"><span class="amb c-circle" id="attCircleIc"></span><span data-i18n="comp.circle"></span></button>
                 <button id="attFile"><span class="amb c-file" id="attFileIc"></span><span data-i18n="comp.file"></span></button>
                 <button id="attPoll"><span class="amb c-poll" id="attPollIc"></span><span data-i18n="comp.poll"></span></button>
               </div>
@@ -474,6 +477,16 @@
           <i></i>
         </label>
         <div class="field">
+          <span data-i18n="settings.pin">PIN-код при входе</span>
+          <label class="switch-row">
+            <span data-i18n="settings.pinEnable">Запрашивать PIN при открытии</span>
+            <input type="checkbox" id="pinToggle">
+            <i></i>
+          </label>
+          <button class="btn btn-ghost" type="button" id="pinChangeBtn" hidden data-i18n="settings.pinChange">Изменить PIN</button>
+          <span class="field-hint" data-i18n="settings.pinHint">Код хранится только на этом устройстве и не заменяет пароль.</span>
+        </div>
+        <div class="field">
           <span data-i18n="settings.data">Данные</span>
           <button class="btn btn-ghost btn-danger-soft" type="button" id="clearLocalBtn">
             <span class="btn-ic" id="clearLocalIc"></span>
@@ -486,6 +499,7 @@
             <button class="btn btn-ghost" type="button" id="exportHtmlBtn" data-i18n="settings.exportHtml">Экспорт HTML</button>
           </div>
           <span class="field-hint" data-i18n="settings.exportHint">Сохраняет переписку в файл на устройстве.</span>
+          <span class="field-hint" id="migrationStatus"></span>
         </div>
         <div class="about">
           <div class="top">
@@ -709,7 +723,7 @@
 
   <!-- ══════════ ЗВОНОК ══════════ -->
   <div class="call-overlay" id="callOverlay" hidden>
-    <video id="remoteVideo" playsinline autoplay></video>
+    <video id="remoteVideo" playsinline autoplay muted></video>
     <div class="call-shade"></div>
     <video id="localVideo" playsinline muted autoplay></video>
     <div class="call-card">
@@ -718,6 +732,8 @@
       <div class="call-status" id="callStatus"></div>
       <div class="call-timer" id="callTimer"></div>
       <div class="call-actions">
+        <button class="call-btn" id="callSwitch"></button>
+        <button class="call-btn" id="callRec"></button>
         <button class="call-btn" id="callCamera"></button>
         <button class="call-btn" id="callScreen"></button>
         <button class="call-btn" id="callMute"></button>
@@ -726,6 +742,50 @@
         <button class="call-btn decline" id="callDecline" hidden></button>
       </div>
       <audio id="remoteAudio" autoplay></audio>
+    </div>
+  </div>
+
+  <!-- ══════════ ВИДЕОКРУЖОК ══════════ -->
+  <div class="overlay circle-overlay" id="circleOv" hidden>
+    <div class="modal circle-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="comp.circle">Видеокружок</h3>
+        <button class="icon-btn" type="button" id="circleClose"></button>
+      </header>
+      <div class="circle-stage">
+        <video id="circlePreview" playsinline autoplay muted></video>
+        <span class="circle-rec" id="circleTimer" hidden>0:00</span>
+      </div>
+      <div class="circle-actions">
+        <button class="btn btn-ghost" type="button" id="circleCancel" data-i18n="comp.cancelRecord">Отмена</button>
+        <button class="btn btn-primary" type="button" id="circleStart" data-i18n="comp.circleStart">Записать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ PIN-КОД ══════════ -->
+  <div class="pin-lock" id="pinLock" hidden>
+    <div class="pin-card">
+      <img class="pin-logo" src="assets/icons/icon-192.png" alt="">
+      <div class="pin-title" data-i18n="pin.title">Введите PIN</div>
+      <div class="pin-sub" id="pinSub" data-i18n="pin.sub">Код защищает переписку на этом устройстве</div>
+      <div class="pin-dots" id="pinDots"></div>
+      <div class="pin-pad" id="pinPad">
+        <button type="button" data-pin="1">1</button>
+        <button type="button" data-pin="2">2</button>
+        <button type="button" data-pin="3">3</button>
+        <button type="button" data-pin="4">4</button>
+        <button type="button" data-pin="5">5</button>
+        <button type="button" data-pin="6">6</button>
+        <button type="button" data-pin="7">7</button>
+        <button type="button" data-pin="8">8</button>
+        <button type="button" data-pin="9">9</button>
+        <button type="button" class="pin-ghost" data-pin="back" aria-label="Back">⌫</button>
+        <button type="button" data-pin="0">0</button>
+        <button type="button" class="pin-ghost" data-pin="ok" aria-label="OK">✓</button>
+      </div>
+      <button type="button" class="pin-forgot" id="pinForgot" data-i18n="pin.forgot">Забыли PIN?</button>
+      <button type="button" class="pin-forgot" id="pinCancel" hidden data-i18n="common.cancel">Отмена</button>
     </div>
   </div>
 

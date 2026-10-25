@@ -19,6 +19,9 @@ import { confirmAction } from './dialog.js';
 import { addMemberToGroup, removeMemberFromGroup, updateGroupTitle, leaveGroup } from '../backend/groups.js';
 import { canInstall, promptInstall } from './install.js';
 import { exportChats } from './export.js';
+import { hasPin, enablePin, disablePin, changePin } from './pin.js';
+import { hasGroupKeysTable } from '../backend/groupKeys.js';
+import { storageAvailable } from '../backend/storage.js';
 
 let selectedGroupMembers = new Set();
 
@@ -166,6 +169,21 @@ export function initModals() {
   });
   $('#enterSendToggle')?.addEventListener('change', (e) => setEnterToSend(e.target.checked));
   $('#motionToggle')?.addEventListener('change', (e) => setMotion(e.target.checked));
+  $('#pinToggle')?.addEventListener('change', async (e) => {
+    const wanted = e.target.checked;
+    e.target.disabled = true;
+    try {
+      const ok = wanted ? await enablePin() : await disablePin();
+      if (!ok) e.target.checked = !wanted;
+    } finally {
+      e.target.disabled = false;
+      paintPinSettings();
+    }
+  });
+  $('#pinChangeBtn')?.addEventListener('click', async () => {
+    await changePin();
+    paintPinSettings();
+  });
   $('#clearLocalBtn')?.addEventListener('click', clearLocalCache);
   const runExport = async (format, btn) => {
     if (btn) btn.disabled = true;
@@ -225,6 +243,7 @@ export function initModals() {
     paintThemes();
     paintFonts();
     paintLangSeg();
+    paintPinSettings();
   });
 }
 
@@ -272,6 +291,7 @@ export function openSettings() {
   paintAccents();
   $('#soundsToggle').checked = soundsEnabled();
   $('#notifyToggle').checked = notificationsEnabled();
+  paintPinSettings();
   const installBtn = $('#installBtn');
   if (installBtn) installBtn.hidden = !canInstall();
   $('#enterSendToggle').checked = prefs.enterToSend !== false;
@@ -280,9 +300,35 @@ export function openSettings() {
   const allBtn = $('#logoutAllBtn');
   if (allBtn) allBtn.hidden = !(SUPABASE.url && SUPABASE.anonKey);
   paintAvatar();
+  paintMigrationStatus();
   const body = $('#settingsOv .m-body');
   if (body) body.scrollTop = 0;
   $('#settingsOv').hidden = false;
+}
+
+async function paintMigrationStatus() {
+  const el = $('#migrationStatus');
+  if (!el) return;
+  if (!(SUPABASE.url && SUPABASE.anonKey)) {
+    el.textContent = t('settings.migrDemo');
+    return;
+  }
+  el.textContent = t('settings.migrChecking');
+  try {
+    const [groups, files] = await Promise.all([hasGroupKeysTable(), storageAvailable()]);
+    el.textContent = `${t('settings.migrGroups')}: ${t(groups ? 'settings.on' : 'settings.off')} · `
+      + `${t('settings.migrFiles')}: ${t(files ? 'settings.on' : 'settings.off')}`;
+  } catch (e) {
+    el.textContent = t('settings.migrError');
+  }
+}
+
+function paintPinSettings() {
+  const on = hasPin();
+  const toggle = $('#pinToggle');
+  if (toggle) toggle.checked = on;
+  const btn = $('#pinChangeBtn');
+  if (btn) btn.hidden = !on;
 }
 
 function paintTextSize() {
@@ -488,7 +534,7 @@ async function clearLocalCache() {
   if (!ok) return;
 
   try {
-    await Promise.all([idb.clear('messages'), idb.clear('chats')]);
+    await Promise.all([idb.clear('messages'), idb.clear('chats'), idb.clear('media')]);
   } catch (e) { /* ignore */ }
 
   S.messages = {};

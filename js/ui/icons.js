@@ -63,6 +63,11 @@ const P = {
   type: '<path d="M4 19 10 5l6 14"/><path d="M7 14h6"/><path d="M17 19h4"/>',
   database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  album: '<rect x="3" y="4" width="13" height="13" rx="2"/><path d="M8 21h11a2 2 0 0 0 2-2V8"/><circle cx="8.5" cy="8.5" r="1.3"/>',
+  circle: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>',
+  switchCamera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><path d="M9 13a3 3 0 0 0 5.2 2"/><path d="M15 13a3 3 0 0 0-5.2-2"/><path d="M9 10v1.5h1.5"/><path d="M15 16v-1.5h-1.5"/>',
+  record: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
 };
 
 /* icon('send', 18) → строка <svg> (текущий цвет наследуется) */

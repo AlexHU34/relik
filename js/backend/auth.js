@@ -180,10 +180,12 @@ async function clearLocalData() {
   try {
     await idb.clear('messages');
     await idb.clear('chats');
+    await idb.clear('media');
     const settings = await idb.getAll('settings');
     for (const rec of settings) {
       if (rec.key === 'me' || rec.key === 'keyPair' ||
-          String(rec.key).startsWith('draft:') || String(rec.key).startsWith('pin:')) {
+          String(rec.key).startsWith('draft:') || String(rec.key).startsWith('pin:') ||
+          String(rec.key).startsWith('gkeys:')) {
         await idb.del('settings', rec.key);
       }
     }

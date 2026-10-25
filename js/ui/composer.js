@@ -11,7 +11,7 @@ import { toast } from './toast.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
 import { sendMessage, editMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
-import { readFileAsDataURL } from '../backend/storage.js';
+import { readFileAsDataURL, uploadEncryptedBlob, dataUrlToBlob, storageAvailable } from '../backend/storage.js';
 import { prefs } from './prefs.js';
 import { currentDevice } from './device.js';
 import { EMOJI_GROUPS, getRecentEmoji, pushRecentEmoji } from '../data/emoji.js';
@@ -34,6 +34,7 @@ export function initComposer() {
     emojiBtn: $('#emojiBtn'), emojiPop: $('#emojiPop'),
     recUi: $('#recUi'), recTime: $('#recTime'), recCancel: $('#recCancel'),
     attPhoto: $('#attPhoto'), attFile: $('#attFile'), attPoll: $('#attPoll'),
+    attAlbum: $('#attAlbum'), attVideo: $('#attVideo'), attCircle: $('#attCircle'),
     pollOv: $('#pollOv'), pollQuestion: $('#pollQuestion'), pollOptions: $('#pollOptions'), pollMulti: $('#pollMulti'), pollAnon: $('#pollAnon'),
   };
 
@@ -49,7 +50,11 @@ export function initComposer() {
   $('#attPhotoIc').innerHTML = icon('image', 17);
   $('#attFileIc').innerHTML = icon('file', 17);
   $('#attPollIc').innerHTML = icon('poll', 17);
+  $('#attAlbumIc').innerHTML = icon('album', 17);
+  $('#attVideoIc').innerHTML = icon('video', 17);
+  $('#attCircleIc').innerHTML = icon('circle', 17);
   setSendMode('mic');
+  initCircleRecorder();
 
   /* палитра эмодзи: категории + недавние */
   renderEmojiPicker();
@@ -97,6 +102,9 @@ export function initComposer() {
     els.emojiPop.hidden = true;
   });
   els.attPhoto.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('image'); });
+  els.attAlbum.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('album'); });
+  els.attVideo.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('video'); });
+  els.attCircle.addEventListener('click', () => { els.attachMenu.hidden = true; openCircleRecorder(); });
   els.attFile.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('file'); });
   els.attPoll.addEventListener('click', () => { els.attachMenu.hidden = true; openPollCreator(); });
   $('#pollAddOpt').addEventListener('click', () => addPollOption());
@@ -644,6 +652,9 @@ async function saveEdit(text) {
    Так фото и файлы работают без Storage и остаются E2E. */
 const MAX_MEDIA_CHARS = 900000;
 const MAX_VOICE_CHARS = 4000000;
+const MAX_FILE_BYTES = 60 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
+const MAX_CIRCLE_MS = 60000;
 
 function loadImage(src) {
   return new Promise((res, rej) => {
@@ -705,34 +716,81 @@ async function compressToDataUrl(file) {
   }
 }
 
+/* Собираем wire-формат: либо inline data URL, либо путь в Storage + ключ.
+   Ключ файла едет внутри зашифрованного сообщения. */
+function mediaWire(payload) {
+  const base = {
+    kind: payload.kind,
+    name: payload.name,
+    size: payload.size,
+    mime: payload.mime || '',
+  };
+  if (payload.path) {
+    base.path = payload.path;
+    base.k = payload.k;
+    base.iv = payload.iv;
+  } else if (payload.src) {
+    base.src = payload.src;
+  }
+  if (payload.voice) base.voice = { ...payload.voice };
+  if (Array.isArray(payload.items)) {
+    base.items = payload.items.map((it) => ({
+      name: it.name || 'photo.jpg',
+      size: it.size || 0,
+      mime: it.mime || '',
+      ...(it.path ? { path: it.path, k: it.k, iv: it.iv } : { src: it.src }),
+    }));
+  }
+  return encodeMedia(base);
+}
+
+function mediaMessage(payload, replyBox) {
+  const src = payload.previewSrc || payload.src || '';
+  const msg = {
+    id: newId(), chatId: S.active, sender: 'u_me', ts: Date.now(),
+    type: payload.kind,
+    file: { name: payload.name || 'file', size: payload.size || 0, mime: payload.mime || '', src },
+    text: '', reactions: [],
+    wire: mediaWire(payload),
+    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+    ...(replyBox ? { replyTo: replyBox } : {}),
+  };
+
+  if (payload.path) {
+    msg.media = {
+      path: payload.path, k: payload.k, iv: payload.iv,
+      mime: payload.mime || '', name: payload.name || 'file', size: payload.size || 0,
+    };
+  }
+  if (payload.kind === 'voice') {
+    msg.voice = { ...(payload.voice || {}), src: payload.voice?.src || src };
+  }
+  if (payload.kind === 'album') {
+    msg.album = (payload.items || []).map((it) => ({
+      name: it.name || 'photo.jpg',
+      size: it.size || 0,
+      mime: it.mime || '',
+      src: it.previewSrc || it.src || '',
+      ...(it.path ? { path: it.path, k: it.k, iv: it.iv } : {}),
+    }));
+  }
+  return msg;
+}
+
 async function sendMediaPayload(payload, chatId = S.active) {
   const chat = chatById(chatId);
-  if (!chat) return;
+  if (!chat) return null;
 
   const replyId = S.reply?.id || null;
   const replyBox = S.reply ? { ...S.reply } : null;
-  /* голосовое: src хранится один раз, в voice — только метаданные */
-  const wirePayload = payload.kind === 'voice'
-    ? {
-      kind: 'voice', name: payload.name, size: payload.size, src: payload.src,
-      voice: { dur: payload.voice?.dur || 0, bars: payload.voice?.bars || [], rate: payload.voice?.rate || 1 },
-    }
-    : payload;
-  const msg = {
-    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
-    type: payload.kind,
-    file: { name: payload.name, size: payload.size, src: payload.src },
-    text: '', reactions: [], wire: encodeMedia(wirePayload),
-    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
-    ...(replyBox ? { replyTo: replyBox } : {}),
-    ...(payload.kind === 'voice' ? { voice: payload.voice } : {}),
-  };
+  const msg = mediaMessage(payload, replyBox);
+  msg.chatId = chat.id;
 
   clearReplyEdit();
   await deliverMessage(chat.id, msg);
   playSent();
 
-  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+  if (!(SUPABASE.url && SUPABASE.anonKey)) return msg;
 
   try {
     await sendMessage(chat.id, msg.wire, replyId, chat.kind, chat.publicKey, msg.id);
@@ -746,26 +804,106 @@ async function sendMediaPayload(payload, chatId = S.active) {
     if (S.active === chat.id) renderMessages();
     toast(friendlySendError(err) || t('media.error'), { type: 'error' });
   }
+  return msg;
+}
+
+/* Inline data URL → Storage; если Storage недоступен — оставляем data URL */
+async function payloadFromDataUrl(chatId, dataUrl, meta = {}) {
+  const blob = dataUrlToBlob(dataUrl);
+  const name = meta.name || 'file';
+  const mime = meta.mime || blob.type || 'application/octet-stream';
+  const up = await uploadEncryptedBlob(chatId, blob, { name, size: blob.size, mime });
+  if (up) {
+    return { ...meta, ...up, name, mime, size: blob.size, previewSrc: URL.createObjectURL(blob) };
+  }
+  const limit = meta.kind === 'voice' ? MAX_VOICE_CHARS : MAX_MEDIA_CHARS;
+  if (dataUrl.length > limit) return null;
+  return { ...meta, name, mime, size: blob.size, src: dataUrl };
+}
+
+async function payloadFromBlob(chatId, blob, meta = {}) {
+  const name = meta.name || 'file';
+  const mime = blob.type || meta.mime || 'application/octet-stream';
+  const up = await uploadEncryptedBlob(chatId, blob, { name, size: blob.size, mime });
+  const previewSrc = URL.createObjectURL(blob);
+  if (up) return { ...meta, ...up, name, mime, size: blob.size, previewSrc };
+  if (blob.size <= MAX_MEDIA_CHARS * 0.72) {
+    const src = await blobToDataUrl(blob);
+    if (src.length <= MAX_MEDIA_CHARS) {
+      try { URL.revokeObjectURL(previewSrc); } catch (e) { /* ignore */ }
+      return { ...meta, name, mime, size: blob.size, src };
+    }
+  }
+  try { URL.revokeObjectURL(previewSrc); } catch (e) { /* ignore */ }
+  return null;
 }
 
 /* Отправка выбранного/вставленного/перетащенного файла */
 async function handlePickedFile(file, chatId = S.active) {
   if (!file || !chatById(chatId)) return;
   try {
-    if (String(file.type).startsWith('image/')) {
+    const kind = String(file.type || '');
+
+    if (kind.startsWith('image/')) {
       const src = await compressToDataUrl(file);
       if (!src) { toast(t('media.tooBig'), { type: 'error' }); return; }
-      await sendMediaPayload({ kind: 'image', name: file.name || 'photo.jpg', size: file.size, src }, chatId);
+      const payload = await payloadFromDataUrl(chatId, src, {
+        kind: 'image', name: file.name || 'photo.jpg',
+        mime: dataUrlToBlob(src).type || 'image/jpeg',
+      });
+      if (!payload) { toast(t('media.tooBig'), { type: 'error' }); return; }
+      await sendMediaPayload(payload, chatId);
       return;
     }
-    if (file.size > 12 * 1024 * 1024) { toast(t('media.tooBig'), { type: 'error' }); return; }
-    const src = await readFileAsDataURL(file);
-    if (src.length > MAX_MEDIA_CHARS) { toast(t('media.tooBig'), { type: 'error' }); return; }
-    await sendMediaPayload({ kind: 'file', name: file.name || 'file', size: file.size, src }, chatId);
+
+    if (kind.startsWith('video/')) {
+      if (file.size > MAX_VIDEO_BYTES) { toast(t('media.tooBig'), { type: 'error' }); return; }
+      const payload = await payloadFromBlob(chatId, file, {
+        kind: 'video', name: file.name || 'video.mp4', mime: kind,
+      });
+      if (!payload) { toast(t('media.storageNeeded'), { type: 'error' }); return; }
+      await sendMediaPayload(payload, chatId);
+      return;
+    }
+
+    if (file.size > MAX_FILE_BYTES) { toast(t('media.tooBig'), { type: 'error' }); return; }
+    let payload = await payloadFromBlob(chatId, file, {
+      kind: 'file', name: file.name || 'file', mime: kind,
+    });
+    if (!payload && file.size <= MAX_MEDIA_CHARS * 0.72) {
+      const src = await readFileAsDataURL(file);
+      if (src.length <= MAX_MEDIA_CHARS) {
+        payload = { kind: 'file', name: file.name || 'file', size: file.size, mime: kind, src };
+      }
+    }
+    if (!payload) { toast(t('media.storageNeeded'), { type: 'error' }); return; }
+    await sendMediaPayload(payload, chatId);
   } catch (err) {
     console.error('File error:', err);
     toast(t('media.error'), { type: 'error' });
   }
+}
+
+/* Несколько фото одним сообщением-альбомом */
+async function sendAlbum(files, chatId = S.active) {
+  if (!chatById(chatId) || !files?.length) return;
+  const items = [];
+  for (const file of [...files].slice(0, 10)) {
+    if (!String(file.type || '').startsWith('image/')) continue;
+    try {
+      const src = await compressToDataUrl(file);
+      if (!src) continue;
+      const item = await payloadFromDataUrl(chatId, src, {
+        name: file.name || 'photo.jpg', mime: dataUrlToBlob(src).type || 'image/jpeg',
+      });
+      if (item) items.push(item);
+    } catch (err) {
+      console.warn('Album item error:', err);
+    }
+  }
+  if (!items.length) { toast(t('media.tooBig'), { type: 'error' }); return; }
+  const size = items.reduce((sum, it) => sum + (it.size || 0), 0);
+  await sendMediaPayload({ kind: 'album', name: 'album', size, items }, chatId);
 }
 
 function pickAndSend(kind) {
@@ -773,11 +911,15 @@ function pickAndSend(kind) {
   if (!chatById(chatId)) return;
   const input = document.createElement('input');
   input.type = 'file';
-  if (kind === 'image') input.accept = 'image/*';
+  if (kind === 'image' || kind === 'album') input.accept = 'image/*';
+  if (kind === 'video') input.accept = 'video/*';
+  if (kind === 'album') input.multiple = true;
   input.onchange = (e) => {
-    const file = e.target.files && e.target.files[0];
+    const files = [...(e.target.files || [])];
     e.target.value = '';
-    if (file) handlePickedFile(file, chatId);
+    if (!files.length) return;
+    if (kind === 'album') sendAlbum(files, chatId);
+    else handlePickedFile(files[0], chatId);
   };
   input.click();
 }
@@ -785,6 +927,7 @@ function pickAndSend(kind) {
 /* Оставлены для совместимости (могут вызываться из других модулей) */
 export function sendImage() { pickAndSend('image'); }
 export function sendFile() { pickAndSend('file'); }
+export function sendVideo() { pickAndSend('video'); }
 
 /* ── голосовые: реальная запись через MediaRecorder ─────────── */
 function pickMime() {
@@ -888,11 +1031,164 @@ async function sendVoiceData(src, dur, chatId = S.active) {
     return;
   }
   const bars = Array.from({ length: 26 }, () => .25 + Math.random() * .7);
-  await sendMediaPayload({
+  const payload = await payloadFromDataUrl(chatId, src, {
     kind: 'voice',
     name: 'voice.webm',
-    size: src.length,
-    src,
+    mime: dataUrlToBlob(src).type || 'audio/webm',
     voice: { dur: Math.max(1, Math.round(dur)), bars, rate: 1 },
-  }, chatId);
+  });
+  if (!payload) { toast(t('media.tooBig'), { type: 'error' }); return; }
+  await sendMediaPayload(payload, chatId);
+}
+
+/* ── видеокружок: запись камерой ───────────────────────────── */
+let circleStream = null;
+let circleRec = null;
+let circleChunks = [];
+let circleStarted = 0;
+let circleTimer = null;
+let circleCanceled = false;
+
+function circleEls() {
+  return {
+    ov: $('#circleOv'),
+    video: $('#circlePreview'),
+    start: $('#circleStart'),
+    cancel: $('#circleCancel'),
+    close: $('#circleClose'),
+    timer: $('#circleTimer'),
+  };
+}
+
+async function openCircleRecorder() {
+  if (!chatById(S.active)) return;
+  const e = circleEls();
+  if (!e.ov) return;
+  e.ov.hidden = false;
+  e.timer.hidden = true;
+  e.timer.textContent = '0:00';
+  e.start.textContent = t('comp.circleStart');
+  e.start.disabled = true;
+  circleCanceled = false;
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast(t('call.cameraDenied'));
+    closeCircleRecorder();
+    return;
+  }
+
+  try {
+    circleStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 }, aspectRatio: 1 },
+      audio: { echoCancellation: true, noiseSuppression: true },
+    });
+    if (e.video) {
+      e.video.srcObject = circleStream;
+      e.video.play().catch(() => {});
+    }
+    e.start.disabled = false;
+  } catch (err) {
+    console.warn('Circle camera:', err);
+    toast(t('call.cameraDenied'));
+    closeCircleRecorder();
+  }
+}
+
+function circleMime() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  return ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+    .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+}
+
+function startCircleRecording() {
+  if (!circleStream || circleRec) return;
+  try {
+    const mime = circleMime();
+    circleRec = new MediaRecorder(circleStream, mime ? { mimeType: mime } : undefined);
+    circleChunks = [];
+    circleStarted = Date.now();
+    circleCanceled = false;
+
+    circleRec.ondataavailable = (ev) => {
+      if (ev.data?.size) circleChunks.push(ev.data);
+    };
+
+    circleRec.onstop = async () => {
+      const dur = (Date.now() - circleStarted) / 1000;
+      const canceled = circleCanceled;
+      const blob = new Blob(circleChunks, { type: circleRec?.mimeType || 'video/webm' });
+      circleRec = null;
+      closeCircleRecorder();
+      if (canceled || dur < 1 || !blob.size) return;
+      const chatId = S.active;
+      const preview = URL.createObjectURL(blob);
+      const payload = await payloadFromBlob(chatId, blob, {
+        kind: 'videoNote', name: 'circle.webm', mime: blob.type || 'video/webm',
+      });
+      if (!payload) {
+        URL.revokeObjectURL(preview);
+        toast(t('media.storageNeeded'), { type: 'error' });
+        return;
+      }
+      await sendMediaPayload({ ...payload, duration: dur }, chatId);
+    };
+
+    circleRec.start(250);
+    const e = circleEls();
+    e.start.textContent = t('comp.circleStop');
+    e.timer.hidden = false;
+    circleTimer = setInterval(() => {
+      const sec = (Date.now() - circleStarted) / 1000;
+      e.timer.textContent = fmtDur(sec);
+      if (sec * 1000 >= MAX_CIRCLE_MS) stopCircleRecording(false);
+    }, 200);
+  } catch (err) {
+    console.warn('Circle record:', err);
+    toast(t('media.error'));
+    closeCircleRecorder();
+  }
+}
+
+function stopCircleRecording(cancel = false) {
+  circleCanceled = !!cancel;
+  if (circleRec && circleRec.state === 'recording') circleRec.stop();
+  else closeCircleRecorder();
+}
+
+function closeCircleRecorder() {
+  clearInterval(circleTimer);
+  circleTimer = null;
+  if (circleRec && circleRec.state === 'recording') {
+    circleCanceled = true;
+    try { circleRec.stop(); } catch (e) { /* ignore */ }
+  }
+  circleRec = null;
+  if (circleStream) {
+    circleStream.getTracks().forEach((tr) => tr.stop());
+    circleStream = null;
+  }
+  const e = circleEls();
+  if (e.video) e.video.srcObject = null;
+  if (e.ov) e.ov.hidden = true;
+  if (e.start) { e.start.textContent = t('comp.circleStart'); e.start.disabled = false; }
+  if (e.timer) e.timer.hidden = true;
+}
+
+export function initCircleRecorder() {
+  const e = circleEls();
+  if (!e.ov || e.ov.dataset.bound) return;
+  e.ov.dataset.bound = '1';
+  if (e.close) e.close.innerHTML = icon('x', 18);
+  e.start?.addEventListener('click', () => {
+    if (circleRec && circleRec.state === 'recording') stopCircleRecording(false);
+    else startCircleRecording();
+  });
+  e.cancel?.addEventListener('click', () => {
+    if (circleRec && circleRec.state === 'recording') stopCircleRecording(true);
+    else closeCircleRecorder();
+  });
+  e.close?.addEventListener('click', () => {
+    if (circleRec && circleRec.state === 'recording') stopCircleRecording(true);
+    else closeCircleRecorder();
+  });
 }

@@ -61,3 +61,7 @@
 .call-overlay.video .call-name{font-size:18px;text-shadow:0 2px 12px rgba(0,0,0,.6)}
 .call-overlay.video .call-status,.call-overlay.video .call-timer{text-shadow:0 2px 10px rgba(0,0,0,.6);color:#cfd6ea}
 .call-overlay.video .call-actions{margin-top:14px}
+
+.call-btn.rec{color:#f0566e}
+.call-btn.rec.on{background:rgba(240,86,110,.18);border-color:rgba(240,86,110,.55);color:#ff7d92}
+.call-rec-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#f0566e;margin-right:6px;animation:blink 1s infinite;vertical-align:middle}

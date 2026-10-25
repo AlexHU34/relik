@@ -18,6 +18,7 @@ import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
 import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead } from '../backend/messages.js';
+import { hydrateMessagesMedia, hydrateMessageMedia } from '../backend/storage.js';
 
 const PAGE_SIZE = 240;
 
@@ -102,6 +103,14 @@ export function initChatView() {
   });
 
   /* Ctrl/Cmd+F — поиск по открытому чату */
+  /* видео-кружки: прячем ▶, когда играет, и возвращаем на паузе */
+  els.msgs.addEventListener('play', (e) => {
+    if (e.target.matches?.('.video-note video')) e.target.closest('.video-note')?.classList.add('playing');
+  }, true);
+  ['pause', 'ended'].forEach((evt) => els.msgs.addEventListener(evt, (e) => {
+    if (e.target.matches?.('.video-note video')) e.target.closest('.video-note')?.classList.remove('playing');
+  }, true));
+
   document.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'f') return;
     if (!S.active) return;
@@ -234,6 +243,28 @@ function onMsgClick(e) {
     if (src) openLightbox(src, m.file.name); else toast(t('media.broken'), { type: 'error' });
     return;
   }
+  const albumEl = e.target.closest('[data-album-idx]');
+  if (albumEl && m?.type === 'album') {
+    const item = (m.album || [])[Number(albumEl.dataset.albumIdx)];
+    const src = safeMediaSrc(item?.src, 'image');
+    if (src) openLightbox(src, item?.name || t('msg.photo'));
+    else toast(t('media.broken'), { type: 'error' });
+    return;
+  }
+  const vnEl = e.target.closest('.video-note');
+  if (vnEl && m?.type === 'videoNote') {
+    const vid = vnEl.querySelector('video');
+    if (!vid) return;
+    if (vid.paused) {
+      document.querySelectorAll('.video-note video').forEach((v) => { if (v !== vid) v.pause(); });
+      vid.play().catch(() => {});
+      vnEl.classList.add('playing');
+    } else {
+      vid.pause();
+      vnEl.classList.remove('playing');
+    }
+    return;
+  }
   const fileEl = e.target.closest('.file-row');
   if (fileEl && m?.type === 'file' && m.file?.src) {
     const src = safeMediaSrc(m.file.src, 'file');
@@ -297,7 +328,7 @@ function onMsgClick(e) {
   }
   if (S.reactOpen) closeReact();
   /* на телефоне действия по сообщению открываются тапом */
-  if (m && !e.target.closest('[data-act],[data-pick],[data-rx],[data-poll-opt],.poll,.reply-quote,.msg-img,.voice')) {
+  if (m && !e.target.closest('[data-act],[data-pick],[data-rx],[data-poll-opt],.poll,.reply-quote,.msg-img,.msg-video,.video-note,.album,.voice')) {
     const touch = currentDevice() === 'phone' || window.matchMedia('(hover: none)').matches;
     if (touch) {
       toolsOpen = toolsOpen === m.id ? null : m.id;
@@ -559,6 +590,7 @@ function startActiveSync(id, chat) {
       /* берём с небольшим запасом: дубликаты отсекаем по id */
       const fresh = await fetchMessagesSince(id, lastTs ? lastTs - 5000 : 0, chat.kind, chat.publicKey);
       if (!fresh.length || S.active !== id) return;
+      await hydrateMessagesMedia(fresh).catch(() => {});
 
       let added = 0;
       S.messages[id] = S.messages[id] || [];
@@ -657,6 +689,11 @@ export async function openChat(id) {
   renderSidebar();
   sendReadUpto(id);
 
+  /* Медиа из Storage догружаем в фоне: интерфейс не ждёт файлы */
+  hydrateMessagesMedia(S.messages[id]).then((changed) => {
+    if (changed && S.active === id) renderMessages({ keepScroll: true });
+  }).catch(() => {});
+
   /* черновик и закреплённое */
   try {
     const draft = await idb.get('settings', 'draft:' + id);
@@ -679,6 +716,9 @@ export async function openChat(id) {
         S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
         applyReadState(id);
         renderMessages();
+        hydrateMessagesMedia(S.messages[id]).then((changed) => {
+          if (changed && S.active === id) renderMessages();
+        }).catch(() => {});
         await updateReadReceipt(id).catch(() => {});
         setReadAt(id);
         sendReadUpto(id);
@@ -711,6 +751,7 @@ export async function openChat(id) {
       onMessage: async (msg) => {
         S.messages[id] = S.messages[id] || [];
         if (S.messages[id].some((x) => x.id === msg.id)) return;
+        await hydrateMessageMedia(msg).catch(() => {});
         S.messages[id].push(msg);
         if (msg.sender !== 'u_me' && !msg.hidden && !isMuted(id)) playMessage();
         if (msg.hidden) {
@@ -1045,6 +1086,8 @@ async function forwardTo(chatId2) {
     wire: fwd.wire,
     ...(fwd.file ? { file: fwd.file } : {}),
     ...(fwd.voice ? { voice: fwd.voice } : {}),
+    ...(fwd.media ? { media: fwd.media } : {}),
+    ...(fwd.album ? { album: fwd.album } : {}),
   };
 
   await deliverMessage(chatId2, msg);
@@ -1075,20 +1118,48 @@ async function forwardTo(chatId2) {
 /* Пересылка любого поддерживаемого типа: текст, фото, файл, голосовое */
 function forwardPayload(m) {
   if (m.type === 'text') return { type: 'text', text: m.text || '', wire: m.text || '' };
-  if (m.type === 'image' || m.type === 'file') {
-    const src = safeMediaSrc(m.file?.src, m.type === 'image' ? 'image' : 'file');
-    if (!src) return null;
-    const file = { name: m.file?.name || 'file', size: m.file?.size || 0, src };
-    return { type: m.type, text: m.text || '', file, wire: encodeMedia({ kind: m.type, ...file }) };
+
+  if (m.type === 'album') {
+    const items = (m.album || []).filter((it) => it?.path || it?.src);
+    if (!items.length) return null;
+    const wireItems = items.map((it) => ({
+      path: it.path, k: it.k, iv: it.iv, mime: it.mime, name: it.name, size: it.size,
+      ...(it.path ? {} : { src: it.src }),
+    }));
+    return {
+      type: 'album', text: m.text || '',
+      album: items.map((it) => ({ ...it })),
+      wire: encodeMedia({ kind: 'album', items: wireItems }),
+    };
   }
+
+  if (['image', 'file', 'video', 'videoNote'].includes(m.type)) {
+    const src = safeMediaSrc(m.file?.src, m.type === 'image' ? 'image' : 'file');
+    if (!src && !m.media) return null;
+    const file = { name: m.file?.name || 'file', size: m.file?.size || 0, mime: m.file?.mime || '', src };
+    const wireMedia = {
+      kind: m.type, name: file.name, size: file.size, mime: file.mime,
+      ...(m.media ? { path: m.media.path, k: m.media.k, iv: m.media.iv } : { src }),
+    };
+    return {
+      type: m.type, text: m.text || '', file,
+      name: file.name, size: file.size, mime: file.mime,
+      ...(m.media ? { media: { ...m.media } } : {}),
+      wire: encodeMedia(wireMedia),
+    };
+  }
+
   if (m.type === 'voice') {
     const src = safeMediaSrc(m.voice?.src, 'audio');
-    if (!src) return null;
-    const voice = { dur: m.voice.dur, bars: m.voice.bars || [], src, rate: m.voice.rate || 1 };
+    if (!src && !m.media) return null;
+    const voice = { dur: m.voice?.dur, bars: m.voice?.bars || [], src, rate: m.voice?.rate || 1 };
     return {
       type: 'voice', text: '', voice,
+      name: 'voice', size: 0, mime: m.media?.mime || '',
+      ...(m.media ? { media: { ...m.media } } : {}),
       wire: encodeMedia({
-        kind: 'voice', name: 'voice', size: 0, src,
+        kind: 'voice', name: 'voice', size: 0, mime: m.media?.mime || m.file?.mime || '',
+        ...(m.media ? { path: m.media.path, k: m.media.k, iv: m.media.iv } : { src }),
         voice: { dur: voice.dur, bars: voice.bars, rate: voice.rate },
       }),
     };
@@ -1164,23 +1235,60 @@ function bubbleHtml(m, mine) {
     const src = safeMediaSrc(m.file?.src, 'image');
     out += src
       ? `<button class="msg-img"><img src="${esc(src)}" loading="lazy" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
-      : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`;
+      : (m.media
+        ? `<div class="msg-loading">${icon('image', 18)} ${t('media.loading')}</div>`
+        : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`);
+  }
+  if (m.type === 'video') {
+    const src = safeMediaSrc(m.file?.src, 'video');
+    out += src
+      ? `<video class="msg-video" src="${esc(src)}" controls playsinline preload="metadata"></video>`
+      : (m.media
+        ? `<div class="msg-loading">${icon('video', 18)} ${t('media.loading')}</div>`
+        : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`);
+  }
+  if (m.type === 'videoNote') {
+    const src = safeMediaSrc(m.file?.src, 'video');
+    out += src
+      ? `<button class="video-note" type="button"><video src="${esc(src)}" playsinline loop preload="metadata"></video>
+          <span class="vn-play">${icon('play', 20)}</span></button>`
+      : (m.media
+        ? `<div class="msg-loading round">${icon('video', 18)} ${t('media.loading')}</div>`
+        : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`);
+  }
+  if (m.type === 'album') {
+    const items = Array.isArray(m.album) ? m.album : [];
+    if (!items.length) {
+      out += `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`;
+    } else {
+      out += `<div class="album${items.length === 1 ? ' one' : ''}">${items.map((it, i) => {
+        const src = safeMediaSrc(it?.src, 'image');
+        return src
+          ? `<button type="button" class="album-item" data-album-idx="${i}"><img src="${esc(src)}" loading="lazy" alt=""></button>`
+          : `<span class="album-item pending">${icon('image', 18)}</span>`;
+      }).join('')}</div>`;
+    }
   }
   if (m.type === 'file') {
-    out += `<div class="file-row${m.file?.src ? '' : ' no-src'}"><span class="file-ic">${icon('file', 20)}</span>
+    const ready = !!m.file?.src;
+    out += `<div class="file-row${ready ? '' : ' no-src'}"><span class="file-ic">${icon('file', 20)}</span>
       <span class="file-info"><span class="file-name">${esc(m.file?.name || t('msg.file'))}</span>
-      <span class="file-size">${fmtSize(m.file?.size)}</span></span>
-      ${m.file?.src ? `<span class="file-dl">${icon('dl', 17)}</span>` : ''}</div>`;
+      <span class="file-size">${m.media && !ready ? t('media.loading') : fmtSize(m.file?.size)}</span></span>
+      ${ready ? `<span class="file-dl">${icon('dl', 17)}</span>` : ''}</div>`;
   }
   if (m.type === 'voice') {
-    out += `<div class="voice">
-      <button class="v-play">${icon('play', 17)}</button>
-      <span class="v-bars">${(m.voice?.bars || []).map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}</span>
-      <span class="v-dur">${fmtDur(m.voice?.dur || 0)}</span>
-      <button class="v-speed" data-speed="${m.voice?.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice?.rate || 1}×</button>
-    </div>`;
+    if (!m.voice?.src && m.media) {
+      out += `<div class="msg-loading">${icon('mic', 16)} ${t('media.loading')}</div>`;
+    } else {
+      out += `<div class="voice">
+        <button class="v-play">${icon('play', 17)}</button>
+        <span class="v-bars">${(m.voice?.bars || []).map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}</span>
+        <span class="v-dur">${fmtDur(m.voice?.dur || 0)}</span>
+        <button class="v-speed" data-speed="${m.voice?.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice?.rate || 1}×</button>
+      </div>`;
+    }
   }
-  if (m.text && (m.type === 'text' || m.type === 'image' || m.type === 'file')) {
+  if (m.text && ['text', 'image', 'file', 'video'].includes(m.type)) {
     const emoji = m.type === 'text' && isEmojiOnly(m.text);
     out += `<div class="msg-text${emoji ? ' emoji-only' : ''}">${formatText(m.text)}</div>`;
   }
@@ -1383,7 +1491,7 @@ function metaHtml(m, mine) {
 
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
-  const canForward = ['text', 'image', 'file', 'voice'].includes(m.type);
+  const canForward = ['text', 'image', 'file', 'voice', 'video', 'videoNote', 'album'].includes(m.type);
   const canDelete = mine || S.me?.role === 'admin';
   const tools = [
     `<button data-act="reply" title="${t('msg.reply')}">${icon('reply', 15)}</button>`,

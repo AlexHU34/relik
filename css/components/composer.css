@@ -85,3 +85,7 @@
 .rec-ui{display:flex;align-items:center;gap:8px;padding:8px 10px;color:var(--bad)}
 .rec-dot{width:10px;height:10px;border-radius:50%;background:var(--bad);animation:blink 1s infinite}
 .rec-time{font-size:var(--fs-sm);font-weight:600;font-variant-numeric:tabular-nums}
+
+.attach-menu .c-album{color:#f59e0b;background:rgba(245,158,11,.15)}
+.attach-menu .c-video{color:#f0566e;background:rgba(240,86,110,.15)}
+.attach-menu .c-circle{color:#2dd4bf;background:rgba(45,212,191,.15)}

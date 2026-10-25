@@ -47,6 +47,9 @@ export function snippet(m) {
   if (m.deleted) return t('msg.deleted');
   switch (m.type) {
     case 'image': return `${t('msg.photo')} 📷`;
+    case 'video': return `${t('msg.video')} 🎥`;
+    case 'videoNote': return `${t('msg.videoNote')} ⭕`;
+    case 'album': return `${t('msg.album')} 🖼`;
     case 'file':  return `📄 ${m.file?.name || t('msg.file')}`;
     case 'voice': return `🎙 ${t('msg.voice')}${m.voice ? ' · ' + fmtDur(m.voice.dur) : ''}`;
     case 'poll':  return `📊 ${m.poll?.q || m.text || t('comp.poll')}`;

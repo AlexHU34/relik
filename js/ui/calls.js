@@ -19,6 +19,8 @@ let state = 'idle';           // idle | out | in | connecting | active
 let pc = null;
 let localStream = null;
 let screenStream = null;
+let screenAudioSender = null;
+let remoteStream = null;
 let videoSender = null;
 let peerId = null;
 let chatId = null;
@@ -34,6 +36,11 @@ let sharedScreen = false;
 let wantVideo = false;
 let uiBound = false;
 let peerInfo = null;
+let recorder = null;
+let recordChunks = [];
+let recordDest = null;
+let audioCtx = null;
+let recording = false;
 
 const me = () => ({ id: S.me?.id, name: S.me?.name, avatar: S.me?.avatar, hue: S.me?.hue });
 
@@ -46,6 +53,8 @@ export function initCalls() {
     $('#callDecline').addEventListener('click', declineCall);
     $('#callMute').addEventListener('click', toggleMute);
     $('#callCamera').addEventListener('click', toggleCamera);
+    $('#callSwitch').addEventListener('click', switchCamera);
+    $('#callRec').addEventListener('click', toggleCallRecording);
     $('#callScreen').addEventListener('click', toggleScreenShare);
     uiBound = true;
   }
@@ -60,6 +69,10 @@ function setIcons() {
   $('#callAccept').innerHTML = icon('phone', 22);
   $('#callDecline').innerHTML = icon('x', 22);
   $('#callCamera').innerHTML = icon('video', 22);
+  $('#callSwitch').innerHTML = icon('switchCamera', 22);
+  $('#callSwitch').title = t('call.switchCamera');
+  $('#callRec').innerHTML = icon('record', 22);
+  $('#callRec').title = t('call.record');
   $('#callScreen').innerHTML = icon('screen', 22);
 }
 
@@ -210,11 +223,17 @@ function createPc() {
   };
 
   conn.ontrack = (e) => {
+    /* Собираем все удалённые дорожки в один поток: звук и видео,
+       включая системный звук при демонстрации экрана. */
+    if (!remoteStream) remoteStream = new MediaStream();
+    if (!remoteStream.getTracks().some((tr) => tr.id === e.track.id)) {
+      remoteStream.addTrack(e.track);
+    }
     const remoteAudio = $('#remoteAudio');
-    if (remoteAudio) { remoteAudio.srcObject = e.streams[0]; remoteAudio.play().catch(() => {}); }
+    if (remoteAudio) { remoteAudio.srcObject = remoteStream; remoteAudio.play().catch(() => {}); }
     const remoteVideo = $('#remoteVideo');
     if (remoteVideo && e.track.kind === 'video') {
-      remoteVideo.srcObject = e.streams[0];
+      remoteVideo.srcObject = remoteStream;
       remoteVideo.play().catch(() => {});
       $('#callOverlay').classList.add('has-remote-video');
     }
@@ -285,6 +304,53 @@ function toggleCamera() {
   btn.innerHTML = icon(cameraOff ? 'videoOff' : 'video', 22);
 }
 
+/* Переключение фронтальная/основная камера (на ПК — по списку устройств) */
+async function switchCamera() {
+  if (!localStream || state !== 'active') return;
+  const current = localStream.getVideoTracks()[0];
+  if (!current) { toast(t('call.noCamera')); return; }
+
+  try {
+    let constraints = null;
+
+    /* мобильные: меняем facingMode */
+    const settings = current.getSettings?.() || {};
+    if (settings.facingMode) {
+      constraints = {
+        video: {
+          facingMode: settings.facingMode === 'user' ? 'environment' : 'user',
+          width: { ideal: 1280 }, height: { ideal: 720 },
+        },
+        audio: false,
+      };
+    } else {
+      /* ПК: следующая камера из списка */
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter((d) => d.kind === 'videoinput');
+      if (cams.length < 2) { toast(t('call.noCamera')); return; }
+      const idx = cams.findIndex((d) => d.deviceId === settings.deviceId);
+      const next = cams[(idx + 1 + cams.length) % cams.length];
+      constraints = { video: { deviceId: { exact: next.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+    }
+
+    const fresh = await navigator.mediaDevices.getUserMedia(constraints);
+    const freshTrack = fresh.getVideoTracks()[0];
+    if (!freshTrack) { fresh.getTracks().forEach((tr) => tr.stop()); return; }
+
+    if (sharedScreen) stopScreenShare();
+    if (videoSender) await videoSender.replaceTrack(freshTrack);
+    current.stop();
+    localStream.removeTrack(current);
+    localStream.addTrack(freshTrack);
+
+    const localVideo = $('#localVideo');
+    if (localVideo) { localVideo.srcObject = localStream; localVideo.play().catch(() => {}); }
+  } catch (err) {
+    console.warn('Switch camera:', err);
+    toast(t('call.noCamera'));
+  }
+}
+
 async function toggleScreenShare() {
   if (state !== 'active' || !pc) return;
   if (sharedScreen) {
@@ -293,9 +359,26 @@ async function toggleScreenShare() {
   }
   if (!videoSender) { toast(t('call.screenInVideoOnly')); return; }
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    /* Пытаемся захватить и системный звук. Браузер может его не дать —
+       тогда просто делимся экраном без звука. */
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    } catch (err) {
+      if (err?.name === 'NotAllowedError') throw err;
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    }
+    screenStream = stream;
     const screenTrack = screenStream.getVideoTracks()[0];
     await videoSender.replaceTrack(screenTrack);
+
+    const screenAudio = screenStream.getAudioTracks()[0];
+    if (screenAudio) {
+      screenAudioSender = pc.addTrack(screenAudio, screenStream);
+    } else {
+      toast(t('call.screenNoAudio'));
+    }
+
     const localVideo = $('#localVideo');
     if (localVideo) { localVideo.srcObject = screenStream; localVideo.play().catch(() => {}); }
     sharedScreen = true;
@@ -310,6 +393,10 @@ async function toggleScreenShare() {
 function stopScreenShare() {
   if (!sharedScreen) return;
   sharedScreen = false;
+  if (screenAudioSender) {
+    try { pc?.removeTrack(screenAudioSender); } catch (e) { /* ignore */ }
+    screenAudioSender = null;
+  }
   if (screenStream) { screenStream.getTracks().forEach((t) => t.stop()); screenStream = null; }
   if (videoSender && localStream) {
     const cam = localStream.getVideoTracks()[0];
@@ -319,6 +406,98 @@ function stopScreenShare() {
   if (localVideo && localStream) { localVideo.srcObject = localStream; localVideo.play().catch(() => {}); }
   $('#callScreen').classList.remove('off');
   $('#callScreen').innerHTML = icon('screen', 22);
+}
+
+/* ── запись звонка (локально, в файл) ─────────────────────── */
+function recordMime() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+  return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+}
+
+function startCallRecording() {
+  if (recording) return;
+  if (typeof MediaRecorder === 'undefined' || !(window.AudioContext || window.webkitAudioContext)) {
+    toast(t('call.recUnsupported'));
+    return;
+  }
+  if (!remoteStream || !localStream) { toast(t('call.recError')); return; }
+
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new Ctx();
+    recordDest = audioCtx.createMediaStreamDestination();
+
+    const remoteSrc = audioCtx.createMediaStreamSource(remoteStream);
+    const localSrc = audioCtx.createMediaStreamSource(localStream);
+    remoteSrc.connect(recordDest);
+    localSrc.connect(recordDest);
+
+    const mime = recordMime();
+    recorder = new MediaRecorder(recordDest.stream, mime ? { mimeType: mime } : undefined);
+    recordChunks = [];
+    recorder.ondataavailable = (e) => { if (e.data?.size) recordChunks.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(recordChunks, { type: recorder?.mimeType || 'audio/webm' });
+      const ext = /mp4/i.test(blob.type) ? 'm4a' : 'webm';
+      recording = false;
+      recorder = null;
+      recordChunks = [];
+      cleanupRecordingAudio();
+      paintRecButton();
+      if (!blob.size) return;
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      downloadBlob(blob, `relik-call-${stamp}.${ext}`);
+      toast(t('call.recSaved'), { type: 'success' });
+    };
+
+    recorder.start(1000);
+    recording = true;
+    paintRecButton();
+  } catch (err) {
+    console.warn('Call recording:', err);
+    cleanupRecordingAudio();
+    toast(t('call.recError'), { type: 'error' });
+  }
+}
+
+function stopCallRecording() {
+  if (!recording || !recorder) return;
+  try { recorder.stop(); } catch (e) { /* ignore */ }
+}
+
+function toggleCallRecording() {
+  if (recording) stopCallRecording();
+  else startCallRecording();
+}
+
+function cleanupRecordingAudio() {
+  if (audioCtx) {
+    try { audioCtx.close(); } catch (e) { /* ignore */ }
+    audioCtx = null;
+  }
+  recordDest = null;
+}
+
+function paintRecButton() {
+  const b = $('#callRec');
+  if (!b) return;
+  b.classList.toggle('on', recording);
+  b.title = recording ? t('call.recording') : t('call.record');
+  b.setAttribute('aria-label', b.title);
+  b.innerHTML = icon(recording ? 'stop' : 'record', 22);
+}
+
+/* Скачивание файла без зависимости от storage.js */
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 /* ── UI ───────────────────────────────────────────────────── */
@@ -336,6 +515,8 @@ function showOverlay(info, mode, videoMode) {
   $('#callMute').hidden = mode === 'in';
   $('#callEnd').hidden = mode === 'in';
   $('#callCamera').hidden = mode === 'in' || !videoMode;
+  $('#callSwitch').hidden = mode === 'in' || !videoMode;
+  $('#callRec').hidden = mode === 'in';
   $('#callScreen').hidden = mode === 'in' || !videoMode;
   $('#callAccept').hidden = mode !== 'in';
   $('#callDecline').hidden = mode !== 'in';
@@ -347,9 +528,12 @@ function showActiveControls() {
   $('#callMute').hidden = false;
   $('#callEnd').hidden = false;
   $('#callCamera').hidden = !wantVideo;
+  $('#callSwitch').hidden = !wantVideo;
+  $('#callRec').hidden = false;
   $('#callScreen').hidden = !wantVideo;
   $('#callAccept').hidden = true;
   $('#callDecline').hidden = true;
+  paintRecButton();
   $('#callOverlay').classList.remove('incoming');
 }
 
@@ -380,10 +564,20 @@ function endCall(notify = true, reason = '') {
   timerId = null;
   stopRing();
 
+  /* если идёт запись — аккуратно завершаем и сохраняем файл */
+  if (recording && recorder) {
+    try { recorder.stop(); } catch (e) { /* ignore */ }
+  }
+
+  if (screenAudioSender) {
+    try { pc?.removeTrack(screenAudioSender); } catch (e) { /* ignore */ }
+    screenAudioSender = null;
+  }
   if (screenStream) { screenStream.getTracks().forEach((tr) => tr.stop()); screenStream = null; }
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
   if (localStream) { localStream.getTracks().forEach((tr) => tr.stop()); localStream = null; }
   videoSender = null;
+  remoteStream = null;
 
   const remoteAudio = $('#remoteAudio');
   if (remoteAudio) remoteAudio.srcObject = null;
@@ -402,6 +596,8 @@ function endCall(notify = true, reason = '') {
   muted = false;
   cameraOff = false;
   sharedScreen = false;
+  $('#callSwitch').hidden = true;
+  $('#callRec').hidden = true;
 
   const ov = $('#callOverlay');
   if (ov) {

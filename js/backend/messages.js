@@ -12,6 +12,7 @@ import {
   encryptForChat,
   decryptFromChat,
 } from '../crypto/encryption.js';
+import { encryptGroupText, decryptGroupText } from './groupKeys.js';
 
 /* Опросы и голоса передаются обычными сообщениями с префиксом —
    так они остаются E2E-зашифрованными и не требуют новых таблиц. */
@@ -101,14 +102,34 @@ function applySpecial(m) {
     m.reaction = s.reaction;
     m.text = '';
   } else if (s.kind === 'media') {
-    const kind = s.media.kind === 'voice' ? 'voice' : s.media.kind === 'image' ? 'image' : 'file';
+    const rawKind = String(s.media.kind || '');
+    const kind = ['voice', 'image', 'video', 'videoNote', 'album'].includes(rawKind) ? rawKind : 'file';
     m.type = kind;
-    m.file = { name: s.media.name, size: s.media.size, src: s.media.src };
-    if (kind === 'voice') {
-      const v = s.media.voice || {};
-      m.voice = { dur: v.dur || 0, bars: v.bars || [], rate: v.rate || 1, src: s.media.src };
+
+    if (kind === 'album') {
+      m.album = Array.isArray(s.media.items)
+        ? s.media.items.map((it) => ({ ...it }))
+        : [];
+      m.text = '';
+    } else {
+      const src = s.media.src || null;
+      m.file = { name: s.media.name, size: s.media.size, mime: s.media.mime || '', src };
+      if (s.media.path) {
+        m.media = {
+          path: s.media.path,
+          k: s.media.k,
+          iv: s.media.iv,
+          mime: s.media.mime || '',
+          name: s.media.name,
+          size: s.media.size,
+        };
+      }
+      if (kind === 'voice') {
+        const v = s.media.voice || {};
+        m.voice = { dur: v.dur || 0, bars: v.bars || [], rate: v.rate || 1, src };
+      }
+      m.text = '';
     }
-    m.text = '';
   } else if (s.kind === 'read') {
     m.type = 'read';
     m.hidden = true;
@@ -131,6 +152,9 @@ function previewOfText(text) {
   if (s.kind === 'media') {
     if (s.media.kind === 'image') return `📷 ${t('msg.photo')}`;
     if (s.media.kind === 'voice') return `🎙 ${t('msg.voice')}`;
+    if (s.media.kind === 'video') return `🎥 ${t('msg.video')}`;
+    if (s.media.kind === 'videoNote') return `⭕ ${t('msg.videoNote')}`;
+    if (s.media.kind === 'album') return `🖼 ${t('msg.album')}`;
     return `📄 ${s.media.name || t('msg.file')}`;
   }
   return null;
@@ -162,6 +186,9 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
       console.error('Decrypt error:', err);
       text = '[Шифрование не удалось]';
     }
+  } else if (m.iv && chatKind === 'group') {
+    const plain = await decryptGroupText(m.conversation_id, m.iv, m.ciphertext);
+    text = plain === null ? '[Шифрование не удалось]' : plain;
   }
 
   return applySpecial({
@@ -265,9 +292,15 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
       ciphertext = encrypted.ciphertext;
       iv = encrypted.iv;
     } else if (chatKind === 'group') {
-      // TODO: в Фазе 8 будет шифрование ключом группы
-      ciphertext = text; // временно открытым текстом
-      iv = '';
+      /* E2E: общий ключ группы; если миграции ещё нет — как раньше */
+      const encrypted = await encryptGroupText(chatId, text);
+      if (encrypted) {
+        ciphertext = encrypted.ciphertext;
+        iv = encrypted.iv;
+      } else {
+        ciphertext = text;
+        iv = '';
+      }
     } else {
       ciphertext = text;
       iv = '';
@@ -307,6 +340,16 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
 }
 
 /* ── Редактирование сообщения ── */
+async function conversationOfMessage(messageId) {
+  const { data, error } = await sb
+    .from('messages')
+    .select('conversation_id')
+    .eq('id', messageId)
+    .single();
+  if (error) return null;
+  return data?.conversation_id || null;
+}
+
 export async function editMessage(messageId, newText, chatKind = 'dm', theirPublicKeyJwk = null) {
   let ciphertext = newText;
   let iv = '';
@@ -319,6 +362,15 @@ export async function editMessage(messageId, newText, chatKind = 'dm', theirPubl
       const encrypted = await encryptForChat(newText, keyPair.privateKey, theirPubKey);
       ciphertext = encrypted.ciphertext;
       iv = encrypted.iv;
+    }
+  } else if (SUPABASE.url && SUPABASE.anonKey && chatKind === 'group') {
+    const chatId = await conversationOfMessage(messageId);
+    if (chatId) {
+      const encrypted = await encryptGroupText(chatId, newText);
+      if (encrypted) {
+        ciphertext = encrypted.ciphertext;
+        iv = encrypted.iv;
+      }
     }
   }
 
@@ -406,6 +458,9 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               console.error('Decrypt error:', err);
               text = '[Шифрование не удалось]';
             }
+          } else if (m.iv && chatKind === 'group') {
+            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
+            text = plain === null ? '[Шифрование не удалось]' : plain;
           }
 
           const message = applySpecial({
@@ -438,6 +493,9 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
             } catch (err) {
               console.error('Decrypt error:', err);
             }
+          } else if (m.iv && chatKind === 'group') {
+            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
+            if (plain !== null) text = plain;
           }
 
           if (callbacks.onEdit) {
@@ -498,7 +556,10 @@ export function subscribeAllMessages(onInsert) {
 export async function previewTextFor(row, chat) {
   if (!row.iv) return previewOfText(row.ciphertext || '…');
   try {
-    if (chat && chat.publicKey) {
+    if (chat && chat.kind === 'group') {
+      const plain = await decryptGroupText(chat.id, row.iv, row.ciphertext);
+      if (plain !== null) return previewOfText(plain);
+    } else if (chat && chat.publicKey) {
       const keyPair = await getKeyPair();
       if (keyPair) {
         const theirPubKey = await getTheirPublicKey(chat.publicKey);

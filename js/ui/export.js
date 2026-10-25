@@ -10,6 +10,9 @@ function msgText(m) {
   if (m.deleted) return '[deleted]';
   if (m.type === 'poll') return `[poll] ${m.poll?.q || ''}`;
   if (m.type === 'image') return `[photo] ${m.file?.name || ''}`;
+  if (m.type === 'video') return `[video] ${m.file?.name || ''}`;
+  if (m.type === 'videoNote') return '[video note]';
+  if (m.type === 'album') return `[album] ${(m.album || []).length}`;
   if (m.type === 'file') return `[file] ${m.file?.name || ''}`;
   if (m.type === 'voice') return `[voice] ${fmtDur(m.voice?.dur || 0)}`;
   return String(m.text || '');

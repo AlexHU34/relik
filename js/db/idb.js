@@ -6,7 +6,7 @@
 const DB_NAME = /(?:^|[?&])demo=1(?:&|$)/.test(typeof location !== 'undefined' ? location.search : '')
   ? 'relik-db-demo'
   : 'relik-db';
-const VERSION = 1;
+const VERSION = 2;
 let dbp = null;
 let broken = false;
 
@@ -52,6 +52,9 @@ function open() {
       }
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'key' });
+      }
+      if (!db.objectStoreNames.contains('media')) {
+        db.createObjectStore('media', { keyPath: 'path' });
       }
     };
     r.onsuccess = () => res(r.result);

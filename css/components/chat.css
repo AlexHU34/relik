@@ -323,3 +323,32 @@ html[data-textsize="large"] .msg-text.emoji-only{font-size:40px}
   background:var(--accent-soft);color:var(--indigo);
 }
 .chat.drop-active .composer{opacity:.55;pointer-events:none}
+
+/* ---------- Медиа в Storage: видео, кружки, альбомы ---------- */
+.msg-video{width:min(360px,100%);max-height:440px;border-radius:12px;background:#000;display:block;border:1px solid var(--line)}
+.msg-loading{display:flex;align-items:center;gap:8px;padding:12px 8px;color:var(--tx-3);font-size:var(--fs-sm);min-width:150px}
+.msg-loading .ic{animation:tickSpin 1.6s linear infinite}
+html[data-motion="off"] .msg-loading .ic{animation:none}
+.msg-loading.round{width:180px;height:180px;border-radius:50%;justify-content:center;background:var(--surface-2)}
+
+.album{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;width:330px;max-width:100%;border-radius:12px;overflow:hidden}
+.album.one{grid-template-columns:1fr;width:300px;max-width:100%}
+.album-item{padding:0;border:0;background:var(--surface-2);cursor:zoom-in;aspect-ratio:1;overflow:hidden;display:block}
+.album.one .album-item{aspect-ratio:auto;max-height:320px}
+.album-item img{width:100%;height:100%;object-fit:cover;display:block}
+.album-item.pending{display:grid;place-items:center;color:var(--tx-3);cursor:default}
+.album-item:nth-child(3):last-child{grid-column:1/-1;aspect-ratio:2/1}
+
+.video-note{
+  position:relative;width:210px;height:210px;border-radius:50%;overflow:hidden;padding:0;border:2px solid var(--accent-soft);
+  background:#000;cursor:pointer;display:block;clip-path:circle(50%);
+}
+.video-note video{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%}
+.video-note .vn-play{
+  position:absolute;inset:0;display:grid;place-items:center;color:#fff;
+  background:radial-gradient(circle at 50% 50%,rgba(0,0,0,.18),rgba(0,0,0,.35));
+  transition:opacity var(--t-fast);
+}
+.video-note .vn-play .ic{filter:drop-shadow(0 2px 8px rgba(0,0,0,.6))}
+.video-note.playing .vn-play{opacity:0;pointer-events:none}
+@media (max-width:520px){.video-note{width:170px;height:170px}.album{width:min(280px,100%)}}

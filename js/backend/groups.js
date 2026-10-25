@@ -2,15 +2,13 @@
    Создание групп, ключ группы каждому участнику, добавление/удаление */
 
 import { sb } from './supabaseClient.js';
-import { getKeyPair, getTheirPublicKey, generateGroupKey, encryptGroupKeyForUser, decryptGroupKey, encryptForGroup, decryptFromGroup } from '../crypto/encryption.js';
+import { getKeyPair, getTheirPublicKey, decryptGroupKey, encryptForGroup, decryptFromGroup } from '../crypto/encryption.js';
+import { createGroupKey, rotateGroupKey } from './groupKeys.js';
 
 /* ── Создание группы ── */
 export async function createGroup(title, memberIds) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) throw new Error('Not authenticated');
-
-  // Генерируем ключ группы
-  const groupKey = await generateGroupKey();
 
   // Создаём conversation (id на клиенте — без RETURNING)
   const convId = (crypto.randomUUID ? crypto.randomUUID() : 'g_' + Date.now().toString(36));
@@ -48,40 +46,18 @@ export async function createGroup(title, memberIds) {
   }
 
   // Получаем публичные ключи всех участников
-  const { data: profiles } = await sb
-    .from('profiles')
-    .select('id, public_key')
-    .in('id', [user.id, ...memberIds]);
-
-  if (!profiles) throw new Error('Failed to load profiles');
-
-  // Шифруем ключ группы для каждого участника
-  const myKeyPair = await getKeyPair();
-  if (!myKeyPair) throw new Error('No key pair');
-
-  const keyMessages = [];
-
-  for (const profile of profiles) {
-    if (profile.id === user.id) {
-      // Для себя сохраняем ключ в IndexedDB
-      const exportedKey = await crypto.subtle.exportKey('jwk', groupKey);
-      // TODO: сохранить в indexedDB
-    } else {
-      // Для других шифруем и отправляем как сообщение
-      const theirPubKey = await getTheirPublicKey(profile.public_key);
-      const encryptedKey = await encryptGroupKeyForUser(groupKey, myKeyPair.privateKey, theirPubKey);
-
-      // Отправляем как системное сообщение
-      // TODO: добавить тип сообщения 'group_key'
-    }
-  }
+  /* Ключ группы: каждому участнику — своя зашифрованная копия.
+     Если миграции group_keys ещё нет, группа продолжит работать
+     в прежнем режиме (без E2E), ничего не ломается. */
+  const allMembers = [...new Set([user.id, ...memberIds])];
+  const groupKey = await createGroupKey(convId, allMembers);
 
   return {
     id: convId,
     title,
     kind: 'group',
-    members: [user.id, ...memberIds],
-    groupKey, // временно возвращаем для UI
+    members: allMembers,
+    groupKey,
   };
 }
 
@@ -100,18 +76,9 @@ export async function addMemberToGroup(chatId, userId) {
 
   if (error) throw error;
 
-  // Получаем публичный ключ нового участника
-  const { data: profile } = await sb
-    .from('profiles')
-    .select('public_key')
-    .eq('id', userId)
-    .single();
-
-  if (!profile) throw new Error('Profile not found');
-
-  // TODO: получить ключ группы из хранилища
-  // TODO: зашифровать ключ группы для нового участника
-  // TODO: отправить как сообщение типа 'group_key'
+  /* Новому участнику нужен актуальный ключ. Ротация не даёт ему
+     прочитать старые сообщения, но новые он расшифрует. */
+  await rotateGroupKey(chatId);
 
   return true;
 }
@@ -128,8 +95,8 @@ export async function removeMemberFromGroup(chatId, userId) {
 
   if (error) throw error;
 
-  // TODO: ротация ключа группы (v2)
-  // TODO: перераздача ключа всем оставшимся участникам
+  /* Ротация: удалённый участник больше не получит новые сообщения */
+  await rotateGroupKey(chatId);
 
   return true;
 }
@@ -181,6 +148,17 @@ export async function updateGroupTitle(chatId, title) {
 export async function leaveGroup(chatId) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) throw new Error('Not authenticated');
+
+  /* Сначала ротация без себя: остальные получат новый ключ,
+     а у нас останется только старый. */
+  const { data: members } = await sb
+    .from('conversation_members')
+    .select('user_id')
+    .eq('conversation_id', chatId);
+  const remaining = (members || [])
+    .map((m) => m.user_id)
+    .filter((id) => id !== user.id);
+  if (remaining.length) await rotateGroupKey(chatId, remaining);
 
   const { error } = await sb
     .from('conversation_members')

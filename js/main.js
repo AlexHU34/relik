@@ -21,8 +21,11 @@ import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from './back
 import { playMessage } from './ui/sounds.js';
 import { notifyMessage } from './ui/notify.js';
 import { initCalls, stopCalls } from './ui/calls.js';
+import { initPin, armPin } from './ui/pin.js';
 import { applyPrefs, isMuted, applyRemotePrefs } from './ui/prefs.js';
 import { enablePrefsSync, loadRemotePrefs } from './backend/prefsSync.js';
+import { clearGroupKeyCache } from './backend/groupKeys.js';
+import { clearMediaObjectUrls } from './backend/storage.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
 function paintChrome() {
@@ -274,6 +277,7 @@ function initAuth() {
 /* ── запуск приложения после входа/регистрации ── */
 async function enterApp(welcomeKey) {
   showApp();
+  armPin();
   if (isRealBackend) {
     reloadChats().then(() => retryOutbox()).catch((err) => console.error('Load chats error:', err));
   }
@@ -439,6 +443,8 @@ function initChrome() {
     S.unreadFrom = {};
     S.renderLimit = {};
     S.typingChat = null;
+    clearGroupKeyCache().catch(() => {});
+    clearMediaObjectUrls();
     document.title = 'Relik';
     try { navigator.clearAppBadge?.(); } catch (e) { /* ignore */ }
     stopCalls();
@@ -693,6 +699,7 @@ async function boot() {
   initModals();
   initRouter();
   initAuth();
+  initPin();
   initChrome();
   paintChrome();
 
@@ -734,6 +741,7 @@ async function boot() {
     if (S.me) {
       S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
       showApp();
+      armPin();
       renderSidebar();
       startGlobalRealtime();
       initCalls();
@@ -772,6 +780,7 @@ async function boot() {
         idb.put('settings', { key: 'me', value: S.me }).catch(() => {});
         if (fresh) {
           showApp();
+          armPin();
           renderSidebar();
           initCalls();
           startGlobalRealtime();
@@ -801,6 +810,7 @@ async function boot() {
 
   if (S.me) {
     showApp();
+    armPin();
     maybeDemo();
     startGlobalRealtime();
     initCalls();
