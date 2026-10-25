@@ -165,7 +165,7 @@ html[data-device="phone"] .empty::before{width:320px;height:320px}
 /* ---------- Сайдбар ---------- */
 .sidebar{
   background:var(--surface);border-right:1px solid var(--line);
-  display:grid;grid-template-rows:auto auto 1fr auto;min-height:0;min-width:0;
+  display:grid;grid-template-rows:auto auto auto 1fr auto;min-height:0;min-width:0;
 }
 .side-head{display:flex;align-items:center;gap:var(--s2);padding:15px 14px 10px}
 .side-logo{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;border-radius:12px;padding:4px 6px 4px 0}
@@ -282,9 +282,9 @@ html[data-device="phone"] .empty::before{width:320px;height:320px}
 @keyframes net-in{from{opacity:0;translate:-50% -8px}to{opacity:1;translate:-50% 0}}
 
 /* ---------- Папки чатов ---------- */
-.folder-row{display:flex;gap:6px;overflow-x:auto;padding:0 14px 10px;scrollbar-width:none}
+.folder-row{display:flex;align-items:center;min-height:0;align-self:start;gap:4px;overflow-x:auto;padding:0 10px 8px;scrollbar-width:none}
 .folder-row::-webkit-scrollbar{display:none}
-.folder-chip{flex:none;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
-  background:var(--surface-2);color:var(--tx-3);font-size:var(--fs-2xs);font-weight:600;white-space:nowrap}
+.folder-chip{flex:none;padding:4px 8px;border-radius:999px;border:1px solid var(--line);
+  background:var(--surface-2);color:var(--tx-3);font-size:10.5px;font-weight:600;white-space:nowrap}
 .folder-chip:hover{color:var(--tx);border-color:var(--line-2)}
 .folder-chip.on{color:var(--tx);background:var(--accent-soft);border-color:var(--accent-glow)}
