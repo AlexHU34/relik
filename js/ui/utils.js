@@ -45,6 +45,7 @@ export function fmtDur(s) {
 export function snippet(m) {
   if (!m) return '';
   if (m.deleted) return t('msg.deleted');
+  if (m.decryptFailed) return '🔒 ' + t('msg.decryptFailed');
   switch (m.type) {
     case 'image': return `${t('msg.photo')} 📷`;
     case 'video': return `${t('msg.video')} 🎥`;

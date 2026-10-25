@@ -113,7 +113,13 @@ function applySpecial(m) {
       m.text = '';
     } else {
       const src = s.media.src || null;
-      m.file = { name: s.media.name, size: s.media.size, mime: s.media.mime || '', src };
+      m.file = {
+        name: s.media.name,
+        size: s.media.size,
+        mime: s.media.mime || '',
+        src,
+        ...(s.media.thumb ? { thumb: s.media.thumb } : {}),
+      };
       if (s.media.path) {
         m.media = {
           path: s.media.path,
@@ -178,20 +184,23 @@ async function chatKeys(theirPublicKeyJwk) {
 /* ── Строка из Supabase → сообщение приложения (с дешифровкой) ── */
 async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
   let text = m.ciphertext;
+  let decryptFailed = false;
 
   if (keyPair && theirPubKey && m.iv && chatKind === 'dm') {
     try {
       text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
     } catch (err) {
       console.error('Decrypt error:', err);
-      text = '[Шифрование не удалось]';
+      text = '';
+      decryptFailed = true;
     }
   } else if (m.iv && chatKind === 'group') {
     const plain = await decryptGroupText(m.conversation_id, m.iv, m.ciphertext);
-    text = plain === null ? '[Шифрование не удалось]' : plain;
+    if (plain === null) { text = ''; decryptFailed = true; }
+    else text = plain;
   }
 
-  return applySpecial({
+  const msg = applySpecial({
     id: m.id,
     chatId: m.conversation_id,
     sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
@@ -204,6 +213,8 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     edited: m.edited,
     deleted: m.deleted,
   });
+  if (decryptFailed) msg.decryptFailed = true;
+  return msg;
 }
 
 /* ── Загрузка сообщений чата с дешифрованием ── */
@@ -445,6 +456,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
         if (payload.eventType === 'INSERT') {
           const m = payload.new;
           let text = m.ciphertext;
+          let decryptFailed = false;
 
           // Дешифруем если есть ключи
           if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
@@ -456,11 +468,13 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               }
             } catch (err) {
               console.error('Decrypt error:', err);
-              text = '[Шифрование не удалось]';
+              text = '';
+              decryptFailed = true;
             }
           } else if (m.iv && chatKind === 'group') {
             const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
-            text = plain === null ? '[Шифрование не удалось]' : plain;
+            if (plain === null) { text = ''; decryptFailed = true; }
+            else text = plain;
           }
 
           const message = applySpecial({
@@ -476,11 +490,13 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
             edited: m.edited,
             deleted: m.deleted,
           });
+          if (decryptFailed) message.decryptFailed = true;
           await idb.put('messages', message);
           callbacks.onMessage?.(message);
         } else if (payload.eventType === 'UPDATE') {
           const m = payload.new;
           let text = m.ciphertext;
+          let decryptFailed = false;
 
           // Дешифруем редактирование
           if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
@@ -492,10 +508,13 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               }
             } catch (err) {
               console.error('Decrypt error:', err);
+              text = '';
+              decryptFailed = true;
             }
           } else if (m.iv && chatKind === 'group') {
             const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
             if (plain !== null) text = plain;
+            else { text = ''; decryptFailed = true; }
           }
 
           if (callbacks.onEdit) {
@@ -503,6 +522,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               text,
               edited: m.edited,
               deleted: m.deleted,
+              decryptFailed,
             });
           }
         } else if (payload.eventType === 'DELETE') {

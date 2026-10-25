@@ -484,6 +484,7 @@
             <i></i>
           </label>
           <button class="btn btn-ghost" type="button" id="pinChangeBtn" hidden data-i18n="settings.pinChange">Изменить PIN</button>
+          <button class="btn btn-ghost" type="button" id="pinLockBtn" hidden data-i18n="settings.pinLockNow">Заблокировать сейчас</button>
           <span class="field-hint" data-i18n="settings.pinHint">Код хранится только на этом устройстве и не заменяет пароль.</span>
         </div>
         <div class="field">
@@ -512,6 +513,7 @@
           <p class="e2e" data-i18n="settings.e2eNote"></p>
           <button class="btn btn-ghost" type="button" id="installBtn" hidden data-i18n="settings.install">Установить приложение</button>
           <a class="btn btn-ghost" style="justify-content:center" href="tools/diagnostics.html" target="_blank" rel="noopener" data-i18n="settings.diag">Диагностика звонков и голоса</a>
+          <a class="btn btn-ghost" style="justify-content:center" href="tools/selftest.html" target="_blank" rel="noopener" data-i18n="settings.selftest">Самопроверка модулей</a>
         </div>
       </div>
     </div>
@@ -580,6 +582,7 @@
             <input class="input" id="groupTitleInput" maxlength="80" placeholder="">
             <button class="btn btn-ghost" type="button" id="groupTitleSave" data-i18n="settings.save">Сохранить</button>
           </div>
+          <span class="field-hint" id="groupE2eStatus"></span>
         </div>
         <div class="field">
           <span data-i18n="group.members">Участники</span>
@@ -688,6 +691,9 @@
   <div class="lightbox" id="lightbox" hidden>
     <button class="icon-btn lx-dl" id="lbDl" title=""></button>
     <button class="icon-btn lx-close" id="lbX"></button>
+    <button class="icon-btn lx-prev" id="lbPrev" type="button" aria-label="Previous">‹</button>
+    <button class="icon-btn lx-next" id="lbNext" type="button" aria-label="Next">›</button>
+    <span class="lx-count" id="lbCount"></span>
     <img id="lbImg" alt="">
   </div>
 
@@ -731,6 +737,7 @@
       <div class="call-name" id="callPeerName"></div>
       <div class="call-status" id="callStatus"></div>
       <div class="call-timer" id="callTimer"></div>
+      <div class="call-rec" id="callRecBadge" hidden><i></i> <span data-i18n="call.recording">Идёт запись</span></div>
       <div class="call-actions">
         <button class="call-btn" id="callSwitch"></button>
         <button class="call-btn" id="callRec"></button>

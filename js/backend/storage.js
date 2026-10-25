@@ -135,6 +135,13 @@ export async function downloadEncryptedBlob(item) {
 }
 
 /* ── objectURL для показа в ленте ─────────────────────────── */
+export function rememberMediaPreview(path, src) {
+  if (!path || !src || !/^blob:/i.test(src)) return;
+  if (urlCache.has(path)) return;
+  urlCache.set(path, src);
+  urlOrder.push(path);
+}
+
 export async function mediaObjectUrl(item) {
   if (!item?.path) return null;
   if (urlCache.has(item.path)) return urlCache.get(item.path);
@@ -154,10 +161,35 @@ export async function mediaObjectUrl(item) {
   return url;
 }
 
+/* После перезагрузки blob: URL из IndexedDB уже недействительны.
+   Сбрасываем их (не скачивая), чтобы показать превью/кнопку загрузки. */
+export function dropStaleMediaSrc(m) {
+  if (!m) return false;
+  let changed = false;
+
+  if (m.type === 'album' && Array.isArray(m.album)) {
+    for (const item of m.album) {
+      if (!item?.path || !/^blob:/i.test(item.src || '')) continue;
+      if (urlCache.get(item.path) === item.src) continue;
+      item.src = '';
+      changed = true;
+    }
+    return changed;
+  }
+
+  if (!m.media?.path) return false;
+  const current = m.type === 'voice' ? m.voice?.src : m.file?.src;
+  if (!/^blob:/i.test(current || '')) return false;
+  if (urlCache.get(m.media.path) === current) return false;
+  if (m.type === 'voice') m.voice = { ...(m.voice || {}), src: '' };
+  else m.file = { ...(m.file || {}), src: '' };
+  return true;
+}
+
 /* ── Подтягиваем медиа в сообщение (src → objectURL) ──────── */
 export async function hydrateMessageMedia(m) {
   if (!m) return false;
-  let changed = false;
+  let changed = dropStaleMediaSrc(m);
 
   if (m.type === 'album' && Array.isArray(m.album)) {
     for (const item of m.album) {
@@ -165,8 +197,12 @@ export async function hydrateMessageMedia(m) {
       if (item.src && (!/^blob:/i.test(item.src) || urlCache.get(item.path) === item.src)) continue;
       try {
         const url = await mediaObjectUrl(item);
-        if (url) { item.src = url; changed = true; }
-      } catch (e) { /* битый файл — покажем заглушку */ }
+        if (url) { item.src = url; item.error = false; changed = true; }
+        else { item.error = true; changed = true; }
+      } catch (e) {
+        item.error = true;
+        changed = true;
+      }
     }
     return changed;
   }
@@ -180,33 +216,46 @@ export async function hydrateMessageMedia(m) {
 
   try {
     const url = await mediaObjectUrl(m.media);
-    if (!url) return false;
+    if (!url) { m.mediaError = true; return true; }
     if (m.type === 'voice') m.voice = { ...(m.voice || {}), src: url };
     else m.file = { ...(m.file || {}), src: url };
+    m.mediaError = false;
     return true;
   } catch (e) {
-    return false;
+    m.mediaError = true;
+    return true;
   }
 }
 
 /* Ограниченная параллельность: не заваливаем сеть сотней файлов */
 export async function hydrateMessagesMedia(list = []) {
-  const pending = list.filter((m) => (m.media?.path || (m.type === 'album' && m.album?.some((i) => i?.path))));
-  if (!pending.length) return false;
-
   let changed = false;
+  for (const m of list) {
+    if (dropStaleMediaSrc(m)) changed = true;
+  }
+
+  /* Видео не тянем автоматически: даже с превью это десятки мегабайт.
+     Они загружаются по клику на превью/кнопку повтора. */
+  const pending = list.filter((m) => {
+    if (m.type === 'video' || m.type === 'videoNote') return false;
+    return m.media?.path || (m.type === 'album' && m.album?.some((i) => i?.path));
+  });
+  if (!pending.length) return changed;
+
+  let hydrated = false;
+
   let i = 0;
   const workers = Array.from({ length: Math.min(4, pending.length) }, async () => {
     while (i < pending.length) {
       const m = pending[i++];
       if (await hydrateMessageMedia(m)) {
-        changed = true;
+        hydrated = true;
         try { await idb.put('messages', m); } catch (e) { /* ignore */ }
       }
     }
   });
   await Promise.all(workers);
-  return changed;
+  return changed || hydrated;
 }
 
 /* ── Совместимость со старыми вызовами ───────────────────── */

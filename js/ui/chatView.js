@@ -18,7 +18,7 @@ import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
 import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead } from '../backend/messages.js';
-import { hydrateMessagesMedia, hydrateMessageMedia } from '../backend/storage.js';
+import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 
 const PAGE_SIZE = 240;
@@ -35,6 +35,7 @@ let pollTimer = null;           // страховочный опрос акти�
 let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
 let autoScrolling = false;
+let showLocked = false;         // показывать недоступные (нерасшифрованные) сообщения
 const readMarks = new Map();    // chatId -> { upto, at } — последняя отправленная отметка
 const demoReads = new Set();    // сообщения, для которых демо уже «прочитало»
 let groupMigrationWarned = false;
@@ -210,6 +211,17 @@ export function initChatView() {
     if (document.visibilityState === 'visible' && S.active) sendReadUpto(S.active);
   });
 
+  /* связь вернулась — догружаем медиа, которое не открылось офлайн */
+  window.addEventListener('online', () => {
+    const id = S.active;
+    if (!id) return;
+    const list = S.messages[id] || [];
+    if (!list.some((m) => m.media || (m.album || []).some((it) => it?.path))) return;
+    hydrateMessagesMedia(list).then((changed) => {
+      if (changed && S.active === id) renderMessages();
+    }).catch(() => {});
+  });
+
   /* тап мимо сообщения закрывает панель действий */
   document.addEventListener('click', (e) => {
     if (!toolsOpen) return;
@@ -220,6 +232,11 @@ export function initChatView() {
 }
 
 function onMsgClick(e) {
+  if (e.target.closest('[data-show-locked]')) {
+    showLocked = !showLocked;
+    renderMessages();
+    return;
+  }
   /* ссылки в тексте открываются браузером и не должны открывать панель действий */
   if (e.target.closest('a[href]')) return;
   const actEl = e.target.closest('[data-act]');
@@ -236,27 +253,73 @@ function onMsgClick(e) {
 
   if (pickEl && m) { toggleReaction(m, pickEl.dataset.pick); return; }
   if (rxBt && m) { toggleReaction(m, rxBt.dataset.rx); return; }
+  const retryEl = e.target.closest('[data-media-retry]');
+  if (retryEl && m) {
+    m.mediaError = false;
+    if (Array.isArray(m.album)) m.album.forEach((it) => { it.error = false; });
+    hydrateMessageMedia(m).then(() => {
+      if (m.mediaError) toast(t('media.broken'), { type: 'error' });
+      renderMessages();
+    }).catch(() => {});
+    return;
+  }
   const pollEl = e.target.closest('[data-poll-opt]');
   if (pollEl && m?.type === 'poll') { votePollOption(m, Number(pollEl.dataset.pollOpt)); return; }
   const pollClose = e.target.closest('[data-poll-close]');
   if (pollClose && m?.type === 'poll') { closePoll(m); return; }
-  if (imgEl && m?.file?.src) {
-    const src = safeMediaSrc(m.file.src, 'image');
-    if (src) openLightbox(src, m.file.name); else toast(t('media.broken'), { type: 'error' });
+  if (imgEl && m) {
+    const full = safeMediaSrc(m.file?.src, 'image');
+    const thumb = safeMediaSrc(m.file?.thumb, 'image');
+    if (full) { openLightbox(full, m.file.name); return; }
+    if (thumb) {
+      openLightbox(thumb, m.file?.name || t('msg.photo'));
+      hydrateMessageMedia(m).then(() => {
+        const src = safeMediaSrc(m.file?.src, 'image');
+        if (src && !document.getElementById('lightbox')?.hidden) openLightbox(src, m.file.name);
+      }).catch(() => {});
+      return;
+    }
+    toast(t('media.broken'), { type: 'error' });
     return;
   }
   const albumEl = e.target.closest('[data-album-idx]');
   if (albumEl && m?.type === 'album') {
-    const item = (m.album || [])[Number(albumEl.dataset.albumIdx)];
-    const src = safeMediaSrc(item?.src, 'image');
-    if (src) openLightbox(src, item?.name || t('msg.photo'));
-    else toast(t('media.broken'), { type: 'error' });
+    const index = Number(albumEl.dataset.albumIdx);
+    const item = (m.album || [])[index];
+    const full = safeMediaSrc(item?.src, 'image');
+    const thumb = safeMediaSrc(item?.thumb, 'image');
+    const gallery = (m.album || []).map((it) => ({
+      src: safeMediaSrc(it?.src, 'image') || safeMediaSrc(it?.thumb, 'image'),
+      name: it?.name || t('msg.photo'),
+    })).filter((it) => it.src);
+    if (full) { openLightbox(full, item?.name || t('msg.photo'), gallery); return; }
+    if (thumb) {
+      openLightbox(thumb, item?.name || t('msg.photo'), gallery);
+      hydrateMessageMedia(m).then(() => {
+        const src = safeMediaSrc(item?.src, 'image');
+        if (src && !document.getElementById('lightbox')?.hidden) {
+          const updated = (m.album || []).map((it) => ({
+            src: safeMediaSrc(it?.src, 'image') || safeMediaSrc(it?.thumb, 'image'),
+            name: it?.name || t('msg.photo'),
+          })).filter((it) => it.src);
+          openLightbox(src, item?.name || t('msg.photo'), updated);
+        }
+      }).catch(() => {});
+      return;
+    }
+    toast(t('media.broken'), { type: 'error' });
     return;
   }
   const vnEl = e.target.closest('.video-note');
   if (vnEl && m?.type === 'videoNote') {
     const vid = vnEl.querySelector('video');
-    if (!vid) return;
+    if (!vid) {
+      hydrateMessageMedia(m).then((changed) => {
+        if (changed && S.active === m.chatId) renderMessages();
+        if (m.mediaError) toast(t('media.broken'), { type: 'error' });
+      }).catch(() => {});
+      return;
+    }
     if (vid.paused) {
       document.querySelectorAll('.video-note video').forEach((v) => { if (v !== vid) v.pause(); });
       vid.play().catch(() => {});
@@ -265,6 +328,14 @@ function onMsgClick(e) {
       vid.pause();
       vnEl.classList.remove('playing');
     }
+    return;
+  }
+  const videoPending = e.target.closest('.msg-video.pending');
+  if (videoPending && m?.type === 'video') {
+    hydrateMessageMedia(m).then((changed) => {
+      if (changed && S.active === m.chatId) renderMessages();
+      if (m.mediaError) toast(t('media.broken'), { type: 'error' });
+    }).catch(() => {});
     return;
   }
   const fileEl = e.target.closest('.file-row');
@@ -663,7 +734,8 @@ export async function openChat(id) {
   }
 
   S.active = id;
-  S.reply = null; S.editing = null; S.reactOpen = null;  toolsOpen = null;
+  S.reply = null; S.editing = null; S.reactOpen = null;
+  showLocked = false;  toolsOpen = null;
   unseenCount = 0;
   searchHits = [];
   searchIndex = 0;
@@ -899,7 +971,8 @@ export function renderMessages(opts = {}) {
   const chat = chatById(S.active);
   if (!chat) return;
   const raw = S.messages[S.active] || [];
-  const all = raw.filter((m) => !m.hidden);
+  const locked = raw.filter((m) => !m.hidden && m.decryptFailed);
+  const all = raw.filter((m) => !m.hidden && (!m.decryptFailed || showLocked));
   const rxMap = tallyReactions(raw);
 
   const q = searchQuery.toLowerCase();
@@ -919,7 +992,7 @@ export function renderMessages(opts = {}) {
       : '';
   }
 
-  if (!all.length) {
+  if (!all.length && !locked.length) {
     els.msgs.innerHTML = `<div class="chat-welcome">
       <span class="w-ic">${icon('lock', 26)}</span>
       <b>${t('chat.welcomeTitle')}</b>
@@ -940,6 +1013,13 @@ export function renderMessages(opts = {}) {
   const stick = isNearBottom();
 
   let html = '';
+  if (locked.length) {
+    html += `<button type="button" class="locked-banner" data-show-locked>
+      ${icon('lock', 15)}
+      <span>${t('chat.lockedCount').replace('{n}', String(locked.length))}</span>
+      <b>${t(showLocked ? 'chat.hide' : 'chat.show')}</b>
+    </button>`;
+  }
   if (hiddenCount > 0) {
     html += `<button type="button" class="load-earlier" data-load-earlier>
       ${icon('chevronUp', 15)} <span>${t('chat.loadEarlier')}</span><b>${hiddenCount}</b>
@@ -1089,6 +1169,10 @@ async function forwardTo(chatId2) {
 
   const fwd = forwardPayload(m);
   if (!fwd) { toast(t('msg.forwardUnsupported'), { type: 'error' }); return; }
+  if (fwd.media?.path && fwd.file?.src) rememberMediaPreview(fwd.media.path, fwd.file.src);
+  for (const it of fwd.album || []) {
+    if (it?.path && it.src) rememberMediaPreview(it.path, it.src);
+  }
 
   const msg = {
     id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
@@ -1134,6 +1218,7 @@ function forwardPayload(m) {
     if (!items.length) return null;
     const wireItems = items.map((it) => ({
       path: it.path, k: it.k, iv: it.iv, mime: it.mime, name: it.name, size: it.size,
+      ...(it.thumb ? { thumb: it.thumb } : {}),
       ...(it.path ? {} : { src: it.src }),
     }));
     return {
@@ -1146,10 +1231,16 @@ function forwardPayload(m) {
   if (['image', 'file', 'video', 'videoNote'].includes(m.type)) {
     const src = safeMediaSrc(m.file?.src, m.type === 'image' ? 'image' : 'file');
     if (!src && !m.media) return null;
-    const file = { name: m.file?.name || 'file', size: m.file?.size || 0, mime: m.file?.mime || '', src };
+    const file = {
+      name: m.file?.name || 'file',
+      size: m.file?.size || 0,
+      mime: m.file?.mime || '',
+      src,
+      ...(m.file?.thumb ? { thumb: m.file.thumb } : {}),
+    };
     const wireMedia = {
       kind: m.type, name: file.name, size: file.size, mime: file.mime,
-      ...(m.media ? { path: m.media.path, k: m.media.k, iv: m.media.iv } : { src }),
+      ...(m.media ? { path: m.media.path, k: m.media.k, iv: m.media.iv, ...(file.thumb ? { thumb: file.thumb } : {}) } : { src }),
     };
     return {
       type: m.type, text: m.text || '', file,
@@ -1225,15 +1316,30 @@ function msgHtml(m, first, hitIndex = -1) {
   const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${searchCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
-  const tools = m.deleted ? '' : toolsHtml(m, mine);
+  const tools = (m.deleted || m.decryptFailed) ? '' : toolsHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
   return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
     <div class="bubble">${body}${tools}${pick}</div>
   </div>`;
 }
 
+function mediaErrorHtml(round = false) {
+  return `<button type="button" class="msg-broken as-btn${round ? ' round' : ''}" data-media-retry>
+    ${icon('alert', 16)} <span>${t('media.retry')}</span>
+  </button>`;
+}
+
+function mediaLoadHtml(round = false, kind = 'video') {
+  return `<button type="button" class="msg-loading as-btn${round ? ' round' : ''}" data-media-retry>
+    ${icon(kind === 'video' ? 'play' : 'dl', 16)} <span>${t('media.load')}</span>
+  </button>`;
+}
+
 function bubbleHtml(m, mine) {
   if (m.deleted) return `<div class="msg-deleted">${t('msg.deleted')}</div>`;
+  if (m.decryptFailed) {
+    return `<div class="msg-broken">${icon('lock', 16)} ${t('msg.decryptFailed')}</div>`;
+  }
   let out = '';
   if (m.forwarded) out += `<div class="fwd-label">${icon('forward', 12)} ${t('msg.forwarded')}</div>`;
   if (m.replyTo) out += `<button class="reply-quote" data-jump="${esc(m.replyTo.id)}">
@@ -1243,28 +1349,37 @@ function bubbleHtml(m, mine) {
   if (m.type === 'poll') out += pollHtml(m);
   if (m.type === 'image') {
     const src = safeMediaSrc(m.file?.src, 'image');
+    const thumb = safeMediaSrc(m.file?.thumb, 'image');
     out += src
       ? `<button class="msg-img"><img src="${esc(src)}" loading="lazy" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
-      : (m.media
-        ? `<div class="msg-loading">${icon('image', 18)} ${t('media.loading')}</div>`
-        : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`);
+      : (thumb
+        ? `<button class="msg-img"><img class="thumb" src="${esc(thumb)}" alt=""></button>`
+        : (m.media
+          ? (m.mediaError ? mediaErrorHtml() : `<div class="msg-loading">${icon('image', 18)} ${t('media.loading')}</div>`)
+          : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`));
   }
   if (m.type === 'video') {
     const src = safeMediaSrc(m.file?.src, 'video');
+    const thumb = safeMediaSrc(m.file?.thumb, 'image');
     out += src
-      ? `<video class="msg-video" src="${esc(src)}" controls playsinline preload="metadata"></video>`
-      : (m.media
-        ? `<div class="msg-loading">${icon('video', 18)} ${t('media.loading')}</div>`
-        : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`);
+      ? `<video class="msg-video" src="${esc(src)}"${thumb ? ` poster="${esc(thumb)}"` : ''} controls playsinline preload="metadata"></video>`
+      : (thumb
+        ? `<div class="msg-video pending"><img src="${esc(thumb)}" alt=""><span>${icon('play', 22)}</span></div>`
+        : (m.media
+          ? (m.mediaError ? mediaErrorHtml() : mediaLoadHtml(false, 'video'))
+          : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`));
   }
   if (m.type === 'videoNote') {
     const src = safeMediaSrc(m.file?.src, 'video');
+    const thumb = safeMediaSrc(m.file?.thumb, 'image');
     out += src
-      ? `<button class="video-note" type="button"><video src="${esc(src)}" playsinline loop preload="metadata"></video>
+      ? `<button class="video-note" type="button"><video src="${esc(src)}"${thumb ? ` poster="${esc(thumb)}"` : ''} playsinline loop preload="metadata"></video>
           <span class="vn-play">${icon('play', 20)}</span></button>`
-      : (m.media
-        ? `<div class="msg-loading round">${icon('video', 18)} ${t('media.loading')}</div>`
-        : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`);
+      : (thumb
+        ? `<button class="video-note" type="button"><img src="${esc(thumb)}" alt=""><span class="vn-play">${icon('play', 20)}</span></button>`
+        : (m.media
+          ? (m.mediaError ? mediaErrorHtml(true) : mediaLoadHtml(true, 'video'))
+          : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`));
   }
   if (m.type === 'album') {
     const items = Array.isArray(m.album) ? m.album : [];
@@ -1273,22 +1388,28 @@ function bubbleHtml(m, mine) {
     } else {
       out += `<div class="album${items.length === 1 ? ' one' : ''}">${items.map((it, i) => {
         const src = safeMediaSrc(it?.src, 'image');
-        return src
-          ? `<button type="button" class="album-item" data-album-idx="${i}"><img src="${esc(src)}" loading="lazy" alt=""></button>`
-          : `<span class="album-item pending">${icon('image', 18)}</span>`;
+        const thumb = safeMediaSrc(it?.thumb, 'image');
+        const img = src || thumb;
+        return img
+          ? `<button type="button" class="album-item" data-album-idx="${i}"><img src="${esc(img)}" loading="lazy" alt="">${!src ? '<span class="album-load">•</span>' : ''}</button>`
+          : `<span class="album-item pending${it?.error ? ' failed' : ''}">${icon('image', 18)}</span>`;
       }).join('')}</div>`;
     }
   }
   if (m.type === 'file') {
     const ready = !!m.file?.src;
-    out += `<div class="file-row${ready ? '' : ' no-src'}"><span class="file-ic">${icon('file', 20)}</span>
+    const failed = !!m.media && !ready && m.mediaError;
+    out += `<div class="file-row${ready ? '' : ' no-src'}${failed ? ' retry' : ''}"${failed ? ' data-media-retry role="button"' : ''}>
+      <span class="file-ic">${icon('file', 20)}</span>
       <span class="file-info"><span class="file-name">${esc(m.file?.name || t('msg.file'))}</span>
-      <span class="file-size">${m.media && !ready ? t('media.loading') : fmtSize(m.file?.size)}</span></span>
-      ${ready ? `<span class="file-dl">${icon('dl', 17)}</span>` : ''}</div>`;
+      <span class="file-size">${m.media && !ready ? t(failed ? 'media.retry' : 'media.loading') : fmtSize(m.file?.size)}</span></span>
+      ${ready ? `<span class="file-dl">${icon('dl', 17)}</span>` : (failed ? `<span class="file-dl">${icon('refresh', 16)}</span>` : '')}</div>`;
   }
   if (m.type === 'voice') {
     if (!m.voice?.src && m.media) {
-      out += `<div class="msg-loading">${icon('mic', 16)} ${t('media.loading')}</div>`;
+      out += m.mediaError
+        ? mediaErrorHtml()
+        : `<div class="msg-loading">${icon('mic', 16)} ${t('media.loading')}</div>`;
     } else {
       out += `<div class="voice">
         <button class="v-play">${icon('play', 17)}</button>

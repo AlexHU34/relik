@@ -19,9 +19,9 @@ import { confirmAction } from './dialog.js';
 import { addMemberToGroup, removeMemberFromGroup, updateGroupTitle, leaveGroup } from '../backend/groups.js';
 import { canInstall, promptInstall } from './install.js';
 import { exportChats } from './export.js';
-import { hasPin, enablePin, disablePin, changePin } from './pin.js';
+import { hasPin, enablePin, disablePin, changePin, lockNow } from './pin.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
-import { storageAvailable } from '../backend/storage.js';
+import { storageAvailable, clearMediaObjectUrls } from '../backend/storage.js';
 
 let selectedGroupMembers = new Set();
 
@@ -63,6 +63,13 @@ export function initModals() {
       closeOv($('#groupOv')); closeOv($('#readOv'));
     }
   });
+  document.addEventListener('keydown', (e) => {
+    if ($('#lightbox').hidden) return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); stepLightbox(-1); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); stepLightbox(1); }
+  });
+  $('#lbPrev')?.addEventListener('click', () => stepLightbox(-1));
+  $('#lbNext')?.addEventListener('click', () => stepLightbox(1));
 
   /* ── настройки ── */
   $('#saveProfile').addEventListener('click', saveProfile);
@@ -184,6 +191,10 @@ export function initModals() {
     await changePin();
     paintPinSettings();
   });
+  $('#pinLockBtn')?.addEventListener('click', () => {
+    $('#settingsOv').hidden = true;
+    lockNow();
+  });
   $('#clearLocalBtn')?.addEventListener('click', clearLocalCache);
   const runExport = async (format, btn) => {
     if (btn) btn.disabled = true;
@@ -254,18 +265,52 @@ function closeOv(ov) {
 /* ── ЛАЙТБОКС ── */
 let lightboxSrc = '';
 let lightboxName = 'relik-image.jpg';
+let lightboxGallery = [];
+let lightboxIndex = 0;
 
-export function openLightbox(src, name) {
-  lightboxSrc = String(src || '');
-  lightboxName = name ? String(name) : 'relik-image.jpg';
+function showLightboxItem() {
+  const item = lightboxGallery[lightboxIndex];
+  if (!item) return;
+  lightboxSrc = item.src;
+  lightboxName = item.name || 'relik-image.jpg';
   $('#lbImg').src = lightboxSrc;
   $('#lbImg').alt = lightboxName;
+  const many = lightboxGallery.length > 1;
+  const prev = $('#lbPrev');
+  const next = $('#lbNext');
+  const count = $('#lbCount');
+  if (prev) prev.hidden = !many;
+  if (next) next.hidden = !many;
+  if (count) {
+    count.hidden = !many;
+    count.textContent = many ? `${lightboxIndex + 1} / ${lightboxGallery.length}` : '';
+  }
+}
+
+export function openLightbox(src, name, gallery = null) {
+  const items = (Array.isArray(gallery) ? gallery : [])
+    .filter((it) => it?.src)
+    .map((it) => ({ src: it.src, name: it.name || 'relik-image.jpg' }));
+  lightboxGallery = items.length ? items : [{ src: String(src || ''), name: name ? String(name) : 'relik-image.jpg' }];
+  const wanted = String(src || '');
+  const idx = lightboxGallery.findIndex((it) => it.src === wanted);
+  lightboxIndex = idx >= 0 ? idx : 0;
+  showLightboxItem();
   $('#lightbox').hidden = false;
 }
+
+function stepLightbox(dir) {
+  if (lightboxGallery.length < 2) return;
+  lightboxIndex = (lightboxIndex + dir + lightboxGallery.length) % lightboxGallery.length;
+  showLightboxItem();
+}
+
 function closeLightbox() {
   $('#lightbox').hidden = true;
   $('#lbImg').src = '';
   lightboxSrc = '';
+  lightboxGallery = [];
+  lightboxIndex = 0;
 }
 function downloadLightbox() {
   if (!lightboxSrc) return;
@@ -329,6 +374,8 @@ function paintPinSettings() {
   if (toggle) toggle.checked = on;
   const btn = $('#pinChangeBtn');
   if (btn) btn.hidden = !on;
+  const lockBtn = $('#pinLockBtn');
+  if (lockBtn) lockBtn.hidden = !on;
 }
 
 function paintTextSize() {
@@ -542,6 +589,7 @@ async function clearLocalCache() {
   S.chats = [];
   S.unreadFrom = {};
   S.renderLimit = {};
+  clearMediaObjectUrls();
   $('#settingsOv').hidden = true;
   location.hash = '#/app';
 
@@ -567,7 +615,25 @@ export function openGroupManager(chat) {
   $('#groupAddSearch').value = '';
   $('#groupOv').hidden = false;
   paintGroupMemberList();
+  paintGroupE2eStatus(chat);
   setTimeout(() => $('#groupTitleInput').focus(), 60);
+}
+
+async function paintGroupE2eStatus(chat) {
+  const el = $('#groupE2eStatus');
+  if (!el) return;
+  if (!(SUPABASE.url && SUPABASE.anonKey)) {
+    el.textContent = '';
+    return;
+  }
+  el.textContent = t('group.e2eChecking');
+  try {
+    const ok = await hasGroupKeysTable();
+    el.textContent = t(ok ? 'group.e2eOn' : 'group.e2eOff');
+    el.style.color = ok ? 'var(--ok, #3ecf8e)' : 'var(--warn)';
+  } catch (e) {
+    el.textContent = t('group.e2eOff');
+  }
 }
 
 function canManageGroup(chat) {

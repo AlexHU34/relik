@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relik — самопроверка модулей</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0b0e14; --surface:#11151c; --surface-2:#161b24; --surface-3:#1b212d;
+    --line:#232b39; --line-2:#2b3442; --tx:#e8eaf2; --tx-2:#9aa3b5; --tx-3:#5f6879;
+    --blue:#4e7fff; --indigo:#5b6cf9; --violet:#9f5cf6;
+    --grad:linear-gradient(135deg,var(--blue),var(--indigo) 50%,var(--violet));
+    --ok:#3ecf8e; --bad:#f96a6a; --warn:#f5b544;
+    --r:14px; --font:"Inter",system-ui,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;min-height:100vh}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(900px 500px at 88% -10%,rgba(78,127,255,.09),transparent 60%),
+               radial-gradient(760px 480px at -8% 108%,rgba(159,92,246,.08),transparent 60%)}
+  .wrap{position:relative;max-width:860px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  header img{width:40px;height:40px;border-radius:12px}
+  header h1{font-size:20px;letter-spacing:-.01em}
+  header .badge{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--indigo);background:rgba(91,108,249,.15);border:1px solid rgba(91,108,249,.4);padding:4px 10px;border-radius:999px}
+  .sub{color:var(--tx-2);margin-bottom:22px;font-size:13px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:14px}
+  .card h2{font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--tx-3);flex:none}
+  .card h2 .dot.ok{background:var(--ok);box-shadow:0 0 10px rgba(62,207,142,.6)}
+  .card h2 .dot.bad{background:var(--bad);box-shadow:0 0 10px rgba(249,106,106,.6)}
+  .card p{color:var(--tx-2);font-size:13px;margin-bottom:12px}
+  button{font:inherit;color:var(--tx);background:var(--surface-3);border:1px solid var(--line-2);
+    padding:9px 16px;border-radius:10px;cursor:pointer;font-weight:600;font-size:13px}
+  button:hover{background:#222a38;border-color:#39445a}
+  button.primary{background:var(--grad);border:0;color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .checks{display:grid;gap:2px;margin-top:10px}
+  .check{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;font-size:13px}
+  .check:nth-child(odd){background:var(--surface-2)}
+  .check .ic{width:18px;text-align:center;font-weight:700}
+  .check .ic.ok{color:var(--ok)} .check .ic.bad{color:var(--bad)} .check .ic.run{color:var(--warn)}
+  .check .nm{flex:1;color:var(--tx-2)}
+  .check .vl{font-size:11px;color:var(--tx-3);font-family:ui-monospace,Consolas,monospace;max-width:50%;text-align:right;word-break:break-word}
+  .summary{font-size:13px;font-weight:600;margin-top:12px}
+  .summary.ok{color:var(--ok)} .summary.bad{color:var(--bad)}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .hint{border-left:3px solid var(--indigo);background:rgba(91,108,249,.07);padding:10px 12px;border-radius:0 10px 10px 0;font-size:12.5px;color:var(--tx-2);margin-top:12px}
+  textarea{width:100%;min-height:120px;margin-top:10px;background:var(--surface-2);color:var(--tx-2);border:1px solid var(--line);
+    border-radius:10px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;resize:vertical}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="../assets/icons/icon-192.png" alt="Relik">
+    <h1>Self-test</h1>
+    <span class="badge">dev</span>
+  </header>
+  <p class="sub">Проверка криптографии, формата медиа, безопасного HTML и IndexedDB. Открывайте через локальный сервер или GitHub Pages.</p>
+
+  <section class="card">
+    <h2><span class="dot" id="sumDot"></span>Модули Relik</h2>
+    <p>Тесты не трогают ваши чаты: используется временный ключ в IndexedDB, который сразу удаляется.</p>
+    <button class="primary" id="runBtn" type="button">Запустить проверку</button>
+    <div class="checks" id="list"></div>
+    <div class="summary" id="summary"></div>
+    <div class="hint">Если тест упал — пришлите JSON-отчёт ниже. Это не заменяет проверку на двух реальных аккаунтах.</div>
+    <textarea id="report" readonly spellcheck="false" placeholder="Отчёт появится после запуска"></textarea>
+  </section>
+</div>
+
+<script type="module">
+import * as keygen from '../js/crypto/keygen.js';
+import * as ecdh from '../js/crypto/ecdh.js';
+import * as enc from '../js/crypto/encryption.js';
+import { encodeMedia, decodeSpecial } from '../js/backend/messages.js';
+import { formatText, isEmojiOnly, safeMediaSrc } from '../js/ui/richText.js';
+import { idb } from '../js/db/idb.js';
+
+const listEl = document.getElementById('list');
+const sumEl = document.getElementById('summary');
+const dotEl = document.getElementById('sumDot');
+const reportEl = document.getElementById('report');
+const runBtn = document.getElementById('runBtn');
+
+const results = [];
+const same = (a, b) => String(a) === String(b);
+
+function addRow(name) {
+  const row = document.createElement('div');
+  row.className = 'check';
+  row.innerHTML = `<span class="ic run">•</span><span class="nm"></span><span class="vl">…</span>`;
+  row.querySelector('.nm').textContent = name;
+  listEl.appendChild(row);
+  return {
+    ok(val = 'ok') { row.querySelector('.ic').className = 'ic ok'; row.querySelector('.ic').textContent = '✓'; row.querySelector('.vl').textContent = val; },
+    fail(val = 'fail') { row.querySelector('.ic').className = 'ic bad'; row.querySelector('.ic').textContent = '✕'; row.querySelector('.vl').textContent = val; },
+  };
+}
+
+async function test(name, fn) {
+  const row = addRow(name);
+  const started = performance.now();
+  try {
+    const detail = await fn();
+    row.ok(detail || `${Math.round(performance.now() - started)} ms`);
+    results.push({ name, ok: true, detail: detail || '' });
+  } catch (err) {
+    row.fail(err?.message || String(err));
+    results.push({ name, ok: false, detail: String(err?.stack || err) });
+  }
+}
+
+async function run() {
+  listEl.innerHTML = '';
+  results.length = 0;
+  runBtn.disabled = true;
+  sumEl.textContent = 'Проверяем…';
+  sumEl.className = 'summary';
+  dotEl.className = 'dot';
+  reportEl.value = '';
+
+  await test('ECDH: генерация и экспорт ключей', async () => {
+    const pair = await keygen.generateKeyPair();
+    const pub = await keygen.exportPublicKey(pair);
+    const priv = await keygen.exportPrivateKey(pair);
+    if (!pub.includes('"kty":"EC"') || !priv.includes('"d"')) throw new Error('bad jwk');
+    const imported = await keygen.importPublicKey(pub);
+    if (!imported) throw new Error('import failed');
+    return 'P-256';
+  });
+
+  await test('ECDH: общий секрет совпадает', async () => {
+    const a = await keygen.generateKeyPair();
+    const b = await keygen.generateKeyPair();
+    const s1 = await ecdh.deriveSharedSecret(a.privateKey, b.publicKey);
+    const s2 = await ecdh.deriveSharedSecret(b.privateKey, a.publicKey);
+    if (keygen.toBase64(s1) !== keygen.toBase64(s2)) throw new Error('secret mismatch');
+    return '32 bytes';
+  });
+
+  await test('AES-GCM: текст туда-обратно', async () => {
+    const key = await enc.generateGroupKey();
+    const msg = await enc.encryptForGroup('Привет, Relik! 🔒', key);
+    const plain = await enc.decryptFromGroup(msg.iv, msg.ciphertext, key);
+    if (plain !== 'Привет, Relik! 🔒') throw new Error('text mismatch');
+    return 'ok';
+  });
+
+  await test('AES-GCM: чужой ключ не расшифровывает', async () => {
+    const key1 = await enc.generateGroupKey();
+    const key2 = await enc.generateGroupKey();
+    const msg = await enc.encryptForGroup('secret', key1);
+    let failed = false;
+    try { await enc.decryptFromGroup(msg.iv, msg.ciphertext, key2); } catch (e) { failed = true; }
+    if (!failed) throw new Error('decrypted with wrong key');
+    return 'rejected';
+  });
+
+  await test('Ключ группы: раздача участнику', async () => {
+    const a = await keygen.generateKeyPair();
+    const b = await keygen.generateKeyPair();
+    const gk = await enc.generateGroupKey();
+    const wrapped = await enc.encryptGroupKeyForUser(gk, a.privateKey, b.publicKey);
+    const unwrapped = await enc.decryptGroupKey(wrapped, b.privateKey, a.publicKey);
+    const raw1 = keygen.toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', gk)));
+    const raw2 = keygen.toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', unwrapped)));
+    if (raw1 !== raw2) throw new Error('group key mismatch');
+    return 'ECDH+HKDF';
+  });
+
+  await test('Ключ группы: копия для себя (другое устройство)', async () => {
+    const a = await keygen.generateKeyPair();
+    const gk = await enc.generateGroupKey();
+    const wrapped = await enc.encryptGroupKeyForUser(gk, a.privateKey, a.publicKey);
+    const unwrapped = await enc.decryptGroupKey(wrapped, a.privateKey, a.publicKey);
+    const raw1 = keygen.toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', gk)));
+    const raw2 = keygen.toBase64(new Uint8Array(await crypto.subtle.exportKey('raw', unwrapped)));
+    if (raw1 !== raw2) throw new Error('self wrap mismatch');
+    return 'same device pair';
+  });
+
+  await test('Файл: шифрование байтов', async () => {
+    const key = await enc.generateGroupKey();
+    const bytes = crypto.getRandomValues(new Uint8Array(4096));
+    const packed = await enc.encryptBytes(bytes, key);
+    const back = await enc.decryptBytes(packed.iv, packed.ciphertext, key);
+    if (keygen.toBase64(bytes) !== keygen.toBase64(back)) throw new Error('bytes mismatch');
+    return '4 KB';
+  });
+
+  await test('Медиа: формат __relik_media__', async () => {
+    const wire = encodeMedia({
+      kind: 'album',
+      items: [{ name: 'a.jpg', size: 10, mime: 'image/jpeg', path: 'c/1.bin', k: 'abc', iv: 'def', thumb: 'data:image/jpeg;base64,AA==' }],
+    });
+    const decoded = decodeSpecial(wire);
+    if (decoded?.kind !== 'media' || decoded.media.kind !== 'album') throw new Error('kind');
+    if (decoded.media.items[0].thumb !== 'data:image/jpeg;base64,AA==') throw new Error('thumb lost');
+    return 'album + thumb';
+  });
+
+  await test('Безопасный HTML: теги экранируются', async () => {
+    const html = formatText('<img src=x onerror=alert(1)> **жирный**');
+    if (html.includes('<img')) throw new Error('raw html leaked');
+    if (!html.includes('<strong>жирный</strong>')) throw new Error('format lost');
+    return 'escaped';
+  });
+
+  await test('Ссылки: только http(s)/www', async () => {
+    const ok = formatText('https://example.com');
+    const bad = formatText('javascript:alert(1)');
+    if (!ok.includes('<a ')) throw new Error('https not linked');
+    if (bad.includes('<a ')) throw new Error('javascript linked');
+    return 'safe hrefs';
+  });
+
+  await test('Медиа: safeMediaSrc', async () => {
+    if (!safeMediaSrc('data:image/png;base64,AA==', 'image')) throw new Error('data rejected');
+    if (!safeMediaSrc('blob:https://x/y', 'image')) throw new Error('blob rejected');
+    if (safeMediaSrc('javascript:alert(1)', 'image')) throw new Error('javascript accepted');
+    if (safeMediaSrc('http://insecure/x.png', 'image')) throw new Error('http accepted');
+    return 'strict';
+  });
+
+  await test('Эмодзи-только', async () => {
+    if (!isEmojiOnly('😀🎉')) throw new Error('emoji rejected');
+    if (isEmojiOnly('привет 😀')) throw new Error('text accepted');
+    return 'ok';
+  });
+
+  await test('IndexedDB: запись/чтение/удаление', async () => {
+    const key = 'selftest:' + Date.now();
+    await idb.put('settings', { key, value: { n: 42 } });
+    const rec = await idb.get('settings', key);
+    await idb.del('settings', key);
+    if (rec?.value?.n !== 42) throw new Error('read mismatch');
+    return 'relik-db';
+  });
+
+  const failed = results.filter((r) => !r.ok).length;
+  const passed = results.length - failed;
+  sumEl.textContent = failed
+    ? `Провалено ${failed} из ${results.length}. Проверьте отчёт.`
+    : `Все ${passed} проверок пройдены.`;
+  sumEl.className = 'summary ' + (failed ? 'bad' : 'ok');
+  dotEl.className = 'dot ' + (failed ? 'bad' : 'ok');
+  reportEl.value = JSON.stringify({
+    app: 'Relik self-test',
+    at: new Date().toISOString(),
+    ua: navigator.userAgent,
+    passed,
+    failed,
+    results,
+  }, null, 2);
+  runBtn.disabled = false;
+}
+
+runBtn.addEventListener('click', run);
+run().catch((err) => {
+  sumEl.textContent = 'Сбой запуска: ' + (err?.message || err);
+  sumEl.className = 'summary bad';
+  dotEl.className = 'dot bad';
+  runBtn.disabled = false;
+});
+</script>
+</body>
+</html>

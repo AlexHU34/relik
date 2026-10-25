@@ -11,7 +11,7 @@ import { toast } from './toast.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
 import { sendMessage, editMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
-import { readFileAsDataURL, uploadEncryptedBlob, dataUrlToBlob, storageAvailable } from '../backend/storage.js';
+import { readFileAsDataURL, uploadEncryptedBlob, dataUrlToBlob, rememberMediaPreview } from '../backend/storage.js';
 import { prefs } from './prefs.js';
 import { currentDevice } from './device.js';
 import { EMOJI_GROUPS, getRecentEmoji, pushRecentEmoji } from '../data/emoji.js';
@@ -665,6 +665,66 @@ function loadImage(src) {
   });
 }
 
+/* Миниатюра для мгновенного превью, пока полный файл летит из Storage */
+async function imageThumbFromDataUrl(dataUrl, max = 96) {
+  try {
+    const img = await loadImage(dataUrl);
+    const w = img.width || img.naturalWidth || 1;
+    const h = img.height || img.naturalHeight || 1;
+    const scale = Math.min(1, max / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#0b0e14';
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.62);
+  } catch (e) {
+    return '';
+  }
+}
+
+async function videoThumbFromBlob(blob, max = 160) {
+  const url = URL.createObjectURL(blob);
+  return await new Promise((resolve) => {
+    const v = document.createElement('video');
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try { v.removeAttribute('src'); v.load(); } catch (e) { /* ignore */ }
+      URL.revokeObjectURL(url);
+      resolve(val || '');
+    };
+    const timer = setTimeout(() => finish(''), 5000);
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => {
+      try { v.currentTime = Math.min(0.25, (v.duration || 1) / 2); } catch (e) { finish(''); }
+    };
+    v.onseeked = () => {
+      try {
+        const w = v.videoWidth || 1;
+        const h = v.videoHeight || 1;
+        const scale = Math.min(1, max / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
+        clearTimeout(timer);
+        finish(canvas.toDataURL('image/jpeg', 0.65));
+      } catch (e) {
+        clearTimeout(timer);
+        finish('');
+      }
+    };
+    v.onerror = () => { clearTimeout(timer); finish(''); };
+    v.src = url;
+  });
+}
+
 async function compressToDataUrl(file) {
   const url = URL.createObjectURL(file);
   let source = null;
@@ -729,6 +789,7 @@ function mediaWire(payload) {
     base.path = payload.path;
     base.k = payload.k;
     base.iv = payload.iv;
+    if (payload.thumb) base.thumb = payload.thumb;
   } else if (payload.src) {
     base.src = payload.src;
   }
@@ -738,7 +799,7 @@ function mediaWire(payload) {
       name: it.name || 'photo.jpg',
       size: it.size || 0,
       mime: it.mime || '',
-      ...(it.path ? { path: it.path, k: it.k, iv: it.iv } : { src: it.src }),
+      ...(it.path ? { path: it.path, k: it.k, iv: it.iv, ...(it.thumb ? { thumb: it.thumb } : {}) } : { src: it.src }),
     }));
   }
   return encodeMedia(base);
@@ -749,7 +810,13 @@ function mediaMessage(payload, replyBox) {
   const msg = {
     id: newId(), chatId: S.active, sender: 'u_me', ts: Date.now(),
     type: payload.kind,
-    file: { name: payload.name || 'file', size: payload.size || 0, mime: payload.mime || '', src },
+    file: {
+      name: payload.name || 'file',
+      size: payload.size || 0,
+      mime: payload.mime || '',
+      src,
+      ...(payload.thumb ? { thumb: payload.thumb } : {}),
+    },
     text: '', reactions: [],
     wire: mediaWire(payload),
     status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
@@ -761,18 +828,24 @@ function mediaMessage(payload, replyBox) {
       path: payload.path, k: payload.k, iv: payload.iv,
       mime: payload.mime || '', name: payload.name || 'file', size: payload.size || 0,
     };
+    rememberMediaPreview(payload.path, src);
   }
   if (payload.kind === 'voice') {
     msg.voice = { ...(payload.voice || {}), src: payload.voice?.src || src };
   }
   if (payload.kind === 'album') {
-    msg.album = (payload.items || []).map((it) => ({
-      name: it.name || 'photo.jpg',
-      size: it.size || 0,
-      mime: it.mime || '',
-      src: it.previewSrc || it.src || '',
-      ...(it.path ? { path: it.path, k: it.k, iv: it.iv } : {}),
-    }));
+    msg.album = (payload.items || []).map((it) => {
+      const itemSrc = it.previewSrc || it.src || '';
+      if (it.path) rememberMediaPreview(it.path, itemSrc);
+      return {
+        name: it.name || 'photo.jpg',
+        size: it.size || 0,
+        mime: it.mime || '',
+        src: itemSrc,
+        ...(it.thumb ? { thumb: it.thumb } : {}),
+        ...(it.path ? { path: it.path, k: it.k, iv: it.iv } : {}),
+      };
+    });
   }
   return msg;
 }
@@ -814,7 +887,8 @@ async function payloadFromDataUrl(chatId, dataUrl, meta = {}) {
   const mime = meta.mime || blob.type || 'application/octet-stream';
   const up = await uploadEncryptedBlob(chatId, blob, { name, size: blob.size, mime });
   if (up) {
-    return { ...meta, ...up, name, mime, size: blob.size, previewSrc: URL.createObjectURL(blob) };
+    const thumb = meta.kind === 'image' ? await imageThumbFromDataUrl(dataUrl) : '';
+    return { ...meta, ...up, name, mime, size: blob.size, thumb, previewSrc: URL.createObjectURL(blob) };
   }
   const limit = meta.kind === 'voice' ? MAX_VOICE_CHARS : MAX_MEDIA_CHARS;
   if (dataUrl.length > limit) return null;
@@ -826,7 +900,12 @@ async function payloadFromBlob(chatId, blob, meta = {}) {
   const mime = blob.type || meta.mime || 'application/octet-stream';
   const up = await uploadEncryptedBlob(chatId, blob, { name, size: blob.size, mime });
   const previewSrc = URL.createObjectURL(blob);
-  if (up) return { ...meta, ...up, name, mime, size: blob.size, previewSrc };
+  if (up) {
+    const thumb = (meta.kind === 'video' || meta.kind === 'videoNote')
+      ? await videoThumbFromBlob(blob)
+      : '';
+    return { ...meta, ...up, name, mime, size: blob.size, thumb, previewSrc };
+  }
   if (blob.size <= MAX_MEDIA_CHARS * 0.72) {
     const src = await blobToDataUrl(blob);
     if (src.length <= MAX_MEDIA_CHARS) {
@@ -836,6 +915,19 @@ async function payloadFromBlob(chatId, blob, meta = {}) {
   }
   try { URL.revokeObjectURL(previewSrc); } catch (e) { /* ignore */ }
   return null;
+}
+
+/* Индикатор для больших файлов: без него непонятно, почему ничего не происходит */
+async function withUploadNotice(size, fn) {
+  let note = null;
+  if (Number(size) > 2 * 1024 * 1024) {
+    note = toast(t('media.uploading'), { duration: 0 });
+  }
+  try {
+    return await fn();
+  } finally {
+    try { note?.close(); } catch (e) { /* ignore */ }
+  }
 }
 
 /* Отправка выбранного/вставленного/перетащенного файла */
@@ -858,18 +950,18 @@ async function handlePickedFile(file, chatId = S.active) {
 
     if (kind.startsWith('video/')) {
       if (file.size > MAX_VIDEO_BYTES) { toast(t('media.tooBig'), { type: 'error' }); return; }
-      const payload = await payloadFromBlob(chatId, file, {
+      const payload = await withUploadNotice(file.size, () => payloadFromBlob(chatId, file, {
         kind: 'video', name: file.name || 'video.mp4', mime: kind,
-      });
+      }));
       if (!payload) { toast(t('media.storageNeeded'), { type: 'error' }); return; }
       await sendMediaPayload(payload, chatId);
       return;
     }
 
     if (file.size > MAX_FILE_BYTES) { toast(t('media.tooBig'), { type: 'error' }); return; }
-    let payload = await payloadFromBlob(chatId, file, {
+    let payload = await withUploadNotice(file.size, () => payloadFromBlob(chatId, file, {
       kind: 'file', name: file.name || 'file', mime: kind,
-    });
+    }));
     if (!payload && file.size <= MAX_MEDIA_CHARS * 0.72) {
       const src = await readFileAsDataURL(file);
       if (src.length <= MAX_MEDIA_CHARS) {
@@ -887,20 +979,27 @@ async function handlePickedFile(file, chatId = S.active) {
 /* Несколько фото одним сообщением-альбомом */
 async function sendAlbum(files, chatId = S.active) {
   if (!chatById(chatId) || !files?.length) return;
-  const items = [];
-  for (const file of [...files].slice(0, 10)) {
-    if (!String(file.type || '').startsWith('image/')) continue;
-    try {
-      const src = await compressToDataUrl(file);
-      if (!src) continue;
-      const item = await payloadFromDataUrl(chatId, src, {
-        name: file.name || 'photo.jpg', mime: dataUrlToBlob(src).type || 'image/jpeg',
-      });
-      if (item) items.push(item);
-    } catch (err) {
-      console.warn('Album item error:', err);
+  const list = [...files].slice(0, 10);
+  const total = list.reduce((n, f) => n + (f.size || 0), 0);
+  const items = await withUploadNotice(total > 3 * 1024 * 1024 ? total : 0, async () => {
+    const out = [];
+    for (const file of list) {
+      if (!String(file.type || '').startsWith('image/')) continue;
+      try {
+        const src = await compressToDataUrl(file);
+        if (!src) continue;
+        const item = await payloadFromDataUrl(chatId, src, {
+          kind: 'image',
+          name: file.name || 'photo.jpg',
+          mime: dataUrlToBlob(src).type || 'image/jpeg',
+        });
+        if (item) out.push(item);
+      } catch (err) {
+        console.warn('Album item error:', err);
+      }
     }
-  }
+    return out;
+  });
   if (!items.length) { toast(t('media.tooBig'), { type: 'error' }); return; }
   const size = items.reduce((sum, it) => sum + (it.size || 0), 0);
   await sendMediaPayload({ kind: 'album', name: 'album', size, items }, chatId);
@@ -1121,12 +1220,10 @@ function startCircleRecording() {
       closeCircleRecorder();
       if (canceled || dur < 1 || !blob.size) return;
       const chatId = S.active;
-      const preview = URL.createObjectURL(blob);
-      const payload = await payloadFromBlob(chatId, blob, {
+      const payload = await withUploadNotice(blob.size, () => payloadFromBlob(chatId, blob, {
         kind: 'videoNote', name: 'circle.webm', mime: blob.type || 'video/webm',
-      });
+      }));
       if (!payload) {
-        URL.revokeObjectURL(preview);
         toast(t('media.storageNeeded'), { type: 'error' });
         return;
       }

@@ -65,3 +65,8 @@
 .call-btn.rec{color:#f0566e}
 .call-btn.rec.on{background:rgba(240,86,110,.18);border-color:rgba(240,86,110,.55);color:#ff7d92}
 .call-rec-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#f0566e;margin-right:6px;animation:blink 1s infinite;vertical-align:middle}
+
+.call-rec{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:var(--fs-xs);font-weight:700;
+  color:#ffb4c0;background:rgba(240,86,110,.14);border:1px solid rgba(240,86,110,.4);padding:3px 10px;border-radius:999px}
+.call-rec i{width:8px;height:8px;border-radius:50%;background:#f0566e;animation:blink 1s infinite}
+.call-rec[hidden]{display:none!important}

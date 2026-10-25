@@ -486,6 +486,9 @@ function paintRecButton() {
   b.title = recording ? t('call.recording') : t('call.record');
   b.setAttribute('aria-label', b.title);
   b.innerHTML = icon(recording ? 'stop' : 'record', 22);
+  const badge = $('#callRecBadge');
+  if (badge) badge.hidden = !recording;
+  $('#callOverlay')?.classList.toggle('recording', recording);
 }
 
 /* Скачивание файла без зависимости от storage.js */
@@ -598,6 +601,9 @@ function endCall(notify = true, reason = '') {
   sharedScreen = false;
   $('#callSwitch').hidden = true;
   $('#callRec').hidden = true;
+  const recBadge = $('#callRecBadge');
+  if (recBadge) recBadge.hidden = true;
+  $('#callOverlay')?.classList.remove('recording');
 
   const ov = $('#callOverlay');
   if (ov) {
