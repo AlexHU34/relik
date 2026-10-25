@@ -8,6 +8,7 @@ import { startRing, stopRing, playTest } from './sounds.js';
 import { SUPABASE } from '../config.js';
 import { RELAY } from '../config.js';
 import { initCallSignaling, stopCallSignaling, sendCallSignal } from '../backend/calls.js';
+import { isBlocked } from '../backend/blocks.js';
 
 const ICE = {
   iceServers: [
@@ -128,6 +129,13 @@ export async function startCall(chat, opts = {}) {
 /* ── входящий ─────────────────────────────────────────────── */
 function onSignal(payload) {
   if (!payload || !payload.from || payload.from.id === S.me?.id) return;
+  /* заблокированные не могут звонить */
+  if (isBlocked(payload.from.id)) {
+    if (payload.type === 'offer') {
+      sendCallSignal(payload.from.id, { type: 'end', callId: payload.callId, from: me() });
+    }
+    return;
+  }
 
   switch (payload.type) {
     case 'offer':

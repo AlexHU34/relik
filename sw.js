@@ -1,9 +1,10 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.8.4';
+const VER = 'relik-v1.9.0';
 const ASSETS = [
   './', './index.html', './legal.html', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
   './css/components/chat.css', './css/components/composer.css', './css/components/modals.css', './css/components/call.css',
+  './tools/status.html',
   './js/main.js', './js/config.js', './js/vendor/supabase.js', './js/vendor/qrcode.js',
   './js/i18n/i18n.js', './js/i18n/ru.js', './js/i18n/en.js',
   './js/db/idb.js', './js/data/mock.js', './js/data/emoji.js',
@@ -11,7 +12,7 @@ const ASSETS = [
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
   './js/ui/themes.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
   './js/ui/prefs.js', './js/ui/menu.js', './js/ui/dialog.js', './js/ui/richText.js', './js/ui/install.js', './js/ui/export.js', './js/ui/pin.js',
-  './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/contacts.js',
+  './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/contacts.js', './js/backend/blocks.js', './js/backend/telemetry.js',
   './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js', './js/crypto/fingerprint.js', './js/crypto/v2/protocol.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png',
 ];

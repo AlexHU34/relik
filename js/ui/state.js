@@ -19,6 +19,8 @@ export const S = {
   reqIn: [],         // входящие заявки в контакты [{id, from, to, status, ts}]
   reqOut: [],        // исходящие заявки
   contacts: [],      // принятые контакты [{userId, reqId}]
+  blocked: [],       // кого заблокировал я
+  blockedBy: [],     // кто заблокировал меня
 };
 
 export const bus = new EventTarget();

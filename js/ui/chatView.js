@@ -21,6 +21,10 @@ import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, d
 import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 import { ensureDmMember } from '../backend/chats.js';
+import { isBlocked, blockUser, unblockUser } from '../backend/blocks.js';
+import { confirmAction } from './dialog.js';
+import { sb } from '../backend/supabaseClient.js';
+import { logEvent } from '../backend/telemetry.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 
 const PAGE_SIZE = 240;
@@ -407,6 +411,7 @@ function onMsgClick(e) {
       closeReact();
     }
     else if (act === 'forward') { openForward(m); closeReact(); }
+    else if (act === 'report') { reportMessage(m); closeReact(); }
     else if (act === 'readby') { openReadInfo(m); closeReact(); }
     else if (act === 'del') {
       openMenu([
@@ -1283,6 +1288,35 @@ async function changeChatTtl(chat, seconds) {
   toast(t('ttl.saved'), { type: 'success' });
 }
 
+/* ── жалоба на сообщение ───────────────────────────────────── */
+async function reportMessage(m) {
+  const chat = chatById(S.active);
+  if (!chat || !m) return;
+  const ok = await confirmAction({
+    title: t('report.title'),
+    text: t('report.text'),
+    ok: t('report.ok'),
+    iconName: 'alert',
+  });
+  if (!ok) return;
+  try {
+    const { error } = await sb.from('reports').insert({
+      chat_id: chat.id,
+      message_id: m.id,
+      reporter_id: S.me.id,
+      sender_id: m.sender === 'u_me' ? S.me.id : m.sender,
+      message_ts: new Date(m.ts).toISOString(),
+      reason: 'user_report',
+    });
+    if (error) throw error;
+    toast(t('report.sent'), { type: 'success' });
+    logEvent('report_sent', { chat: chat.kind });
+  } catch (err) {
+    const msg = String(err?.message || '');
+    toast(/does not exist|42P01|schema cache|relation/i.test(msg) ? t('report.needSql') : t('report.failed'), { type: 'error' });
+  }
+}
+
 /* ── профиль собеседника / группы ── */
 function openChatProfile() {
   const chat = chatById(S.active);
@@ -1302,6 +1336,33 @@ function openChatProfile() {
 
   $('#profileCall').hidden = !isDm;
   $('#profileVideo').hidden = !isDm;
+  const blockBtn = $('#profileBlock');
+  if (blockBtn) {
+    const blocked = isDm && isBlocked(chat.userId);
+    blockBtn.hidden = !isDm;
+    blockBtn.textContent = t(blocked ? 'profile.unblock' : 'profile.block');
+    blockBtn.classList.toggle('btn-danger-soft', !blocked);
+    blockBtn.onclick = async () => {
+      if (!isDm) return;
+      const ok = await confirmAction({
+        title: t(blocked ? 'profile.unblockTitle' : 'profile.blockTitle'),
+        text: t(blocked ? 'profile.unblockText' : 'profile.blockText'),
+        ok: t(blocked ? 'profile.unblock' : 'profile.block'),
+        danger: !blocked,
+        iconName: 'shield',
+      });
+      if (!ok) return;
+      try {
+        if (blocked) await unblockUser(chat.userId);
+        else await blockUser(chat.userId);
+        toast(t(blocked ? 'profile.unblocked' : 'profile.blocked'));
+        $('#profileOv').hidden = true;
+        renderSidebar();
+      } catch (err) {
+        toast(err?.message || t('toast.error'), { type: 'error' });
+      }
+    };
+  }
   const manage = $('#profileManage');
   if (manage) {
     manage.hidden = isDm;
@@ -2010,6 +2071,7 @@ function toolsHtml(m, mine) {
     mine && m.status === 'read' ? `<button data-act="readby" title="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
     mine && isText && m.cryptoVersion !== 2 ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
     canDelete ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
+    !mine ? `<button data-act="report" title="${t('report.title')}">${icon('alert', 15)}</button>` : '',
   ].join('');
   return `<div class="tools">${tools}</div>`;
 }

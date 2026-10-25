@@ -11,6 +11,8 @@ import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } fr
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime } from './ui/modals.js';
 import { seedDemoRequests } from './backend/contacts.js';
+import { initTelemetry, logEvent } from './backend/telemetry.js';
+import { loadBlocks } from './backend/blocks.js';
 import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
 import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
@@ -562,6 +564,8 @@ function startGlobalRealtime() {
      счётчик на конверте + live-обновление */
   refreshRequests().catch(() => {});
   startContactRealtime();
+  /* блокировки: скрыть чаты и запретить отправку */
+  loadBlocks().then(() => renderSidebar()).catch(() => {});
   /* realtime может быть не включён для таблицы — тихо сверяем раз в 30 с */
   if (!window.__reqTimer) {
     window.__reqTimer = setInterval(() => {
@@ -771,6 +775,8 @@ function initServiceWorker() {
 
 /* ── запуск ── */
 async function boot() {
+  initTelemetry();
+  logEvent('boot', { ua: navigator.userAgent.slice(0, 120) });
   initI18n();
   applyDom();
 

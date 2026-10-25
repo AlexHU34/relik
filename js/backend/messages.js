@@ -321,6 +321,11 @@ export async function loadLatestPreviews() {
 
 /* ── Отправка сообщения с шифрованием ── */
 export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null, messageId = null, peerUserId = null) {
+  /* получатель заблокирован (в любую сторону) — не отправляем */
+  if (peerUserId && chatKind === 'dm') {
+    const { hideUser } = await import('./blocks.js');
+    if (hideUser(peerUserId)) throw new Error('recipient_blocked');
+  }
   /* id уже есть у оптимистичного сообщения в ленте — используем его же */
   const msgId = messageId || newId();
 

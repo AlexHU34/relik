@@ -11,6 +11,7 @@ import { getStatuses, refreshChatStatuses } from '../backend/presence.js';
 import { isPinned, isMuted, togglePinned, toggleMuted, setReadAt, clearChatPrefs, getChatFolder, setChatFolder } from './prefs.js';
 import { openMenu, bindLongPress } from './menu.js';
 import { confirmAction } from './dialog.js';
+import { hideUser, isBlocked, blockUser, unblockUser } from '../backend/blocks.js';
 
 let lastSidebarSignature = '';
 import { toast } from './toast.js';
@@ -59,6 +60,8 @@ export function renderSidebar(force = false) {
   const folder = S.folder || 'all';
   const rows = S.chats
     .filter((c) => {
+      /* заблокированные (в любую сторону) не показываются в списке */
+      if (c.kind === 'dm' && c.userId && hideUser(c.userId)) return false;
       if (folder === 'dm' && c.kind !== 'dm') return false;
       if (folder === 'group' && c.kind !== 'group') return false;
       if ((folder === 'work' || folder === 'archive') && getChatFolder(c.id) !== folder) return false;

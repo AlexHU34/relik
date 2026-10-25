@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Relik — панель администратора</title>
+<link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14161f; --surface2:#181b26; --line:#242836; --line2:#2e3344;
+    --tx:#eef0f7; --tx2:#b7bccd; --tx3:#7d8398;
+    --ok:#38b98a; --warn:#e0a23c; --bad:#e0575d; --accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 70px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .mark{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800}
+  h1{font-size:18px;margin:0}
+  .sp{flex:1}
+  .badge{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--tx2)}
+  .badge.admin{color:#aab3ff;border-color:rgba(91,108,249,.5);background:rgba(91,108,249,.14)}
+  .badge.bad{color:#ef8b8f;border-color:rgba(224,87,93,.4);background:rgba(224,87,93,.12)}
+  .badge.ok{color:#62d3a6;border-color:rgba(56,185,138,.4);background:rgba(56,185,138,.12)}
+  .tabs{display:flex;gap:6px;margin:14px 0 16px;flex-wrap:wrap}
+  .tab{font:inherit;font-size:13px;color:var(--tx2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:7px 13px;cursor:pointer}
+  .tab.on{color:var(--tx);background:var(--surface2);border-color:rgba(91,108,249,.45)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+  .row{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+  .grow{flex:1;min-width:200px}
+  .nm{font-weight:600;font-size:14px}
+  .sub{font-size:12px;color:var(--tx3);margin-top:2px}
+  .acts{display:flex;gap:6px;flex-wrap:wrap}
+  button{font:inherit;font-size:12.5px;color:var(--tx);background:var(--surface2);border:1px solid var(--line2);border-radius:9px;padding:6px 11px;cursor:pointer}
+  button:hover{background:#1f2432}
+  button.primary{background:linear-gradient(135deg,#5b6cf9,#8a5cf6);border-color:transparent}
+  button.danger{color:#ffb3b6;border-color:rgba(224,87,93,.45)}
+  input,select{font:inherit;font-size:13px;color:var(--tx);background:#0f121a;border:1px solid var(--line2);border-radius:9px;padding:8px 11px;outline:none;max-width:100%}
+  input:focus,select:focus{border-color:var(--accent)}
+  .empty{color:var(--tx3);font-size:13px;padding:10px 2px}
+  pre{white-space:pre-wrap;word-break:break-word;font-size:11.5px;color:var(--tx3);margin:6px 0 0}
+  .login{max-width:340px;margin:60px auto;display:grid;gap:10px}
+  .login h2{font-size:17px;margin:0 0 4px}
+  .err{color:#ef8b8f;font-size:12.5px;min-height:18px}
+  .stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+  .stat div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .stat b{display:block;font-size:20px}
+  .stat span{font-size:11px;color:var(--tx3)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--tx3);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- вход -->
+  <div id="loginView" class="login">
+    <div class="mark">R</div>
+    <h2>Relik Admin</h2>
+    <div class="sub" style="margin-bottom:8px">Панель модерации. Нужен аккаунт с ролью admin.</div>
+    <input id="email" type="email" placeholder="email" autocomplete="username">
+    <input id="pass" type="password" placeholder="пароль" autocomplete="current-password">
+    <button class="primary" id="loginBtn">Войти</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+
+  <!-- панель -->
+  <div id="panel" hidden>
+    <header>
+      <div class="mark">R</div>
+      <div>
+        <h1>Relik Admin</h1>
+        <div class="sub" id="who">—</div>
+      </div>
+      <div class="sp"></div>
+      <span class="badge admin">ADMIN</span>
+      <button id="refresh">Обновить</button>
+      <button id="logout">Выйти</button>
+    </header>
+
+    <div class="stat" id="stats"></div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-tab="reports">Жалобы</button>
+      <button class="tab" data-tab="users">Пользователи</button>
+      <button class="tab" data-tab="events">Ошибки</button>
+      <button class="tab" data-tab="log">Журнал</button>
+    </div>
+
+    <div id="tab-reports"></div>
+    <div id="tab-users" hidden></div>
+    <div id="tab-events" hidden></div>
+    <div id="tab-log" hidden></div>
+  </div>
+</div>
+
+<script src="js/vendor/supabase.js"></script>
+<script>
+(function () {
+  var sb = null;
+  var me = null;
+  var cfg = { url: '', anon: '' };
+  var cache = { reports: [], users: [], bans: [], events: [], log: [] };
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function dt(v) {
+    if (!v) return '—';
+    try { return new Date(v).toLocaleString('ru-RU'); } catch (e) { return String(v); }
+  }
+
+  async function loadConfig() {
+    var t = await (await fetch('js/config.js?ts=' + Date.now(), { cache: 'no-store' })).text();
+    var u = t.match(/url:\s*'([^']+)'/); if (u) cfg.url = u[1];
+    var k = t.match(/anonKey:\s*'([^']+)'/); if (k) cfg.anon = k[1];
+    if (!cfg.url || !cfg.anon) throw new Error('Supabase не настроен (демо-режим)');
+    sb = window.supabase.createClient(cfg.url, cfg.anon);
+  }
+
+  async function login() {
+    $('loginErr').textContent = '';
+    try {
+      if (!sb) await loadConfig();
+      var email = $('email').value.trim();
+      var pass = $('pass').value;
+      var r = await sb.auth.signInWithPassword({ email: email, password: pass });
+      if (r.error) throw r.error;
+      await enter();
+    } catch (e) {
+      $('loginErr').textContent = e.message || String(e);
+    }
+  }
+
+  async function enter() {
+    var u = await sb.auth.getUser();
+    if (!u.data || !u.data.user) throw new Error('Не вошли');
+    var p = await sb.from('profiles').select('id, display_name, username, role').eq('id', u.data.user.id).maybeSingle();
+    if (p.error) throw p.error;
+    if (!p.data || p.data.role !== 'admin') throw new Error('У этого аккаунта нет роли admin');
+    me = p.data;
+    $('loginView').hidden = true;
+    $('panel').hidden = false;
+    $('who').textContent = me.display_name + (me.username ? ' · @' + me.username : '');
+    await refreshAll();
+  }
+
+  async function refreshAll() {
+    await Promise.all([loadReports(), loadUsers(), loadEvents(), loadLog()]);
+    paintStats();
+  }
+
+  async function loadReports() {
+    var r = await sb.from('reports')
+      .select('id, chat_id, message_id, reporter_id, sender_id, message_ts, reason, status, created_at')
+      .order('created_at', { ascending: false }).limit(100);
+    cache.reports = r.data || [];
+    if (r.error) cache.reportsError = r.error.message;
+  }
+
+  async function loadUsers() {
+    var r = await sb.from('profiles').select('id, display_name, username, role, last_seen').order('display_name').limit(300);
+    cache.users = r.data || [];
+    var b = await sb.from('bans').select('user_id, until, reason, created_at');
+    cache.bans = b.data || [];
+  }
+
+  async function loadEvents() {
+    var r = await sb.from('client_events')
+      .select('id, user_id, kind, data, app_version, created_at')
+      .order('created_at', { ascending: false }).limit(200);
+    cache.events = r.data || [];
+    if (r.error) cache.eventsError = r.error.message;
+  }
+
+  async function loadLog() {
+    var r = await sb.from('admin_log')
+      .select('id, admin_id, action, target, details, created_at')
+      .order('created_at', { ascending: false }).limit(100);
+    cache.log = r.data || [];
+  }
+
+  function userName(id) {
+    var u = cache.users.find(function (x) { return x.id === id; });
+    return u ? (u.display_name + (u.username ? ' (@' + u.username + ')' : '')) : (id ? id.slice(0, 8) + '…' : '—');
+  }
+
+  function banOf(id) {
+    return cache.bans.find(function (b) { return b.user_id === id; }) || null;
+  }
+
+  function activeBan(b) {
+    if (!b) return false;
+    return !b.until || new Date(b.until) > new Date();
+  }
+
+  function paintStats() {
+    var open = cache.reports.filter(function (r) { return r.status === 'open'; }).length;
+    var banned = cache.bans.filter(activeBan).length;
+    var errs = cache.events.filter(function (e) { return /error|fail|reject/i.test(e.kind); }).length;
+    $('stats').innerHTML =
+      '<div><b>' + open + '</b><span>открытых жалоб</span></div>' +
+      '<div><b>' + cache.users.length + '</b><span>пользователей</span></div>' +
+      '<div><b>' + banned + '</b><span>забанено</span></div>' +
+      '<div><b>' + errs + '</b><span>ошибок в событиях</span></div>';
+  }
+
+  function paintReports() {
+    var box = $('tab-reports');
+    if (cache.reportsError) { box.innerHTML = '<div class="card">Жалобы недоступны: ' + esc(cache.reportsError) + '</div>'; return; }
+    if (!cache.reports.length) { box.innerHTML = '<div class="card empty">Жалоб нет</div>'; return; }
+    box.innerHTML = cache.reports.map(function (r) {
+      var st = r.status === 'open' ? 'bad' : (r.status === 'resolved' ? 'ok' : '');
+      return '<div class="card"><div class="row">' +
+        '<div class="grow">' +
+          '<div class="nm">Жалоба на ' + esc(userName(r.sender_id)) + ' <span class="badge ' + st + '">' + esc(r.status) + '</span></div>' +
+          '<div class="sub">от ' + esc(userName(r.reporter_id)) + ' · ' + dt(r.created_at) + '</div>' +
+          '<div class="sub">сообщение: ' + esc(r.message_id ? r.message_id.slice(0, 8) + '…' : 'удалено') +
+          (r.message_ts ? ' · ' + dt(r.message_ts) : '') + ' · чат ' + esc(r.chat_id ? r.chat_id.slice(0, 8) + '…' : '—') + '</div>' +
+        '</div>' +
+        '<div class="acts">' +
+          (r.message_id ? '<button data-del-msg="' + esc(r.message_id) + '">Удалить сообщение</button>' : '') +
+          (r.sender_id ? '<button class="danger" data-ban="' + esc(r.sender_id) + '">Забанить автора</button>' : '') +
+          (r.status === 'open' ? '<button data-resolve="' + esc(r.id) + '">Закрыть</button><button data-reject="' + esc(r.id) + '">Отклонить</button>' : '') +
+        '</div>' +
+      '</div></div>';
+    }).join('');
+  }
+
+  function paintUsers() {
+    var q = ($('userSearch') && $('userSearch').value || '').trim().toLowerCase();
+    var list = cache.users.filter(function (u) {
+      if (!q) return true;
+      return (u.display_name || '').toLowerCase().includes(q) || (u.username || '').toLowerCase().includes(q);
+    });
+    $('tab-users').innerHTML =
+      '<div class="card"><input id="userSearch" placeholder="Поиск по имени или @username" value="' + esc(q) + '"></div>' +
+      list.map(function (u) {
+        var b = banOf(u.id);
+        var banned = activeBan(b);
+        return '<div class="card"><div class="row">' +
+          '<div class="grow"><div class="nm">' + esc(u.display_name || '—') +
+            (u.username ? ' <span class="sub">@' + esc(u.username) + '</span>' : '') +
+            (u.role === 'admin' ? ' <span class="badge admin">ADMIN</span>' : '') +
+            (banned ? ' <span class="badge bad">BAN</span>' : '') + '</div>' +
+            '<div class="sub">' + (banned ? ('до ' + (b.until ? dt(b.until) : 'навсегда') + ' · ' + esc(b.reason || '')) : 'активен') + '</div></div>' +
+          '<div class="acts">' +
+            (banned ? '<button data-unban="' + esc(u.id) + '">Снять бан</button>' : '<button class="danger" data-ban="' + esc(u.id) + '">Забанить</button>') +
+            (u.role === 'admin' ? '<button data-role="' + esc(u.id) + '" data-next="user">Снять админа</button>' : '<button data-role="' + esc(u.id) + '" data-next="admin">Сделать админом</button>') +
+          '</div>' +
+        '</div></div>';
+      }).join('') || '<div class="card empty">Никого не найдено</div>';
+  }
+
+  function paintEvents() {
+    if (cache.eventsError) { $('tab-events').innerHTML = '<div class="card">Недоступно: ' + esc(cache.eventsError) + '</div>'; return; }
+    if (!cache.events.length) { $('tab-events').innerHTML = '<div class="card empty">Событий нет (таблица client_events пуста)</div>'; return; }
+    $('tab-events').innerHTML = '<div class="card"><table><tr><th>Время</th><th>Тип</th><th>Версия</th><th>Данные</th></tr>' +
+      cache.events.map(function (e) {
+        return '<tr><td>' + dt(e.created_at) + '</td><td>' + esc(e.kind) + '</td><td>' + esc(e.app_version || '—') + '</td><td><pre>' +
+          esc(JSON.stringify(e.data).slice(0, 260)) + '</pre></td></tr>';
+      }).join('') + '</table></div>';
+  }
+
+  function paintLog() {
+    if (!cache.log.length) { $('tab-log').innerHTML = '<div class="card empty">Журнал пуст</div>'; return; }
+    $('tab-log').innerHTML = '<div class="card"><table><tr><th>Время</th><th>Действие</th><th>Цель</th><th>Детали</th></tr>' +
+      cache.log.map(function (l) {
+        return '<tr><td>' + dt(l.created_at) + '</td><td>' + esc(l.action) + '</td><td>' + esc(l.target || '—') + '</td><td><pre>' +
+          esc(JSON.stringify(l.details || {}).slice(0, 200)) + '</pre></td></tr>';
+      }).join('') + '</table></div>';
+  }
+
+  async function writeLog(action, target, details) {
+    try {
+      await sb.from('admin_log').insert({ admin_id: me ? me.id : null, action: action, target: target, details: details || {} });
+    } catch (e) { /* журнал не должен ломать действие */ }
+  }
+
+  async function deleteMsg(id) {
+    if (!confirm('Удалить сообщение для всех?')) return;
+    var r = await sb.from('messages').update({ deleted: true }).eq('id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('message_delete', id, {});
+    await refreshAll();
+  }
+
+  async function banUser(id) {
+    var days = prompt('Бан на сколько дней? (0 = навсегда)', '7');
+    if (days === null) return;
+    var n = parseInt(days, 10);
+    var until = n > 0 ? new Date(Date.now() + n * 864e5).toISOString() : null;
+    var reason = prompt('Причина (видна в журнале)', 'нарушение правил') || '';
+    var r = await sb.from('bans').upsert({ user_id: id, until: until, reason: reason, admin_id: me.id });
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('ban', id, { until: until, reason: reason });
+    await refreshAll();
+  }
+
+  async function unbanUser(id) {
+    var r = await sb.from('bans').delete().eq('user_id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('unban', id, {});
+    await refreshAll();
+  }
+
+  async function setRole(id, next) {
+    var r = await sb.from('profiles').update({ role: next }).eq('id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('role', id, { role: next });
+    await refreshAll();
+  }
+
+  async function resolveReport(id, status) {
+    var r = await sb.from('reports').update({
+      status: status, resolved_at: new Date().toISOString(), resolved_by: me.id,
+    }).eq('id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('report_' + status, id, {});
+    await refreshAll();
+  }
+
+  function bind() {
+    $('loginBtn').addEventListener('click', login);
+    $('pass').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
+    $('refresh').addEventListener('click', refreshAll);
+    $('logout').addEventListener('click', async function () { await sb.auth.signOut(); location.reload(); });
+
+    $('tabs').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tab]');
+      if (!b) return;
+      [].forEach.call(document.querySelectorAll('.tab'), function (t) { t.classList.toggle('on', t === b); });
+      ['reports', 'users', 'events', 'log'].forEach(function (t) {
+        $('tab-' + t).hidden = t !== b.dataset.tab;
+      });
+    });
+
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest('button');
+      if (!t) return;
+      if (t.dataset.delMsg) deleteMsg(t.dataset.delMsg);
+      else if (t.dataset.ban) banUser(t.dataset.ban);
+      else if (t.dataset.unban) unbanUser(t.dataset.unban);
+      else if (t.dataset.role) setRole(t.dataset.role, t.dataset.next);
+      else if (t.dataset.resolve) resolveReport(t.dataset.resolve, 'resolved');
+      else if (t.dataset.reject) resolveReport(t.dataset.reject, 'rejected');
+    });
+
+    document.addEventListener('input', function (e) {
+      if (e.target && e.target.id === 'userSearch') {
+        var val = e.target.value;
+        paintUsers();
+        var inp = $('userSearch');
+        if (inp) { inp.value = val; inp.focus(); }
+      }
+    });
+  }
+
+  /* рендер после каждой загрузки */
+  var origRefresh = refreshAll;
+  refreshAll = async function () {
+    await origRefresh();
+    paintReports(); paintUsers(); paintEvents(); paintLog();
+  };
+
+  bind();
+
+  /* авто-вход, если сессия уже есть */
+  (async function () {
+    try {
+      await loadConfig();
+      var s = await sb.auth.getSession();
+      if (s.data && s.data.session) await enter();
+    } catch (e) { /* покажем форму входа */ }
+  })();
+})();
+</script>
+</body>
+</html>

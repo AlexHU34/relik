@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relik — статус сервиса</title>
+<link rel="icon" href="../assets/icons/favicon-32.png" sizes="32x32">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14161f; --line:#242836; --line2:#2e3344;
+    --tx:#eef0f7; --tx2:#b7bccd; --tx3:#7d8398;
+    --ok:#38b98a; --warn:#e0a23c; --bad:#e0575d; --accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:26px 18px 70px;background:
+      radial-gradient(800px 420px at 85% -10%, rgba(91,108,249,.18), transparent 60%),
+      var(--bg);
+    color:var(--tx);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  .wrap{max-width:820px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800}
+  h1{font-size:20px;margin:0;letter-spacing:-.02em}
+  .sub{color:var(--tx3);font-size:12.5px;margin:2px 0 20px}
+  .grid{display:grid;gap:10px}
+  .row{
+    display:grid;grid-template-columns:10px 1fr auto;gap:12px;align-items:center;
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 15px;
+  }
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--tx3)}
+  .dot.ok{background:var(--ok);box-shadow:0 0 10px rgba(56,185,138,.55)}
+  .dot.warn{background:var(--warn)}
+  .dot.bad{background:var(--bad);box-shadow:0 0 10px rgba(224,87,93,.5)}
+  .nm{font-weight:600;font-size:14px}
+  .dt{color:var(--tx3);font-size:12px;margin-top:2px;word-break:break-word}
+  .val{font-variant-numeric:tabular-nums;color:var(--tx2);font-size:12.5px;white-space:nowrap}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 22px}
+  button{
+    font:inherit;font-size:13px;color:var(--tx);background:var(--surface);
+    border:1px solid var(--line2);border-radius:10px;padding:8px 14px;cursor:pointer;
+  }
+  button:hover{background:#1b1f2c}
+  button.primary{background:linear-gradient(135deg,#5b6cf9,#8a5cf6);border-color:transparent}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3);margin:24px 0 8px}
+  pre{
+    background:#0f121a;border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+    font-size:12px;line-height:1.5;color:var(--tx2);overflow:auto;max-height:320px;white-space:pre-wrap;
+  }
+  .note{margin-top:22px;color:var(--tx3);font-size:12px}
+  .note a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">R</div>
+    <div>
+      <h1>Статус сервиса</h1>
+      <div class="sub" id="sub">Проверяем соединения…</div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="run">Проверить снова</button>
+    <button id="copy">Скопировать отчёт</button>
+    <button id="back">← В приложение</button>
+  </div>
+
+  <div class="grid" id="list"></div>
+
+  <h2>Отчёт</h2>
+  <pre id="report">—</pre>
+
+  <p class="note">
+    Проверяется только доступность и конфигурация — содержимое сообщений и ключи здесь не читаются.
+    TURN проверяется по конфигурации; фактическое соединение видно в <a href="diagnostics.html">диагностике звонков</a>.
+  </p>
+</div>
+
+<script>
+(function () {
+  var out = document.getElementById('list');
+  var report = document.getElementById('report');
+  var sub = document.getElementById('sub');
+  var rows = {};
+
+  function add(id, name, detail) {
+    var el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML = '<span class="dot"></span><div><div class="nm"></div><div class="dt"></div></div><span class="val"></span>';
+    el.querySelector('.nm').textContent = name;
+    el.querySelector('.dt').textContent = detail || '';
+    out.appendChild(el);
+    rows[id] = el;
+    return el;
+  }
+
+  function set(id, state, value, detail) {
+    var el = rows[id];
+    if (!el) return;
+    el.querySelector('.dot').className = 'dot ' + state;
+    if (value != null) el.querySelector('.val').textContent = value;
+    if (detail != null) el.querySelector('.dt').textContent = detail;
+  }
+
+  function ms(n) { return Math.round(n) + ' мс'; }
+
+  async function timeFetch(url, opts) {
+    var t0 = performance.now();
+    var res = await fetch(url, Object.assign({ cache: 'no-store' }, opts || {}));
+    return { res: res, ms: performance.now() - t0 };
+  }
+
+  async function run() {
+    report.textContent = '—';
+    sub.textContent = 'Проверяем…';
+
+    var cfgText = '';
+    var cfg = { url: '', anon: '', turn: [], stun: [], version: '?' };
+    try {
+      var r = await timeFetch('../js/config.js?ts=' + Date.now());
+      cfgText = await r.res.text();
+      var m = cfgText.match(/version:\s*'([^']+)'/); if (m) cfg.version = m[1];
+      m = cfgText.match(/url:\s*'([^']+)'/); if (m) cfg.url = m[1];
+      m = cfgText.match(/anonKey:\s*'([^']+)'/); if (m) cfg.anon = m[1];
+      cfg.turn = (cfgText.match(/'turn:[^']+'/g) || []).map(function (s) { return s.slice(1, -1); });
+      cfg.stun = (cfgText.match(/'stun:[^']+'/g) || []).map(function (s) { return s.slice(1, -1); });
+      set('site', 'ok', ms(r.ms), 'config.js загружен');
+    } catch (e) {
+      set('site', 'bad', '—', 'config.js недоступен');
+    }
+
+    /* Supabase REST */
+    if (!cfg.url) {
+      set('db', 'warn', '—', 'Supabase не настроен (демо-режим)');
+    } else {
+      try {
+        var t = await timeFetch(cfg.url + '/rest/v1/profiles?select=id&limit=1', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+        });
+        var body = await t.res.text();
+        set('db', t.res.ok ? 'ok' : 'bad', ms(t.ms), 'HTTP ' + t.res.status + ' · ' + (body || '').slice(0, 60));
+      } catch (e) {
+        set('db', 'bad', '—', 'нет соединения с Supabase');
+      }
+    }
+
+    /* Auth */
+    if (cfg.url) {
+      try {
+        var a = await timeFetch(cfg.url + '/auth/v1/health', { headers: { apikey: cfg.anon } });
+        set('auth', a.res.ok ? 'ok' : 'warn', ms(a.ms), 'HTTP ' + a.res.status);
+      } catch (e) {
+        set('auth', 'bad', '—', 'auth недоступен');
+      }
+    } else {
+      set('auth', 'warn', '—', 'демо-режим');
+    }
+
+    /* TURN */
+    if (cfg.turn.length) {
+      set('turn', 'ok', cfg.turn.length + ' шт', cfg.turn.join(', '));
+    } else {
+      set('turn', 'warn', 'нет', 'TURN не настроен — звонки только в одной сети');
+    }
+    if (cfg.stun.length) {
+      set('stun', 'ok', cfg.stun.length + ' шт', cfg.stun.join(', '));
+    } else {
+      set('stun', 'warn', 'нет', 'используются внешние STUN');
+    }
+
+    /* Service worker */
+    try {
+      if ('serviceWorker' in navigator) {
+        var reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          var cacheNames = await caches.keys();
+          var active = reg.active && reg.active.state;
+          set('sw', 'ok', active || '—', 'кэши: ' + (cacheNames.join(', ') || 'нет'));
+        } else {
+          set('sw', 'warn', 'нет', 'service worker не зарегистрирован');
+        }
+      } else {
+        set('sw', 'warn', '—', 'браузер без service worker');
+      }
+    } catch (e) {
+      set('sw', 'warn', '—', String(e.message || e));
+    }
+
+    /* IndexedDB */
+    try {
+      var dbs = indexedDB.databases ? await indexedDB.databases() : [];
+      set('idb', dbs.length ? 'ok' : 'warn', dbs.map(function (d) { return d.name; }).join(', ') || '—');
+    } catch (e) {
+      set('idb', 'warn', '—', 'нет доступа к IndexedDB');
+    }
+
+    /* Сеть */
+    set('net', navigator.onLine ? 'ok' : 'bad', navigator.onLine ? 'online' : 'offline',
+      'тип: ' + ((navigator.connection && navigator.connection.effectiveType) || 'неизвестно'));
+
+    /* Приложение */
+    set('app', 'ok', 'v' + cfg.version, location.origin + location.pathname);
+
+    var okc = out.querySelectorAll('.dot.ok').length;
+    var badc = out.querySelectorAll('.dot.bad').length;
+    sub.textContent = badc ? badc + ' проблем(ы) — см. ниже' : okc + ' проверок пройдено, проблем нет';
+
+    report.textContent = JSON.stringify({
+      time: new Date().toISOString(),
+      version: cfg.version,
+      url: location.href,
+      ua: navigator.userAgent,
+      online: navigator.onLine,
+      supabase: rows.db.querySelector('.dt').textContent,
+      auth: rows.auth.querySelector('.dt').textContent,
+      turn: cfg.turn,
+      stun: cfg.stun,
+      sw: rows.sw.querySelector('.dt').textContent,
+      idb: rows.idb.querySelector('.val').textContent,
+    }, null, 2);
+  }
+
+  add('site', 'Сайт и версия', 'проверяем…');
+  add('db', 'База данных (Supabase REST)', 'проверяем…');
+  add('auth', 'Авторизация (Supabase Auth)', 'проверяем…');
+  add('turn', 'TURN для звонков', 'проверяем…');
+  add('stun', 'STUN', 'проверяем…');
+  add('sw', 'Service Worker и кэш', 'проверяем…');
+  add('idb', 'Локальное хранилище', 'проверяем…');
+  add('net', 'Сеть', 'проверяем…');
+  add('app', 'Приложение', 'проверяем…');
+
+  document.getElementById('run').addEventListener('click', run);
+  document.getElementById('copy').addEventListener('click', function () {
+    navigator.clipboard.writeText(report.textContent).then(function () {
+      document.getElementById('copy').textContent = 'Скопировано';
+      setTimeout(function () { document.getElementById('copy').textContent = 'Скопировать отчёт'; }, 1500);
+    });
+  });
+  document.getElementById('back').addEventListener('click', function () { location.href = '../'; });
+
+  run();
+})();
+</script>
+</body>
+</html>

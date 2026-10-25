@@ -11,6 +11,7 @@ import { toast } from './toast.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
 import { sendMessage, editMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
+import { logEvent } from '../backend/telemetry.js';
 import { readFileAsDataURL, uploadEncryptedBlob, dataUrlToBlob, rememberMediaPreview } from '../backend/storage.js';
 import { prefs } from './prefs.js';
 import { currentDevice } from './device.js';
@@ -440,6 +441,8 @@ export async function retryMessage(m, opts = {}) {
 
   const wire = m.wire || m.text;
   m.status = 'sending';
+  m.attempts = (m.attempts || 0) + 1;
+  delete m.nextTry;
   await idb.put('messages', m);
   if (S.active === chat.id) renderMessages();
 
@@ -462,8 +465,12 @@ export async function retryMessage(m, opts = {}) {
       console.error('Retry message error:', err);
       m.status = 'error';
       m.error = msg;
+      /* экспоненциальный бэкофф: 5 с, 15 с, 45 с … максимум 5 минут */
+      const delay = Math.min(5000 * Math.pow(3, Math.max(0, (m.attempts || 1) - 1)), 300000);
+      m.nextTry = Date.now() + delay;
       await idb.put('messages', m);
       if (!opts.silent) toast(friendlySendError(err));
+      logEvent('send_failed', { attempts: m.attempts || 1, message: msg.slice(0, 120) });
     }
   }
   if (S.active === chat.id) renderMessages();
@@ -496,7 +503,8 @@ export async function retryOutbox() {
     const all = await idb.getAll('messages');
     const now = Date.now();
     const queue = all.filter((m) => m.sender === 'u_me' && !m.hidden && (
-      m.status === 'error' || (m.status === 'sending' && now - (m.ts || 0) > 25000)
+      (m.status === 'error' && (!m.nextTry || m.nextTry <= now))
+      || (m.status === 'sending' && now - (m.ts || 0) > 25000)
     )).slice(0, 20);
 
     for (const m of queue) {
@@ -701,6 +709,9 @@ export async function votePoll(pollMsg, options) {
 /* Понятная причина, если отправка не удалась */
 function friendlySendError(err) {
   const msg = String(err?.message || '');
+  if (/recipient_blocked/i.test(msg)) {
+    return t('profile.blockedSend');
+  }
   if (/not valid JSON|Unexpected token/i.test(msg)) {
     return t('comp.keyError');
   }
