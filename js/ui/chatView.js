@@ -25,6 +25,7 @@ import { isBlocked, blockUser, unblockUser } from '../backend/blocks.js';
 import { confirmAction } from './dialog.js';
 import { sb } from '../backend/supabaseClient.js';
 import { logEvent } from '../backend/telemetry.js';
+import { notifyPush } from '../backend/push.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 
 const PAGE_SIZE = 240;
@@ -36,6 +37,7 @@ let searchHits = [];
 let searchIndex = 0;
 let unseenCount = 0;
 let forwardMsg = null;
+let forwardTargets = new Set();
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
@@ -161,11 +163,17 @@ export function initChatView() {
   });
   $('#pinClose').addEventListener('click', () => unpin());
 
-  /* пересылка */
+  /* пересылка: выбор нескольких чатов */
   $('#fwdList').addEventListener('click', (e) => {
     const item = e.target.closest('[data-fwd-cid]');
-    if (item) forwardTo(item.dataset.fwdCid);
+    if (!item) return;
+    const cid = item.dataset.fwdCid;
+    if (forwardTargets.has(cid)) forwardTargets.delete(cid);
+    else forwardTargets.add(cid);
+    item.classList.toggle('on', forwardTargets.has(cid));
+    paintForwardCount();
   });
+  $('#fwdGo').addEventListener('click', () => forwardToMany());
 
   /* свайп вправо по чату = «назад» (как в Telegram) */
   const pane = $('#chatPane');
@@ -1317,6 +1325,54 @@ async function reportMessage(m) {
   }
 }
 
+/* ── медиа-галерея чата ───────────────────────────────────── */
+async function openChatMedia() {
+  const chat = chatById(S.active);
+  if (!chat) return;
+  $('#profileOv').hidden = true;
+  const grid = $('#mediaGrid');
+  grid.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+  $('#mediaOv').hidden = false;
+
+  let all = [];
+  try {
+    all = await idb.messagesOf(chat.id);
+  } catch (e) { all = S.messages[chat.id] || []; }
+
+  const items = [];
+  for (const m of all) {
+    if (m.hidden || m.localDeleted || m.deleted) continue;
+    if (m.type === 'image' && m.file?.src) items.push({ src: m.file.src, name: m.file.name, kind: 'img', ts: m.ts });
+    if (m.type === 'video' && (m.thumb || m.file?.src)) items.push({ src: m.thumb || m.file.src, name: m.file?.name, kind: 'vid', ts: m.ts });
+    if (m.type === 'videoNote' && m.thumb) items.push({ src: m.thumb, name: t('msg.videoNote'), kind: 'vid', ts: m.ts });
+    if (m.type === 'album') {
+      for (const it of m.album || []) {
+        if (it?.src) items.push({ src: it.src, name: it.name, kind: 'img', ts: m.ts });
+      }
+    }
+  }
+
+  if (!items.length) {
+    grid.innerHTML = `<div class="nc-hint">${t('media.empty')}</div>`;
+    return;
+  }
+
+  grid.innerHTML = items
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    .map((it, i) => `<button type="button" class="media-cell" data-media-idx="${i}">
+      <img src="${esc(it.src)}" loading="lazy" decoding="async" alt="">
+      ${it.kind === 'vid' ? `<span class="media-play">${icon('play', 18)}</span>` : ''}
+    </button>`).join('');
+
+  grid.onclick = (e) => {
+    const b = e.target.closest('[data-media-idx]');
+    if (!b) return;
+    const it = items[Number(b.dataset.mediaIdx)];
+    if (!it) return;
+    openLightbox(it.src, it.name || 'relik-media');
+  };
+}
+
 /* ── профиль собеседника / группы ── */
 function openChatProfile() {
   const chat = chatById(S.active);
@@ -1373,6 +1429,8 @@ function openChatProfile() {
   }
   renderProfileFingerprint(chat).catch(() => {});
   paintTtl(chat);
+  const mediaBtn = $('#profileMedia');
+  if (mediaBtn) mediaBtn.onclick = () => openChatMedia();
   $('#profileOv').hidden = false;
 }
 
@@ -1584,6 +1642,7 @@ function unpin() {
 /* ── пересылка ─────────────────────────────────────────────── */
 function openForward(m) {
   forwardMsg = m;
+  forwardTargets = new Set();
   const list = $('#fwdList');
   const chats = S.chats.filter((c) => c.id !== S.active);
   list.innerHTML = chats.map((c) => {
@@ -1595,7 +1654,61 @@ function openForward(m) {
       <span class="info"><span class="n">${esc(chatTitle(c))}</span></span>
     </button>`;
   }).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
+  paintForwardCount();
   $('#fwdOv').hidden = false;
+}
+
+function paintForwardCount() {
+  const n = forwardTargets.size;
+  const go = $('#fwdGo');
+  const cnt = $('#fwdCount');
+  if (go) go.disabled = n === 0;
+  if (cnt) cnt.textContent = n ? t('msg.forwardSelected').replace('{n}', String(n)) : t('msg.forwardPick');
+}
+
+async function forwardToMany() {
+  const m = forwardMsg;
+  const ids = [...forwardTargets];
+  if (!m || !ids.length) return;
+  $('#fwdOv').hidden = true;
+  forwardMsg = null;
+  forwardTargets = new Set();
+
+  const fwd = forwardPayload(m);
+  if (!fwd) { toast(t('msg.forwardUnsupported'), { type: 'error' }); return; }
+  if (fwd.media?.path && fwd.file?.src) rememberMediaPreview(fwd.media.path, fwd.file.src);
+  for (const it of fwd.album || []) {
+    if (it?.path && it.src) rememberMediaPreview(it.path, it.src);
+  }
+
+  for (const chatId2 of ids) {
+    const chat = chatById(chatId2);
+    if (!chat) continue;
+    const msg = {
+      id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
+      type: fwd.type, text: fwd.text || '', reactions: [], status: 'sending', forwarded: true,
+      wire: fwd.wire,
+      ...(fwd.file ? { file: fwd.file } : {}),
+      ...(fwd.voice ? { voice: fwd.voice } : {}),
+      ...(fwd.media ? { media: fwd.media } : {}),
+      ...(fwd.album ? { album: fwd.album } : {}),
+    };
+    await deliverMessage(chatId2, msg);
+    try {
+      await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
+      msg.status = 'sent';
+      await idb.put('messages', msg);
+      if (S.active === chatId2) renderMessages();
+      notifyPush(chat);
+    } catch (err) {
+      msg.status = 'error';
+      msg.error = String(err?.message || '');
+      await idb.put('messages', msg);
+      if (S.active === chatId2) renderMessages();
+    }
+  }
+  toast(t('msg.forwarded').replace('{n}', String(ids.length)));
+  renderSidebar();
 }
 
 async function forwardTo(chatId2) {

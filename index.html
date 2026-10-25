@@ -555,6 +555,19 @@
     </div>
   </div>
 
+  <!-- ══════════ МЕДИА ЧАТА ══════════ -->
+  <div class="overlay" id="mediaOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="media.title">Медиа в этом чате</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div id="mediaGrid" class="media-grid"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══════════ ПОИСК ПО ВСЕЙ ПЕРЕПИСКЕ ══════════ -->
   <div class="overlay" id="gsOv" hidden>
     <div class="modal" role="dialog" aria-modal="true">
@@ -725,6 +738,7 @@
           <button class="btn btn-ghost" id="profileVideo" data-i18n="profile.video">Видеозвонок</button>
           <button class="btn btn-ghost" id="profileManage" data-i18n="group.manage">Управление группой</button>
           <button class="btn btn-ghost btn-danger-soft" id="profileBlock" data-i18n="profile.block">Заблокировать</button>
+          <button class="btn btn-ghost" id="profileMedia" data-i18n="media.title">Медиа в этом чате</button>
         </div>
         <div class="fp-block" id="profileFp" hidden>
           <div class="fp-head">
@@ -862,6 +876,10 @@
       </header>
       <div class="m-body">
         <div id="fwdList" style="display:grid;gap:2px"></div>
+      </div>
+      <div class="m-foot">
+        <span class="field-hint" id="fwdCount" data-i18n="msg.forwardPick">Выберите чаты</span>
+        <button class="btn" id="fwdGo" disabled data-i18n="msg.forwardSend">Переслать</button>
       </div>
     </div>
   </div>
