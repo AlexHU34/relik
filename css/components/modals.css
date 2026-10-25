@@ -82,6 +82,8 @@ html[data-device="phone"] .m-foot .btn{flex:1;min-width:120px}
 
 /* Аватар в настройках */
 .avatar-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.export-row{display:flex;gap:8px;flex-wrap:wrap}
+.export-row .btn{flex:1;min-width:120px}
 .avatar-row .avatar img{width:100%;height:100%;object-fit:cover;border-radius:inherit}
 
 /* Контакты (новый чат) */

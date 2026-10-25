@@ -1,6 +1,7 @@
 /* Relik — локальные настройки интерфейса: закреплённые и приглушённые чаты,
-   отметки прочтения, размер текста, обои, анимации, Enter-отправка.
+   отметки прочтения, размер текста, обои, акцент, анимации, Enter-отправка.
    Хранятся в localStorage (переживают перезагрузку, работают без сети). */
+import { saveRemotePrefs } from '../backend/prefsSync.js';
 
 const KEY = 'relik.prefs.v2';
 
@@ -67,6 +68,7 @@ export function savePrefs() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (e) { /* приватный режим */ }
+    saveRemotePrefs(prefs);
   }, 60);
 }
 
@@ -188,4 +190,25 @@ export function setMotion(on) {
 export function setEnterToSend(on) {
   prefs.enterToSend = !!on;
   savePrefs();
+}
+
+/* Слияние настроек с сервера (закрепы/мьюты — объединяем, оформление — сервер) */
+export function applyRemotePrefs(remote) {
+  if (!remote || typeof remote !== 'object') return false;
+  if (remote.pinned && typeof remote.pinned === 'object') {
+    prefs.pinned = { ...remote.pinned };
+  }
+  if (remote.muted && typeof remote.muted === 'object') {
+    prefs.muted = { ...remote.muted };
+  }
+  if (TEXT_SIZES.includes(remote.textSize)) prefs.textSize = remote.textSize;
+  if (WALLPAPERS.some((w) => w.id === remote.wallpaper) && remote.wallpaper !== 'custom') {
+    prefs.wallpaper = remote.wallpaper;
+  }
+  if (ACCENTS.some((a) => a.id === remote.accent)) prefs.accent = remote.accent;
+  if (typeof remote.enterToSend === 'boolean') prefs.enterToSend = remote.enterToSend;
+  if (typeof remote.motion === 'boolean') prefs.motion = remote.motion;
+  savePrefs();
+  applyPrefs();
+  return true;
 }

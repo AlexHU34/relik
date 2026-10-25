@@ -21,7 +21,8 @@ import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from './back
 import { playMessage } from './ui/sounds.js';
 import { notifyMessage } from './ui/notify.js';
 import { initCalls, stopCalls } from './ui/calls.js';
-import { applyPrefs, isMuted } from './ui/prefs.js';
+import { applyPrefs, isMuted, applyRemotePrefs } from './ui/prefs.js';
+import { enablePrefsSync, loadRemotePrefs } from './backend/prefsSync.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
 function paintChrome() {
@@ -294,6 +295,7 @@ async function enterApp(welcomeKey) {
   maybeDemo();
   startGlobalRealtime();
   initCalls();
+  syncPrefsFromCloud().catch(() => {});
 }
 
 /* ── код доступа / подтверждение email ── */
@@ -457,6 +459,19 @@ function paintEmptyChips() {
        <span class="chip">${icon('shield', 14)} ${t('chat.freeChip')}</span>`
     : `<span class="chip">${t('chat.demoTitle')}</span>
        <span class="chip">${t('chat.demoText')}</span>`;
+}
+
+/* ── Синхронизация закрепов/мьютов и оформления между устройствами ── */
+async function syncPrefsFromCloud() {
+  if (!isRealBackend || !S.me) return;
+  enablePrefsSync();
+  const remote = await loadRemotePrefs();
+  if (!remote) return;
+  if (applyRemotePrefs(remote)) {
+    applyTheme(currentTheme(), false);
+    renderSidebar();
+    rerenderAll();
+  }
 }
 
 /* ── глобальные уведомления о новых сообщениях ── */
@@ -722,6 +737,7 @@ async function boot() {
       renderSidebar();
       startGlobalRealtime();
       initCalls();
+      syncPrefsFromCloud().catch(() => {});
       maybeDemo();
       reloadChats().catch(() => {});
     } else {
@@ -759,6 +775,7 @@ async function boot() {
           renderSidebar();
           initCalls();
           startGlobalRealtime();
+          syncPrefsFromCloud().catch(() => {});
           maybeDemo();
           route();
         }

@@ -18,6 +18,7 @@ import { prefs, WALLPAPERS, ACCENTS, setTextSize, setWallpaper, setMotion, setEn
 import { confirmAction } from './dialog.js';
 import { addMemberToGroup, removeMemberFromGroup, updateGroupTitle, leaveGroup } from '../backend/groups.js';
 import { canInstall, promptInstall } from './install.js';
+import { exportChats } from './export.js';
 
 let selectedGroupMembers = new Set();
 
@@ -166,6 +167,20 @@ export function initModals() {
   $('#enterSendToggle')?.addEventListener('change', (e) => setEnterToSend(e.target.checked));
   $('#motionToggle')?.addEventListener('change', (e) => setMotion(e.target.checked));
   $('#clearLocalBtn')?.addEventListener('click', clearLocalCache);
+  const runExport = async (format, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const n = await exportChats(format);
+      toast(t('settings.exported').replace('{n}', String(n)), { type: 'success' });
+    } catch (err) {
+      console.error('Export error:', err);
+      toast(t('toast.error'), { type: 'error' });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+  $('#exportJsonBtn')?.addEventListener('click', (e) => runExport('json', e.currentTarget));
+  $('#exportHtmlBtn')?.addEventListener('click', (e) => runExport('html', e.currentTarget));
   $('#logoutAllBtn')?.addEventListener('click', async () => {
     const ok = await confirmAction({
       title: t('settings.logoutAll'),
