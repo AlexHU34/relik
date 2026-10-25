@@ -4,7 +4,7 @@ import { t, initI18n, applyDom } from './i18n/i18n.js';
 import { idb } from './db/idb.js';
 import { seedIfEmpty, USERS, ME, demoMessage } from './data/mock.js';
 import { S, chatById } from './ui/state.js';
-import { $, avatarHtml } from './ui/utils.js';
+import { $ } from './ui/utils.js';
 import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
@@ -16,12 +16,12 @@ import { applyTheme, currentTheme } from './ui/themes.js';
 import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
 import { initDevice } from './ui/device.js';
 import { sb } from './backend/supabaseClient.js';
-import { signUp, signIn, signOut, restoreSession, updateProfile, updateLastSeen, verifySignupCode, saveAvatar } from './backend/auth.js';
-import { loadChats, searchUsers, getProfile } from './backend/chats.js';
-import { loadMessages, subscribeToChat, updateReadReceipt, subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
+import { signUp, signIn, signOut, restoreSession, updateLastSeen, verifySignupCode, saveAvatar } from './backend/auth.js';
+import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
 import { playMessage } from './ui/sounds.js';
 import { notifyMessage } from './ui/notify.js';
 import { initCalls, stopCalls } from './ui/calls.js';
+import { applyPrefs, isMuted } from './ui/prefs.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
 function paintChrome() {
@@ -29,7 +29,10 @@ function paintChrome() {
     const b = $(sel);
     if (!b) return;
     if (ic) b.innerHTML = icon(ic, 18);
-    if (title) b.title = t(title);
+    if (title) {
+      b.title = t(title);
+      b.setAttribute('aria-label', t(title));
+    }
   };
   paint('#newChatBtn', 'plus', 'side.newChat');
   paint('#settingsBtn', 'sliders', 'side.settings');
@@ -38,8 +41,45 @@ function paintChrome() {
   paint('#videoCallBtn', 'video', 'chat.videoCall');
   paint('#shareBtn', 'link', 'chat.share');
   paint('#callBtn', 'phone', 'chat.call');
-  paint('#infoBtn', 'info');
-  $('#searchIc').innerHTML = icon('search', 16);
+  paint('#infoBtn', 'info', 'chat.info');
+  paint('#chatSearchBtn', 'search', 'chat.searchPh');
+  const searchIc = $('#searchIc');
+  if (searchIc) searchIc.innerHTML = icon('search', 16);
+  const demoIc = $('#demoIc');
+  if (demoIc) demoIc.innerHTML = icon('spark', 16);
+  const dropIc = $('#dropIc');
+  if (dropIc) dropIc.innerHTML = icon('clip', 28);
+  const clearIc = $('#clearLocalIc');
+  if (clearIc) clearIc.innerHTML = icon('database', 16);
+  const groupAddIc = $('#groupAddIc');
+  if (groupAddIc) groupAddIc.innerHTML = icon('userPlus', 16);
+
+  const title = (sel, key) => {
+    const el = $(sel);
+    if (!el) return;
+    el.title = t(key);
+    el.setAttribute('aria-label', t(key));
+  };
+  title('#backBtn', 'common.back');
+  title('#chatSearchClose', 'common.close');
+  title('#chatSearchPrev', 'chat.searchPrev');
+  title('#chatSearchNext', 'chat.searchNext');
+  title('#pinClose', 'common.close');
+  title('#rebX', 'common.close');
+  title('#recCancel', 'comp.cancelRecord');
+  title('#toBottom', 'chat.toBottom');
+  title('#lbX', 'common.close');
+  title('#lbDl', 'media.download');
+  title('#attachBtn', 'comp.attach');
+  title('#emojiBtn', 'comp.emoji');
+  title('#recCancel', 'comp.cancelRecord');
+
+  const send = $('#sendBtn');
+  if (send) {
+    const mic = send.classList.contains('mic');
+    send.title = t(mic ? 'comp.voice' : 'comp.send');
+    send.setAttribute('aria-label', send.title);
+  }
 }
 
 /* ── экран входа (демо или реальный Supabase) ── */
@@ -392,12 +432,17 @@ function initChrome() {
     S.chats = [];
     S.active = null;
     S.messages = {};
+    S.unreadFrom = {};
+    S.renderLimit = {};
+    S.typingChat = null;
+    document.title = 'Relik';
+    try { navigator.clearAppBadge?.(); } catch (e) { /* ignore */ }
     stopCalls();
     stopSidebarRefresh();
     if (globalSub) { globalSub.unsubscribe(); globalSub = null; }
     location.hash = '#/auth';
     showAuth();
-    toast(t('toast.logout'));
+    toast(t(isRealBackend ? 'toast.loggedOut' : 'toast.logout'));
   });
 }
 
@@ -432,8 +477,10 @@ function startGlobalRealtime() {
     chat.unread = (chat.unread || 0) + 1;
     await idb.put('chats', chat);
     renderSidebar();
-    playMessage();
-    notifyMessage(chat, text, () => { location.hash = `#/chat/${chat.id}`; });
+    if (!isMuted(chat.id)) {
+      playMessage();
+      notifyMessage(chat, text, () => { location.hash = `#/chat/${chat.id}`; });
+    }
   });
 
   /* Realtime может не дойти (сеть/RLS) — раз в 10 секунд тихо сверяем список */
@@ -455,6 +502,7 @@ async function refreshChatListQuiet() {
     const latest = await loadLatestPreviews();
     let changed = false;
     let incoming = false;
+    let audible = false;
 
     for (const chat of S.chats) {
       const row = latest.get(chat.id);
@@ -469,13 +517,14 @@ async function refreshChatListQuiet() {
       if (!mine) {
         if (S.active !== chat.id) chat.unread = (chat.unread || 0) + 1;
         incoming = true;
+        if (!isMuted(chat.id)) audible = true;
       }
       await idb.put('chats', chat);
       changed = true;
     }
 
     if (changed) renderSidebar();
-    if (incoming) playMessage();
+    if (incoming && audible) playMessage();
   } catch (err) {
     /* тихо: сеть/RLS восстановятся сами */
   } finally {
@@ -515,12 +564,96 @@ function bootDone() {
   try { if (window.relikBoot) window.relikBoot.done(); } catch (e) { /* ignore */ }
 }
 
+/* ── Плашка состояния сети ─────────────────────────────────── */
+function initNetBar() {
+  const bar = $('#netBar');
+  const text = $('#netText');
+  const ic = $('#netIc');
+  if (!bar || !text || !ic) return;
+
+  let offline = navigator.onLine === false;
+  let hideTimer = 0;
+
+  const paint = (state, message) => {
+    clearTimeout(hideTimer);
+    bar.hidden = false;
+    bar.classList.remove('ok', 'bad');
+    if (state) bar.classList.add(state);
+    ic.innerHTML = icon(state === 'ok' ? 'checkCircle' : 'wifiOff', 15);
+    text.textContent = message;
+  };
+
+  const showOffline = () => paint('bad', t('net.offline'));
+  const showRestored = () => {
+    paint('ok', t('net.restored'));
+    hideTimer = setTimeout(() => { bar.hidden = true; }, 2600);
+  };
+
+  if (offline) showOffline();
+
+  window.addEventListener('offline', () => {
+    offline = true;
+    showOffline();
+  });
+  window.addEventListener('online', () => {
+    if (!offline) return;
+    offline = false;
+    showRestored();
+  });
+  document.addEventListener('relik:lang', () => {
+    if (offline) showOffline();
+  });
+}
+
+/* ── Обновление service worker: показываем «Обновить» ───────── */
+function initServiceWorker() {
+  if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
+
+  let hadController = !!navigator.serviceWorker.controller;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    /* первый controller — это первая установка, а не обновление */
+    if (!hadController) { hadController = true; return; }
+    toast(t('update.available'), {
+      type: 'warn',
+      duration: 0,
+      action: { label: t('update.reload'), onClick: () => location.reload() },
+    });
+  });
+
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    const notifyWaiting = () => {
+      if (!reg.waiting) return;
+      toast(t('update.available'), {
+        type: 'warn',
+        duration: 0,
+        action: {
+          label: t('update.reload'),
+          onClick: () => {
+            reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
+            location.reload();
+          },
+        },
+      });
+    };
+    if (reg.waiting) notifyWaiting();
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) notifyWaiting();
+      });
+    });
+  }).catch(() => {});
+}
+
 /* ── запуск ── */
 async function boot() {
   initI18n();
   applyDom();
 
   /* тема и шрифт — до первого рендера */
+  applyPrefs();
   applyTheme(currentTheme(), false);
   applySavedFont();
   if (currentFontId() === 'custom') {
@@ -529,6 +662,10 @@ async function boot() {
 
   /* раскладка подстраивается автоматически: телефон / планшет / компьютер */
   initDevice();
+
+  /* сеть и обновления */
+  initNetBar();
+  initServiceWorker();
 
   /* Весь UI собираем сразу, не дожидаясь сети */
   initSidebar();
@@ -568,10 +705,7 @@ async function boot() {
     });
   }
 
-  /* сервис-воркер — офлайн-оболочка (PWA) */
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  /* сервис-воркер регистрируется в initServiceWorker() выше */
 
   if (isRealBackend) {
     /* Из кэша показываем мгновенно, сессию проверяем в фоне */

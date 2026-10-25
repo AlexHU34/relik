@@ -4,22 +4,26 @@ import { $, fmtDur } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
-import { EMOJI_PALETTE, SUPABASE } from '../config.js';
+import { SUPABASE } from '../config.js';
 import { deliverMessage, markRead, renderMessages, refreshPollCard, refreshMessageReactions } from './chatView.js';
 import { renderSidebar } from './sidebar.js';
 import { toast } from './toast.js';
-import { makeDemoPhoto } from '../data/mock.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
-import { sendMessage, editMessage, deleteMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
+import { sendMessage, editMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
 import { readFileAsDataURL } from '../backend/storage.js';
+import { prefs } from './prefs.js';
+import { currentDevice } from './device.js';
+import { EMOJI_GROUPS, getRecentEmoji, pushRecentEmoji } from '../data/emoji.js';
 
 let els = {};
 let recTimer = null, recStart = 0;
 let mediaRecorder = null, recChunks = [], recStream = null;
-let recCanceled = false, recStartTimeout = null;
+let recCanceled = false, recStartTimeout = null, recHeld = false, recGesture = false;
+let recChatId = null;
 let lastTypingSent = 0;
 let draftTimer = null;
+let emojiGroup = 'recent';
 
 /* ── инициализация ─────────────────────────────────────────── */
 export function initComposer() {
@@ -35,7 +39,11 @@ export function initComposer() {
 
   /* статичные иконки */
   els.attachBtn.innerHTML = icon('clip', 19);
+  els.attachBtn.title = t('comp.attach');
+  els.attachBtn.setAttribute('aria-label', t('comp.attach'));
   els.emojiBtn.innerHTML = icon('smile', 19);
+  els.emojiBtn.title = t('comp.emoji');
+  els.emojiBtn.setAttribute('aria-label', t('comp.emoji'));
   els.rebX.innerHTML = icon('x', 17);
   els.recCancel.innerHTML = icon('x', 16);
   $('#attPhotoIc').innerHTML = icon('image', 17);
@@ -43,8 +51,8 @@ export function initComposer() {
   $('#attPollIc').innerHTML = icon('poll', 17);
   setSendMode('mic');
 
-  /* палитра эмодзи */
-  els.emojiPop.innerHTML = EMOJI_PALETTE.map((e) => `<button type="button">${e}</button>`).join('');
+  /* палитра эмодзи: категории + недавние */
+  renderEmojiPicker();
 
   /* --- события --- */
   els.ta.addEventListener('input', () => {
@@ -59,21 +67,37 @@ export function initComposer() {
     scheduleDraft();
   });
   els.ta.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCurrent(); }
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    /* На телефоне/планшете Enter — перенос строки; на компьютере зависит от настройки */
+    if (currentDevice() === 'phone' || window.matchMedia?.('(hover: none)').matches) return;
+    if (!prefs.enterToSend) return;
+    e.preventDefault();
+    sendCurrent();
   });
-  els.send.addEventListener('click', sendCurrent);
-  els.rebX.addEventListener('click', clearReplyEdit);
+  els.send.addEventListener('click', (e) => {
+    if (recGesture) { recGesture = false; return; }
+    sendCurrent();
+  });
+  els.rebX.addEventListener('click', () => clearReplyEdit(true));
 
   els.attachBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup('attach'); });
   els.emojiBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup('emoji'); });
   els.emojiPop.addEventListener('click', (e) => {
-    const b = e.target.closest('button');
+    const tab = e.target.closest('[data-emoji-group]');
+    if (tab) {
+      emojiGroup = tab.dataset.emojiGroup;
+      renderEmojiPicker();
+      return;
+    }
+    const b = e.target.closest('[data-emoji]');
     if (!b) return;
-    insertAtCursor(b.textContent);
+    const emoji = b.dataset.emoji;
+    insertAtCursor(emoji);
+    pushRecentEmoji(emoji);
     els.emojiPop.hidden = true;
   });
-  els.attPhoto.addEventListener('click', () => { els.attachMenu.hidden = true; sendImage(); });
-  els.attFile.addEventListener('click', () => { els.attachMenu.hidden = true; sendFile(); });
+  els.attPhoto.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('image'); });
+  els.attFile.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('file'); });
   els.attPoll.addEventListener('click', () => { els.attachMenu.hidden = true; openPollCreator(); });
   $('#pollAddOpt').addEventListener('click', () => addPollOption());
   $('#pollCreate').addEventListener('click', createPollFromForm);
@@ -88,23 +112,87 @@ export function initComposer() {
     if (!els.emojiPop.hidden && !e.target.closest('.emoji-wrap')) els.emojiPop.hidden = true;
     if (!els.attachMenu.hidden && !e.target.closest('.attach')) els.attachMenu.hidden = true;
   });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!els.emojiPop.hidden) { els.emojiPop.hidden = true; e.stopPropagation(); }
+    if (!els.attachMenu.hidden) { els.attachMenu.hidden = true; e.stopPropagation(); }
+  });
 
   /* микрофон: нажать и держать → реальная запись */
   els.send.addEventListener('pointerdown', (e) => {
     if (!els.send.classList.contains('mic')) return;
+    recGesture = true;
+    recHeld = true;
     recStart = Date.now();
     recStartTimeout = setTimeout(() => { recStartTimeout = null; startRecording(); }, 250);
   });
   ['pointerup', 'pointercancel'].forEach((ev) =>
-    document.addEventListener(ev, () => {
+    document.addEventListener(ev, (e) => {
+      recHeld = false;
       if (recStartTimeout) { clearTimeout(recStartTimeout); recStartTimeout = null; }
-      if (mediaRecorder) stopRecording(false);
+      if (mediaRecorder) stopRecording(!!e.target?.closest?.('#recCancel'));
     })
   );
   $('#recCancel').addEventListener('click', (e) => {
     e.stopPropagation();
     stopRecording(true);
   });
+
+  /* вставка изображения из буфера (Ctrl+V) */
+  els.ta.addEventListener('paste', (e) => {
+    const items = [...(e.clipboardData?.items || [])];
+    const img = items.find((it) => String(it.type).startsWith('image/'));
+    if (!img) return;
+    const file = img.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+    handlePickedFile(file);
+  });
+
+  /* перетаскивание файлов в чат */
+  const pane = $('#chatPane');
+  let dragDepth = 0;
+  pane.addEventListener('dragenter', (e) => {
+    if (!S.active) return;
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault();
+    dragDepth++;
+    pane.classList.add('drop-active');
+  });
+  pane.addEventListener('dragover', (e) => {
+    if (!S.active) return;
+    if (![...(e.dataTransfer?.types || [])].includes('Files')) return;
+    e.preventDefault();
+  });
+  pane.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) pane.classList.remove('drop-active');
+  });
+  pane.addEventListener('drop', (e) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    dragDepth = 0;
+    pane.classList.remove('drop-active');
+    [...e.dataTransfer.files].slice(0, 5).forEach((f) => handlePickedFile(f));
+  });
+}
+
+/* ── эмодзи-пикер: категории + недавние ─────────────────── */
+function renderEmojiPicker() {
+  const recent = getRecentEmoji();
+  if (emojiGroup === 'recent' && !recent.length) emojiGroup = EMOJI_GROUPS[0].id;
+  const groups = [
+    { id: 'recent', icon: '🕘', labelKey: 'emoji.recent', emojis: recent },
+    ...EMOJI_GROUPS,
+  ];
+  const cur = groups.find((g) => g.id === emojiGroup) || groups[1] || groups[0];
+  els.emojiPop.innerHTML = `
+    <div class="emoji-tabs">${groups.map((g) => `
+      <button type="button" class="emoji-tab${g.id === cur.id ? ' on' : ''}" data-emoji-group="${g.id}"
+        title="${t(g.labelKey)}" aria-label="${t(g.labelKey)}">${g.icon}</button>`).join('')}
+    </div>
+    <div class="emoji-group-title">${t(cur.labelKey)}</div>
+    <div class="emoji-grid">${cur.emojis.map((e) => `<button type="button" data-emoji="${e}">${e}</button>`).join('')}</div>`;
 }
 
 function scheduleDraft() {
@@ -150,11 +238,16 @@ export function refreshBar() {
     : S.reply.snippet;
 }
 
-function clearReplyEdit() {
+function clearReplyEdit(keepText = false) {
   S.reply = null; S.editing = null;
   refreshBar();
-  els.ta.value = ''; els.ta.style.height = 'auto';
-  setSendMode('mic');
+  if (!keepText) {
+    els.ta.value = '';
+    els.ta.style.height = 'auto';
+    setSendMode('mic');
+  } else {
+    syncSendMode();
+  }
 }
 
 export function resetComposer() {
@@ -188,8 +281,11 @@ export async function sendCurrent() {
   const chat = chatById(S.active);
   if (!chat) return;
   const text = els.ta.value.trim();
+  if (!text) {
+    toast(t(S.editing ? 'comp.emptyEdit' : 'comp.empty'));
+    return;
+  }
   if (S.editing) { await saveEdit(text); return; }
-  if (!text) { toast(t('comp.recordHint')); return; }
 
   /* запоминаем ответ до очистки поля */
   const replyId = S.reply?.id || null;
@@ -486,22 +582,15 @@ async function saveEdit(text) {
   }
 
   if (S.active) renderMessages();
+  const chat2 = chatById(S.active);
+  if (chat2) {
+    const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
+    if (last && last.id === m.id) {
+      chat2.last = { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' };
+      await idb.put('chats', chat2);
+    }
+  }
   renderSidebar();
-}
-
-function buildMedia(type, extra = {}) {
-  const chat = chatById(S.active);
-  if (!chat) return;
-  const msg = {
-    id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
-    type, reactions: [], status: 'sent',
-    ...(S.reply ? { replyTo: { ...S.reply } } : {}),
-    ...extra,
-  };
-  clearReplyEdit();
-  deliverMessage(chat.id, msg);
-  setTimeout(() => markRead(chat.id, msg.id), 1300);
-  if (!S.demoShown) { S.demoShown = true; toast(t('toast.demoMedia')); }
 }
 
 /* Медиа передаём внутри зашифрованного сообщения (data URL).
@@ -537,19 +626,27 @@ async function compressToDataUrl(file) {
   }
 }
 
-async function sendMediaPayload(payload) {
-  const chat = chatById(S.active);
+async function sendMediaPayload(payload, chatId = S.active) {
+  const chat = chatById(chatId);
   if (!chat) return;
 
   const replyId = S.reply?.id || null;
   const replyBox = S.reply ? { ...S.reply } : null;
+  /* голосовое: src хранится один раз, в voice — только метаданные */
+  const wirePayload = payload.kind === 'voice'
+    ? {
+      kind: 'voice', name: payload.name, size: payload.size, src: payload.src,
+      voice: { dur: payload.voice?.dur || 0, bars: payload.voice?.bars || [], rate: payload.voice?.rate || 1 },
+    }
+    : payload;
   const msg = {
     id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
     type: payload.kind,
     file: { name: payload.name, size: payload.size, src: payload.src },
-    text: '', reactions: [], wire: encodeMedia(payload),
+    text: '', reactions: [], wire: encodeMedia(wirePayload),
     status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
     ...(replyBox ? { replyTo: replyBox } : {}),
+    ...(payload.kind === 'voice' ? { voice: payload.voice } : {}),
   };
 
   clearReplyEdit();
@@ -569,66 +666,47 @@ async function sendMediaPayload(payload) {
     msg.status = 'error';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
-    toast(friendlySendError(err) || t('media.error'));
+    toast(friendlySendError(err) || t('media.error'), { type: 'error' });
   }
 }
 
-export async function sendImage() {
-  if (SUPABASE.url && SUPABASE.anonKey) {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      try {
-        const src = await compressToDataUrl(file);
-        if (!src) { toast(t('media.tooBig')); return; }
-        await sendMediaPayload({ kind: 'image', name: file.name, size: file.size, src });
-      } catch (err) {
-        console.error('Image error:', err);
-        toast(t('media.error'));
-      } finally {
-        e.target.value = '';
-      }
-    };
-    input.click();
-  } else {
-    // Демо-режим
-    buildMedia('image', {
-      text: 'Демо-скриншот Relik',
-      file: { name: 'relik-shot.png', src: makeDemoPhoto(Math.floor(Math.random() * 3)) },
-    });
+/* Отправка выбранного/вставленного/перетащенного файла */
+async function handlePickedFile(file, chatId = S.active) {
+  if (!file || !chatById(chatId)) return;
+  try {
+    if (String(file.type).startsWith('image/')) {
+      const src = await compressToDataUrl(file);
+      if (!src) { toast(t('media.tooBig'), { type: 'error' }); return; }
+      await sendMediaPayload({ kind: 'image', name: file.name || 'photo.jpg', size: file.size, src }, chatId);
+      return;
+    }
+    if (file.size > 12 * 1024 * 1024) { toast(t('media.tooBig'), { type: 'error' }); return; }
+    const src = await readFileAsDataURL(file);
+    if (src.length > MAX_MEDIA_CHARS) { toast(t('media.tooBig'), { type: 'error' }); return; }
+    await sendMediaPayload({ kind: 'file', name: file.name || 'file', size: file.size, src }, chatId);
+  } catch (err) {
+    console.error('File error:', err);
+    toast(t('media.error'), { type: 'error' });
   }
 }
 
-export async function sendFile() {
-  if (SUPABASE.url && SUPABASE.anonKey) {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.onchange = async (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      try {
-        const src = await readFileAsDataURL(file);
-        if (src.length > MAX_MEDIA_CHARS) { toast(t('media.tooBig')); return; }
-        await sendMediaPayload({ kind: 'file', name: file.name, size: file.size, src });
-      } catch (err) {
-        console.error('File error:', err);
-        toast(t('media.error'));
-      } finally {
-        e.target.value = '';
-      }
-    };
-    input.click();
-  } else {
-    // Демо-режим
-    buildMedia('file', {
-      text: 'Вот нужный документ',
-      file: { name: 'Relik-отчёт.pdf', size: 2.4e6 },
-    });
-  }
+function pickAndSend(kind) {
+  const chatId = S.active;
+  if (!chatById(chatId)) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  if (kind === 'image') input.accept = 'image/*';
+  input.onchange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (file) handlePickedFile(file, chatId);
+  };
+  input.click();
 }
+
+/* Оставлены для совместимости (могут вызываться из других модулей) */
+export function sendImage() { pickAndSend('image'); }
+export function sendFile() { pickAndSend('file'); }
 
 /* ── голосовые: реальная запись через MediaRecorder ─────────── */
 function pickMime() {
@@ -664,8 +742,15 @@ async function startRecording() {
     toast(t('comp.micUnsupported'));
     return;
   }
+  recChatId = S.active;
   try {
     recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    /* палец уже отпустили, пока браузер спрашивал доступ */
+    if (!recHeld) {
+      recStream.getTracks().forEach((tr) => tr.stop());
+      recStream = null;
+      return;
+    }
     const mime = pickMime();
     mediaRecorder = new MediaRecorder(recStream, mime ? { mimeType: mime } : undefined);
     recChunks = [];
@@ -681,10 +766,11 @@ async function startRecording() {
       const mimeType = mediaRecorder?.mimeType || 'audio/webm';
       const blob = new Blob(recChunks, { type: mimeType });
       const chunks = recChunks;
+      const targetChat = recChatId;
       cleanupRecording();
       if (canceled || dur < 0.8 || !chunks.length) return;
       const dataUrl = await blobToDataUrl(blob);
-      sendVoiceData(dataUrl, dur);
+      sendVoiceData(dataUrl, dur, targetChat);
     };
 
     mediaRecorder.start();
@@ -713,10 +799,22 @@ function cleanupRecording() {
   mediaRecorder = null;
   recChunks = [];
   recCanceled = false;
+  recHeld = false;
+  recChatId = null;
   if (recStartTimeout) { clearTimeout(recStartTimeout); recStartTimeout = null; }
 }
 
-function sendVoiceData(src, dur) {
+async function sendVoiceData(src, dur, chatId = S.active) {
+  if (src.length > MAX_MEDIA_CHARS) {
+    toast(t('media.tooBig'), { type: 'error' });
+    return;
+  }
   const bars = Array.from({ length: 26 }, () => .25 + Math.random() * .7);
-  buildMedia('voice', { voice: { dur: Math.max(1, Math.round(dur)), bars, src } });
+  await sendMediaPayload({
+    kind: 'voice',
+    name: 'voice.webm',
+    size: src.length,
+    src,
+    voice: { dur: Math.max(1, Math.round(dur)), bars, rate: 1 },
+  }, chatId);
 }

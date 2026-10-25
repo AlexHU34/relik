@@ -1,24 +1,31 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
-import { S, user, chatTitle, chatById } from './state.js';
-import { $, esc, fmtTime, fmtDay, fmtDur, avatarHtml, adminBadge, snippet } from './utils.js';
+import { S, user, chatTitle, chatById, bus } from './state.js';
+import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, adminBadge, snippet } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
 import { EMOJI_QUICK, SUPABASE } from '../config.js';
-import { openLightbox } from './modals.js';
+import { openLightbox, openGroupManager } from './modals.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
 import { refreshBar, resetComposer, loadEdit, retryMessage, votePoll, sendReaction, closePoll } from './composer.js';
-import { playMessage, playSent } from './sounds.js';
+import { playMessage } from './sounds.js';
 import { notifyMessage } from './notify.js';
 import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
-import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage } from '../backend/messages.js';
+import { getReadAt, setReadAt, isMuted, prefs } from './prefs.js';
+import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
+import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia } from '../backend/messages.js';
+
+const PAGE_SIZE = 240;
 
 let els = {};
 const playing = new Map(); // msgId -> {timer, i, bars}
 let searchQuery = '';
+let searchHits = [];
+let searchIndex = 0;
+let unseenCount = 0;
 let forwardMsg = null;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
@@ -64,15 +71,40 @@ export function initChatView() {
     if (chat) startCall(chat, { video: true });
   });
 
-  /* поиск по чату */
+  /* поиск по чату: подсветка совпадений + переход между ними */
   $('#chatSearchBtn').innerHTML = icon('search', 18);
   $('#csIc').innerHTML = icon('search', 16);
   $('#chatSearchClose').innerHTML = icon('x', 17);
+  $('#chatSearchPrev').innerHTML = icon('chevronUp', 17);
+  $('#chatSearchNext').innerHTML = icon('chevronDown', 17);
+  $('#chatSearchPrev').title = t('chat.searchPrev');
+  $('#chatSearchNext').title = t('chat.searchNext');
   $('#chatSearchBtn').addEventListener('click', () => toggleSearch(true));
   $('#chatSearchClose').addEventListener('click', () => toggleSearch(false));
+  $('#chatSearchPrev').addEventListener('click', () => jumpToHit(-1));
+  $('#chatSearchNext').addEventListener('click', () => jumpToHit(1));
   $('#chatSearchInput').addEventListener('input', (e) => {
     searchQuery = e.target.value.trim();
+    searchIndex = 0;
     renderMessages();
+    if (searchQuery && searchHits.length) jumpTo(searchHits[0]);
+  });
+  $('#chatSearchInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      jumpToHit(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+      toggleSearch(false);
+    }
+  });
+
+  /* Ctrl/Cmd+F — поиск по открытому чату */
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'f') return;
+    if (!S.active) return;
+    if (document.querySelector('.overlay:not([hidden]), .lightbox:not([hidden]), .call-overlay:not([hidden])')) return;
+    e.preventDefault();
+    toggleSearch(true);
   });
 
   /* закреплённое */
@@ -113,6 +145,51 @@ export function initChatView() {
     }
   }, { passive: true });
 
+  /* «Показать раньше» — подгружаем предыдущую страницу ленты */
+  els.msgs.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-load-earlier]')) return;
+    const id = S.active;
+    if (!id) return;
+    S.renderLimit = { ...(S.renderLimit || {}), [id]: (S.renderLimit?.[id] || PAGE_SIZE) + PAGE_SIZE };
+    renderMessages({ prepend: true });
+  });
+
+  /* двойной клик по сообщению — ответ */
+  els.msgs.addEventListener('dblclick', (e) => {
+    if (e.target.closest('a,button,input,textarea,.msg-img')) return;
+    const msgEl = e.target.closest('.msg');
+    const m = msgEl && byId(msgEl.dataset.mid);
+    if (!m || m.deleted || m.hidden) return;
+    S.editing = null;
+    S.reply = { id: m.id, name: m.sender === 'u_me' ? t('msg.you') : user(m.sender).name, snippet: snippet(m) };
+    refreshBar();
+    $('#ta')?.focus();
+  });
+
+  /* возврат из «вниз» — счётчик новых сообщений сбрасывается */
+  els.toBottom.addEventListener('click', () => { unseenCount = 0; updateToBottom(); });
+
+  /* сайдбар очистил историю / убрал чат — обновляем ленту без перезагрузки */
+  bus.addEventListener('chat:cleared', (e) => {
+    const id = e.detail?.id;
+    if (!id) return;
+    S.messages[id] = [];
+    if (S.unreadFrom) S.unreadFrom[id] = 0;
+    if (S.active === id) renderMessages();
+  });
+  bus.addEventListener('chat:removed', (e) => {
+    if (S.active === e.detail?.id) {
+      S.active = null;
+      showChat();
+    }
+  });
+  bus.addEventListener('chat:updated', (e) => {
+    if (S.active === e.detail?.id) {
+      renderHeader();
+      renderMessages();
+    }
+  });
+
   /* вернулись в браузер/вкладку — сразу подтягиваем новые сообщения */
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && activeSyncTick) activeSyncTick();
@@ -128,6 +205,8 @@ export function initChatView() {
 }
 
 function onMsgClick(e) {
+  /* ссылки в тексте открываются браузером и не должны открывать панель действий */
+  if (e.target.closest('a[href]')) return;
   const actEl = e.target.closest('[data-act]');
   const pickEl = e.target.closest('[data-pick]');
   const rxBt = e.target.closest('[data-rx]');
@@ -144,12 +223,19 @@ function onMsgClick(e) {
   if (pollEl && m?.type === 'poll') { votePollOption(m, Number(pollEl.dataset.pollOpt)); return; }
   const pollClose = e.target.closest('[data-poll-close]');
   if (pollClose && m?.type === 'poll') { closePoll(m); return; }
-  if (imgEl && m?.file?.src) { openLightbox(m.file.src); return; }
+  if (imgEl && m?.file?.src) {
+    const src = safeMediaSrc(m.file.src, 'image');
+    if (src) openLightbox(src, m.file.name); else toast(t('media.broken'), { type: 'error' });
+    return;
+  }
   const fileEl = e.target.closest('.file-row');
   if (fileEl && m?.type === 'file' && m.file?.src) {
+    const src = safeMediaSrc(m.file.src, 'file');
+    if (!src) { toast(t('media.broken'), { type: 'error' }); return; }
     const a = document.createElement('a');
-    a.href = m.file.src;
+    a.href = src;
     a.download = m.file.name || 'file';
+    a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -163,7 +249,16 @@ function onMsgClick(e) {
     if (act === 'reply') { S.editing = null; S.reply = { id: m.id, name: user(m.sender).name, snippet: snippet(m) }; refreshBar(); closeReact(); }
     else if (act === 'react') { S.reactOpen = S.reactOpen === m.id ? null : m.id; renderMessages(); }
     else if (act === 'retry') { retryMessage(m); }
-    else if (act === 'copy') { navigator.clipboard?.writeText(m.text || '').catch(() => {}); toast(t('msg.copied')); }
+    else if (act === 'copy') {
+      const text = m.text || '';
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text)
+          .then(() => toast(t('msg.copied'), { type: 'success' }))
+          .catch(() => toast(t('toast.error'), { type: 'error' }));
+      } else {
+        toast(t('toast.error'), { type: 'error' });
+      }
+    }
     else if (act === 'edit') { S.editing = m.id; S.reply = null; loadEdit(m); closeReact(); }
     else if (act === 'pin') {
       const chat = chatById(S.active);
@@ -179,7 +274,15 @@ function onMsgClick(e) {
       if (SUPABASE.url && SUPABASE.anonKey) {
         deleteMessageBackend(m.id).catch((err) => console.error('Delete error:', err));
       }
-      m.deleted = true; m.text = ''; idb.put('messages', m).then(() => { renderMessages(); renderSidebar(); }); closeReact();
+      m.deleted = true; m.text = '';
+      idb.put('messages', m).then(() => { renderMessages(); renderSidebar(); });
+      const chat = chatById(S.active);
+      if (chat) {
+        const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
+        chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
+        idb.put('chats', chat);
+      }
+      closeReact();
     }
     return;
   }
@@ -264,9 +367,12 @@ function startActiveSync(id, chat) {
       if (added) {
         /* сообщения пришли сами — перерисовываем без перезагрузки страницы */
         const st = els.msgs.scrollTop + els.msgs.clientHeight >= els.msgs.scrollHeight - 140;
+        const incoming = fresh.some((m) => m.sender !== 'u_me' && !m.hidden);
+        if (!st && incoming) unseenCount += fresh.filter((m) => m.sender !== 'u_me' && !m.hidden).length;
         renderMessages();
         if (st) scrollBottom();
-        if (fresh.some((m) => m.sender !== 'u_me')) updateReadReceipt(id).catch(() => {});
+        else updateToBottom();
+        if (incoming) updateReadReceipt(id).catch(() => {});
       }
 
       const last = S.messages[id].filter((m) => !m.hidden).pop();
@@ -289,7 +395,12 @@ function startActiveSync(id, chat) {
 /* ── открытие чата ─────────────────────────────────────────── */
 export async function openChat(id) {
   const chat = chatById(id);
-  if (!chat) return;
+  if (!chat) {
+    S.active = null;
+    $('#appView').classList.remove('pane-chat');
+    if (location.hash.startsWith('#/chat/')) location.hash = '#/app';
+    return;
+  }
 
   // Отписываемся от предыдущего чата
   stopActiveSync();
@@ -301,16 +412,28 @@ export async function openChat(id) {
   S.active = id;
   S.reply = null; S.editing = null; S.reactOpen = null;
   toolsOpen = null;
+  unseenCount = 0;
+  searchHits = [];
+  searchIndex = 0;
+  S.typingUser = null;
   refreshBar(); resetComposer();
+
+  /* Откуда показывать «новые сообщения»: отметка прочтения до открытия */
+  const prevReadAt = getReadAt(id);
+  S.unreadFrom = S.unreadFrom || {};
+  S.unreadFrom[id] = chat.unread ? prevReadAt : 0;
+
   $('#chatSearch').hidden = true;
   searchQuery = '';
   $('#chatSearchInput').value = '';
 
   if (chat.unread) { chat.unread = 0; await idb.put('chats', chat); }
+  setReadAt(id);
 
   /* Мгновенно показываем кэш, сеть — фоном */
   S.messages[id] = await idb.messagesOf(id);
   showChat();
+  scrollToStartPosition(id);
   renderSidebar();
 
   /* черновик и закреплённое */
@@ -335,6 +458,7 @@ export async function openChat(id) {
         S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
         renderMessages();
         await updateReadReceipt(id).catch(() => {});
+        setReadAt(id);
         const lastMsg = [...msgs].reverse().find((m) => !m.hidden);
         if (lastMsg) {
           chat.last = { ts: lastMsg.ts, from: lastMsg.sender, type: lastMsg.type, text: lastMsg.text || '' };
@@ -347,7 +471,8 @@ export async function openChat(id) {
 
   // Подписываемся на Realtime
   if (SUPABASE.url && SUPABASE.anonKey) {
-    initTyping(id, () => {
+    initTyping(id, (uid) => {
+      S.typingUser = uid || null;
       showTyping(id);
       clearTimeout(window.__typingT);
       window.__typingT = setTimeout(() => hideTyping(id), 2600);
@@ -357,6 +482,7 @@ export async function openChat(id) {
         S.messages[id] = S.messages[id] || [];
         if (S.messages[id].some((x) => x.id === msg.id)) return;
         S.messages[id].push(msg);
+        if (msg.sender !== 'u_me' && !isMuted(id)) playMessage();
         if (msg.hidden) {
           /* голос/реакция/закрытие: обновляем только нужный блок */
           if (msg.type === 'vote' && msg.vote?.p) refreshPollCard(msg.vote.p);
@@ -367,6 +493,7 @@ export async function openChat(id) {
         }
         if (S.active === id) {
           const near = isNearBottom();
+          if (!near && msg.sender !== 'u_me') unseenCount++;
           renderMessages();
           if (near) scrollBottom();
           else updateToBottom();
@@ -385,11 +512,25 @@ export async function openChat(id) {
         if (m) {
           Object.assign(m, updates);
           if (S.active === id) renderMessages();
+          const chat = chatById(id);
+          const last = (S.messages[id] || []).filter((x) => !x.hidden).pop();
+          if (chat && last && last.id === msgId) {
+            chat.last = { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' };
+            idb.put('chats', chat);
+            renderSidebar();
+          }
         }
       },
       onDelete: (msgId) => {
         S.messages[id] = (S.messages[id] || []).filter((x) => x.id !== msgId);
         if (S.active === id) renderMessages();
+        const chat = chatById(id);
+        if (chat) {
+          const last = (S.messages[id] || []).filter((x) => !x.hidden).pop();
+          chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
+          idb.put('chats', chat);
+          renderSidebar();
+        }
       },
     }, chat.kind, chat.publicKey);
 
@@ -428,6 +569,14 @@ function openChatProfile() {
 
   $('#profileCall').hidden = !isDm;
   $('#profileVideo').hidden = !isDm;
+  const manage = $('#profileManage');
+  if (manage) {
+    manage.hidden = isDm;
+    manage.onclick = () => {
+      $('#profileOv').hidden = true;
+      openGroupManager(chat);
+    };
+  }
   $('#profileOv').hidden = false;
 }
 
@@ -435,6 +584,10 @@ function openChatProfile() {
 function renderHeader() {
   const chat = chatById(S.active);
   const isDm = chat.kind === 'dm';
+  const callBtn = $('#callBtn');
+  const videoBtn = $('#videoCallBtn');
+  if (callBtn) callBtn.hidden = !isDm;
+  if (videoBtn) videoBtn.hidden = !isDm;
   const u = isDm
     ? (S.users.find((x) => x.id === chat.userId) || { name: chat.title || '…', hue: chat.hue ?? 0, seen: 'offline' })
     : null;
@@ -451,28 +604,37 @@ function renderHeader() {
       st.textContent = uname || t('chat.' + u.seen);
     }
   } else {
-    st.textContent = t('chat.members').replace('{n}', String(chat.members.length + 1));
+    st.textContent = t('chat.members').replace('{n}', String((chat.members?.length || 0) + 1));
   }
 }
 
 /* ── лента ─────────────────────────────────────────────────── */
-export function renderMessages() {
+export function renderMessages(opts = {}) {
   const chat = chatById(S.active);
   if (!chat) return;
   const raw = S.messages[S.active] || [];
   const all = raw.filter((m) => !m.hidden);
   const rxMap = tallyReactions(raw);
-  const arr = searchQuery
-    ? all.filter((m) => String(m.poll?.q || m.text || '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : all;
+
+  const q = searchQuery.toLowerCase();
+  searchHits = q
+    ? all.filter((m) => String(m.poll?.q || m.text || '').toLowerCase().includes(q)).map((m) => m.id)
+    : [];
+  if (searchIndex >= searchHits.length) searchIndex = Math.max(0, searchHits.length - 1);
+
+  const limit = S.renderLimit?.[S.active] || PAGE_SIZE;
+  const visible = q || all.length <= limit ? all : all.slice(-limit);
+  const hiddenCount = all.length - visible.length;
 
   const countEl = $('#chatSearchCount');
-  if (countEl) countEl.textContent = searchQuery ? String(arr.length) : '';
+  if (countEl) {
+    countEl.textContent = q
+      ? (searchHits.length ? `${searchIndex + 1}/${searchHits.length}` : '0')
+      : '';
+  }
 
-  if (!arr.length) {
-    els.msgs.innerHTML = searchQuery
-      ? `<div class="chat-welcome"><span class="w-ic">${icon('search', 24)}</span><b>${t('chat.searchEmpty')}</b></div>`
-      : `<div class="chat-welcome">
+  if (!all.length) {
+    els.msgs.innerHTML = `<div class="chat-welcome">
       <span class="w-ic">${icon('lock', 26)}</span>
       <b>${t('chat.welcomeTitle')}</b>
       <span>${t('chat.welcomeSub')}</span>
@@ -480,20 +642,65 @@ export function renderMessages() {
     if (els.toBottom) els.toBottom.hidden = true;
     return;
   }
+
+  if (q && !searchHits.length) {
+    els.msgs.innerHTML = `<div class="chat-welcome"><span class="w-ic">${icon('search', 24)}</span><b>${t('chat.searchEmpty')}</b></div>`;
+    if (els.toBottom) els.toBottom.hidden = true;
+    return;
+  }
+
+  const beforeH = els.msgs.scrollHeight;
+  const beforeT = els.msgs.scrollTop;
+  const stick = isNearBottom();
+
   let html = '';
+  if (hiddenCount > 0) {
+    html += `<button type="button" class="load-earlier" data-load-earlier>
+      ${icon('chevronUp', 15)} <span>${t('chat.loadEarlier')}</span><b>${hiddenCount}</b>
+    </button>`;
+  }
+
+  const unreadFrom = S.unreadFrom?.[S.active] || 0;
+  let dividerShown = !unreadFrom;
   let prev = null;
-  for (const m of arr) {
+  for (const m of visible) {
     if (rxMap.has(m.id)) m.reactions = rxMap.get(m.id);
     const newDay = !prev || new Date(m.ts).toDateString() !== new Date(prev.ts).toDateString();
     if (newDay) html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`;
+    if (!dividerShown && m.ts > unreadFrom) {
+      html += `<div class="day new-divider"><span>${t('chat.newMessages')}</span></div>`;
+      dividerShown = true;
+    }
     const cont = prev && prev.sender === m.sender && !newDay && (m.ts - prev.ts) < 4 * 60e3;
-    html += msgHtml(m, !cont);
+    const hitIndex = searchHits.indexOf(m.id);
+    html += msgHtml(m, !cont, hitIndex);
     prev = m;
   }
-  if (S.typingChat === S.active && !searchQuery) html += typingHtml();
-  const keep = els.msgs.scrollTop + els.msgs.clientHeight >= els.msgs.scrollHeight - 140;
+  if (S.typingChat === S.active && !q) html += typingHtml();
+
   els.msgs.innerHTML = html;
-  if (keep) scrollBottom(false);
+
+  if (opts.prepend) {
+    els.msgs.scrollTop = beforeT + (els.msgs.scrollHeight - beforeH);
+  } else if (stick || opts.forceBottom) {
+    scrollBottom(false);
+  }
+
+  /* картинки увеличивают ленту после отрисовки — если были внизу, остаёмся внизу */
+  if (stick || opts.forceBottom) {
+    els.msgs.querySelectorAll('img').forEach((img) => {
+      if (img.complete) return;
+      img.addEventListener('load', () => {
+        if (S.active && isNearBottom()) {
+          const prev = els.msgs.style.scrollBehavior;
+          els.msgs.style.scrollBehavior = 'auto';
+          els.msgs.scrollTop = els.msgs.scrollHeight;
+          els.msgs.style.scrollBehavior = prev;
+        }
+      }, { once: true });
+    });
+  }
+
   renderPin();
   updateToBottom();
 }
@@ -502,12 +709,52 @@ export function renderMessages() {
 function toggleSearch(show) {
   const bar = $('#chatSearch');
   bar.hidden = !show;
-  if (show) { setTimeout(() => $('#chatSearchInput').focus(), 40); }
-  else {
+  if (show) {
+    setTimeout(() => { $('#chatSearchInput').focus(); $('#chatSearchInput').select(); }, 40);
+  } else {
     searchQuery = '';
+    searchHits = [];
+    searchIndex = 0;
     $('#chatSearchInput').value = '';
     renderMessages();
   }
+}
+
+function jumpToHit(delta) {
+  if (!searchHits.length) return;
+  searchIndex = (searchIndex + delta + searchHits.length) % searchHits.length;
+  renderMessages();
+  jumpTo(searchHits[searchIndex]);
+}
+
+/* Открываем чат на первом непрочитанном, иначе — внизу */
+function scrollToStartPosition(id) {
+  const apply = () => {
+    if (S.active !== id) return;
+    const divider = els.msgs.querySelector('.new-divider');
+    const top = divider
+      ? Math.max(0, divider.offsetTop - els.msgs.clientHeight * 0.3)
+      : els.msgs.scrollHeight;
+    const prev = els.msgs.style.scrollBehavior;
+    els.msgs.style.scrollBehavior = 'auto';
+    els.msgs.scrollTop = top;
+    els.msgs.style.scrollBehavior = prev;
+    updateToBottom();
+  };
+  requestAnimationFrame(() => {
+    apply();
+    requestAnimationFrame(apply);
+  });
+
+  /* фото догружаются после первого кадра — удерживаем низ, если мы уже внизу */
+  els.msgs.querySelectorAll('img').forEach((img) => {
+    if (img.complete) return;
+    img.addEventListener('load', () => {
+      if (S.active !== id) return;
+      const gap = els.msgs.scrollHeight - els.msgs.scrollTop - els.msgs.clientHeight;
+      if (!els.msgs.querySelector('.new-divider') && gap < 700) apply();
+    }, { once: true });
+  });
 }
 
 /* ── закреплённое сообщение ────────────────────────────────── */
@@ -539,7 +786,7 @@ function openForward(m) {
     const u = c.kind === 'dm'
       ? (S.users.find((x) => x.id === c.userId) || { name: c.title || '…', hue: c.hue ?? 0 })
       : { name: c.title, hue: c.hue ?? 5 };
-    return `<button class="contact" data-fwd-cid="${c.id}">
+    return `<button class="contact" data-fwd-cid="${esc(c.id)}">
       ${avatarHtml(u)}
       <span class="info"><span class="n">${esc(chatTitle(c))}</span></span>
     </button>`;
@@ -554,41 +801,82 @@ async function forwardTo(chatId2) {
   forwardMsg = null;
   if (!m || !chat) return;
 
-  const text = m.text || snippet(m);
+  const fwd = forwardPayload(m);
+  if (!fwd) { toast(t('msg.forwardUnsupported'), { type: 'error' }); return; }
+
   const msg = {
     id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
-    type: 'text', text, reactions: [], status: 'sending', forwarded: true,
+    type: fwd.type, text: fwd.text || '', reactions: [], status: 'sending', forwarded: true,
+    wire: fwd.wire,
+    ...(fwd.file ? { file: fwd.file } : {}),
+    ...(fwd.voice ? { voice: fwd.voice } : {}),
   };
 
   await deliverMessage(chatId2, msg);
 
   if (!(SUPABASE.url && SUPABASE.anonKey)) {
     msg.status = 'sent';
-    toast(t('chat.forwarded'));
+    await idb.put('messages', msg);
+    toast(t('chat.forwarded'), { type: 'success' });
     return;
   }
 
   try {
-    await sendMessage(chatId2, text, null, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id);
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chatId2) renderMessages();
-    toast(t('chat.forwarded'));
+    toast(t('chat.forwarded'), { type: 'success' });
   } catch (err) {
     console.error('Forward error:', err);
     msg.status = 'error';
     msg.error = String(err?.message || '');
     await idb.put('messages', msg);
     if (S.active === chatId2) renderMessages();
-    toast(err.message || t('toast.error'));
+    toast(err.message || t('toast.error'), { type: 'error' });
   }
+}
+
+/* Пересылка любого поддерживаемого типа: текст, фото, файл, голосовое */
+function forwardPayload(m) {
+  if (m.type === 'text') return { type: 'text', text: m.text || '', wire: m.text || '' };
+  if (m.type === 'image' || m.type === 'file') {
+    const src = safeMediaSrc(m.file?.src, m.type === 'image' ? 'image' : 'file');
+    if (!src) return null;
+    const file = { name: m.file?.name || 'file', size: m.file?.size || 0, src };
+    return { type: m.type, text: m.text || '', file, wire: encodeMedia({ kind: m.type, ...file }) };
+  }
+  if (m.type === 'voice') {
+    const src = safeMediaSrc(m.voice?.src, 'audio');
+    if (!src) return null;
+    const voice = { dur: m.voice.dur, bars: m.voice.bars || [], src, rate: m.voice.rate || 1 };
+    return {
+      type: 'voice', text: '', voice,
+      wire: encodeMedia({
+        kind: 'voice', name: 'voice', size: 0, src,
+        voice: { dur: voice.dur, bars: voice.bars, rate: voice.rate },
+      }),
+    };
+  }
+  return null;
 }
 
 
 function scrollBottom(smooth = true) {
+  if (prefs.motion === false) smooth = false;
   if (els.toBottom) els.toBottom.hidden = true;
+  unseenCount = 0;
   autoScrolling = true;
-  els.msgs.scrollTo({ top: els.msgs.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  const top = els.msgs.scrollHeight;
+  if (smooth) {
+    els.msgs.scrollTo({ top, behavior: 'smooth' });
+  } else {
+    /* мгновенный прыжок: CSS scroll-behavior:smooth иначе анимирует и открытие чата */
+    const prev = els.msgs.style.scrollBehavior;
+    els.msgs.style.scrollBehavior = 'auto';
+    els.msgs.scrollTop = top;
+    els.msgs.style.scrollBehavior = prev;
+  }
   clearTimeout(scrollBottom._t);
   scrollBottom._t = setTimeout(() => {
     /* страховка: если браузер не анимировал плавный скролл — прыгаем вниз */
@@ -604,19 +892,24 @@ function isNearBottom() {
 
 function updateToBottom() {
   if (!els.toBottom || autoScrolling) return;
-  els.toBottom.hidden = !S.active || isNearBottom();
+  const show = !!(S.active && (!isNearBottom() || unseenCount > 0));
+  els.toBottom.hidden = !show;
+  if (!show) unseenCount = 0;
+  els.toBottom.innerHTML = icon('arrowDown', 18) +
+    (unseenCount ? `<span class="tb-count">${unseenCount > 9 ? '9+' : unseenCount}</span>` : '');
 }
 
 /* ── разметка сообщения ────────────────────────────────────── */
-function msgHtml(m, first) {
+function msgHtml(m, first, hitIndex = -1) {
   const mine = m.sender === 'u_me';
   const u = mine ? S.me : user(m.sender);
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}`;
+  const searchCls = hitIndex >= 0 ? ` search-hit${hitIndex === searchIndex ? ' search-current' : ''}` : '';
+  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${searchCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const tools = m.deleted ? '' : toolsHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
-  return `<div class="${cls}" data-mid="${m.id}">${av}
+  return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
     <div class="bubble">${body}${tools}${pick}</div>
   </div>`;
 }
@@ -624,22 +917,36 @@ function msgHtml(m, first) {
 function bubbleHtml(m, mine) {
   if (m.deleted) return `<div class="msg-deleted">${t('msg.deleted')}</div>`;
   let out = '';
-  if (m.replyTo) out += `<button class="reply-quote" data-jump="${m.replyTo.id}">
+  if (m.forwarded) out += `<div class="fwd-label">${icon('forward', 12)} ${t('msg.forwarded')}</div>`;
+  if (m.replyTo) out += `<button class="reply-quote" data-jump="${esc(m.replyTo.id)}">
       <span class="rq-name">${esc(m.replyTo.name)}</span>
       <span class="rq-text">${esc(m.replyTo.snippet)}</span>
     </button>`;
   if (m.type === 'poll') out += pollHtml(m);
-  if (m.type === 'image') out += `<button class="msg-img"><img src="${m.file.src}" loading="lazy" alt=""></button>`;
-  if (m.type === 'file') out += `<div class="file-row"><span class="file-ic">${icon('file', 20)}</span>
-      <span class="file-info"><span class="file-name">${esc(m.file.name)}</span>
-      <span class="file-size">${fmtSize(m.file.size)}</span></span></div>`;
-  if (m.type === 'voice') out += `<div class="voice">
+  if (m.type === 'image') {
+    const src = safeMediaSrc(m.file?.src, 'image');
+    out += src
+      ? `<button class="msg-img"><img src="${esc(src)}" loading="lazy" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
+      : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`;
+  }
+  if (m.type === 'file') {
+    out += `<div class="file-row${m.file?.src ? '' : ' no-src'}"><span class="file-ic">${icon('file', 20)}</span>
+      <span class="file-info"><span class="file-name">${esc(m.file?.name || t('msg.file'))}</span>
+      <span class="file-size">${fmtSize(m.file?.size)}</span></span>
+      ${m.file?.src ? `<span class="file-dl">${icon('dl', 17)}</span>` : ''}</div>`;
+  }
+  if (m.type === 'voice') {
+    out += `<div class="voice">
       <button class="v-play">${icon('play', 17)}</button>
-      <span class="v-bars">${(m.voice.bars || []).map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}</span>
-      <span class="v-dur">${fmtDur(m.voice.dur)}</span>
-      <button class="v-speed" data-speed="${m.voice.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice.rate || 1}×</button>
+      <span class="v-bars">${(m.voice?.bars || []).map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}</span>
+      <span class="v-dur">${fmtDur(m.voice?.dur || 0)}</span>
+      <button class="v-speed" data-speed="${m.voice?.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice?.rate || 1}×</button>
     </div>`;
-  if (m.text && (m.type === 'text' || m.type === 'image' || m.type === 'file')) out += `<div class="msg-text">${esc(m.text)}</div>`;
+  }
+  if (m.text && (m.type === 'text' || m.type === 'image' || m.type === 'file')) {
+    const emoji = m.type === 'text' && isEmojiOnly(m.text);
+    out += `<div class="msg-text${emoji ? ' emoji-only' : ''}">${formatText(m.text)}</div>`;
+  }
   out += reactionsHtml(m);
   out += metaHtml(m, mine);
   return out;
@@ -648,7 +955,7 @@ function bubbleHtml(m, mine) {
 function reactionsHtml(m) {
   if (!m.reactions?.length) return '';
   return `<div class="rx-row">${m.reactions.map((r) =>
-    `<button class="rx${r.by.includes('u_me') ? ' mine' : ''}" data-rx="${r.e}">${r.e}${r.by.length > 1 ? `<b>${r.by.length}</b>` : ''}</button>`).join('')}</div>`;
+    `<button class="rx${r.by.includes('u_me') ? ' mine' : ''}" data-rx="${esc(r.e)}">${esc(r.e)}${r.by.length > 1 ? `<b>${r.by.length}</b>` : ''}</button>`).join('')}</div>`;
 }
 
 function pollHtml(m) {
@@ -683,7 +990,7 @@ function pollHtml(m) {
     <div class="poll-head">${icon('poll', 16)}<span>${esc(m.poll?.q || m.text || '')}</span></div>
     <div class="poll-opts">${rows}</div>
     <div class="poll-meta"><span>${t('poll.votes')}: ${voters}</span><span>${hint}</span></div>
-    ${canClose ? `<button type="button" class="poll-close" data-poll-close="${m.id}">${t('poll.close')}</button>` : ''}
+    ${canClose ? `<button type="button" class="poll-close" data-poll-close="${esc(m.id)}">${t('poll.close')}</button>` : ''}
   </div>`;
 }
 
@@ -731,7 +1038,7 @@ export function refreshMessageReactions(messageId) {
   const map = tallyReactions(S.messages[S.active] || []);
   if (map.has(m.id)) m.reactions = map.get(m.id);
 
-  const id = (window.CSS && CSS.escape) ? CSS.escape(messageId) : messageId;
+  const id = nonzeroEscape(messageId);
   const bubble = els.msgs.querySelector(`[data-mid="${id}"] .bubble`);
   if (!bubble) return;
 
@@ -755,7 +1062,7 @@ export function refreshPollCard(pollId) {
   const m = byId(pollId);
   if (!m || m.type !== 'poll') return;
 
-  const id = (window.CSS && CSS.escape) ? CSS.escape(pollId) : pollId;
+  const id = nonzeroEscape(pollId);
   const el = els.msgs.querySelector(`[data-mid="${id}"] .poll`);
   if (!el) return;
 
@@ -837,7 +1144,7 @@ function metaHtml(m, mine) {
 
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
-  const canForward = m.type === 'text';
+  const canForward = ['text', 'image', 'file', 'voice'].includes(m.type);
   const canDelete = mine || S.me?.role === 'admin';
   const tools = [
     `<button data-act="reply" title="${t('msg.reply')}">${icon('reply', 15)}</button>`,
@@ -855,8 +1162,6 @@ function rxPickHtml() {
   return `<div class="rx-pick">${EMOJI_QUICK.map((e) => `<button data-pick="${e}">${e}</button>`).join('')}</div>`;
 }
 
-const fmtSize = (b) => b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' KB';
-
 /* ── реакции ───────────────────────────────────────────────── */
 function toggleReaction(m, emoji) {
   const mine = (m.reactions || []).some((r) => r.e === emoji && r.by.includes('u_me'));
@@ -871,10 +1176,11 @@ function playVoice(m, btn) {
   const voiceEl = btn.closest('.voice');
   const bars = voiceEl ? voiceEl.querySelectorAll('.v-bars i') : [];
 
-  if (m.voice && m.voice.src) {
+  const src = safeMediaSrc(m.voice?.src, 'audio');
+  if (src) {
     let audio = audioEls.get(m.id);
     if (!audio) {
-      audio = new Audio(m.voice.src);
+      audio = new Audio(src);
       audio.playbackRate = m.voice.rate || 1;
       audioEls.set(m.id, audio);
       audio.addEventListener('ended', () => {
@@ -939,16 +1245,39 @@ function cycleSpeed(m, btn) {
 
 /* ── переход к цитате ──────────────────────────────────────── */
 function jumpTo(id) {
-  const el = els.msgs.querySelector(`[data-mid="${id}"]`);
+  let el = els.msgs.querySelector(`[data-mid="${nonzeroEscape(id)}"]`);
+  if (!el) {
+    /* сообщение за пределами первой страницы — догружаем ленту до него */
+    const all = (S.messages[S.active] || []).filter((m) => !m.hidden);
+    const idx = all.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    const need = all.length - idx + 20;
+    const cur = S.renderLimit?.[S.active] || PAGE_SIZE;
+    if (need > cur) {
+      S.renderLimit = { ...(S.renderLimit || {}), [S.active]: need };
+      renderMessages({ prepend: true });
+      el = els.msgs.querySelector(`[data-mid="${nonzeroEscape(id)}"]`);
+    }
+  }
   if (!el) return;
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.scrollIntoView({ block: 'center', behavior: prefs.motion === false ? 'auto' : 'smooth' });
   el.classList.add('flash');
   setTimeout(() => el.classList.remove('flash'), 1100);
 }
 
+function nonzeroEscape(id) {
+  return (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id).replace(/"/g, '\\"');
+}
+
 /* ── typing ────────────────────────────────────────────────── */
 function typingHtml() {
-  return `<div class="msg first typing"><span class="avatar" data-h="1"><b>А</b></span><div class="bubble"><div class="dots"><i></i><i></i><i></i></div></div></div>`;
+  const chat = chatById(S.active);
+  const uid = S.typingUser || (chat?.kind === 'group'
+    ? (chat.members || []).find((x) => x !== S.me?.id) || chat.members?.[0]
+    : chat?.userId);
+  const u = uid ? user(uid) : { name: '…', hue: 5 };
+  const who = chat?.kind === 'group' && uid ? `<span class="typing-who">${esc(u.name)}</span>` : '';
+  return `<div class="msg first typing">${avatarHtml(u)}<div class="bubble">${who}<div class="dots"><i></i><i></i><i></i></div></div></div>`;
 }
 
 export function showTyping(chatId) {
@@ -958,6 +1287,7 @@ export function showTyping(chatId) {
 export function hideTyping(chatId) {
   if (S.typingChat !== chatId) return;
   S.typingChat = null;
+  S.typingUser = null;
   if (S.active === chatId) renderMessages();
 }
 
@@ -971,9 +1301,16 @@ export async function deliverMessage(chatId, msg) {
   chat.last = { ts: msg.ts, from: msg.sender, type: msg.type, text: msg.text || '' };
   if (S.active !== chatId) chat.unread = (chat.unread || 0) + 1;
   await idb.put('chats', chat);
-  if (S.active === chatId) { renderMessages(); scrollBottom(); }
+  if (S.active === chatId) {
+    const near = isNearBottom();
+    if (!near && msg.sender !== 'u_me') unseenCount++;
+    renderMessages();
+    if (near) scrollBottom();
+    else updateToBottom();
+    if (near) setReadAt(chatId);
+  }
   renderSidebar();
-  if (msg.sender !== 'u_me') playMessage();
+  if (msg.sender !== 'u_me' && !isMuted(chatId)) playMessage();
 }
 
 /* «Доставлено → прочитано» имитация для своих сообщений */

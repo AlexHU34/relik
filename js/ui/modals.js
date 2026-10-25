@@ -1,5 +1,5 @@
 /* Relik — модальные окна: настройки, новый чат, создание группы, лайтбокс */
-import { S, user } from './state.js';
+import { S, user, emit } from './state.js';
 import { $, esc, avatarHtml, adminBadge } from './utils.js';
 import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
@@ -14,7 +14,10 @@ import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
 import { soundsEnabled, setSounds } from './sounds.js';
 import { notificationsEnabled, setNotifications } from './notify.js';
-import { currentDevice } from './device.js';
+import { prefs, WALLPAPERS, setTextSize, setWallpaper, setMotion, setEnterToSend, clearChatPrefs } from './prefs.js';
+import { confirmAction } from './dialog.js';
+import { addMemberToGroup, removeMemberFromGroup, updateGroupTitle, leaveGroup } from '../backend/groups.js';
+import { canInstall, promptInstall } from './install.js';
 
 let selectedGroupMembers = new Set();
 
@@ -29,23 +32,32 @@ function debounce(fn, ms = 260) {
 const paintContactsDebounced = debounce(paintContacts);
 const paintGroupContactsDebounced = debounce(paintGroupContacts);
 const paintAdminUsersDebounced = debounce(paintAdminUsers);
+const paintGroupAddDebounced = debounce(paintGroupAddList);
 
 export function initModals() {
   /* статичные иконки закрытия */
   document.querySelectorAll('.m-head [data-close]').forEach((b) => { b.innerHTML = icon('x', 18); });
   $('#lbX').innerHTML = icon('x', 20);
+  $('#lbDl').innerHTML = icon('dl', 20);
+  $('#lbDl').title = t('media.download');
+  $('#lbDl').setAttribute('aria-label', t('media.download'));
   $('#ncGroupIc').innerHTML = icon('users', 18);
 
   /* закрытие по крестику и клику по фону любого оверлея */
   document.querySelectorAll('.overlay').forEach((ov) => {
     ov.addEventListener('click', (e) => { if (e.target === ov) closeOv(ov); });
-    const btn = ov.querySelector('[data-close]');
-    if (btn) btn.addEventListener('click', () => closeOv(ov));
+    ov.querySelectorAll('[data-close]').forEach((btn) => {
+      btn.addEventListener('click', () => closeOv(ov));
+    });
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('#lightbox').hidden) closeLightbox();
-    else { closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv')); closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv')); }
+    else {
+      closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
+      closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv'));
+      closeOv($('#groupOv'));
+    }
   });
 
   /* ── настройки ── */
@@ -61,6 +73,7 @@ export function initModals() {
   $('#ncSearch').addEventListener('input', paintContactsDebounced);
   $('#ncGroup').addEventListener('click', openGroupCreator);
   $('#lbX').addEventListener('click', closeLightbox);
+  $('#lbDl').addEventListener('click', downloadLightbox);
   document.addEventListener('relik:lang', paintContacts);
 
   /* ── создание группы ── */
@@ -111,6 +124,55 @@ export function initModals() {
   $('#avatarInput').addEventListener('change', handleAvatar);
   $('#adminUsersBtn').addEventListener('click', openAdminUsers);
   $('#adminSearch').addEventListener('input', paintAdminUsersDebounced);
+
+  /* ── оформление: размер текста, обои, анимации, Enter ── */
+  $('#textSizeSeg')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-size]');
+    if (!b) return;
+    setTextSize(b.dataset.size);
+    paintTextSize();
+  });
+  $('#wallGrid')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-wall]');
+    if (!b) return;
+    setWallpaper(b.dataset.wall);
+    paintWalls();
+  });
+  $('#enterSendToggle')?.addEventListener('change', (e) => setEnterToSend(e.target.checked));
+  $('#motionToggle')?.addEventListener('change', (e) => setMotion(e.target.checked));
+  $('#clearLocalBtn')?.addEventListener('click', clearLocalCache);
+  $('#installBtn')?.addEventListener('click', async () => {
+    const ok = await promptInstall();
+    $('#installBtn').hidden = !canInstall();
+    if (ok) toast(t('settings.installed'), { type: 'success' });
+  });
+  document.addEventListener('relik:install-available', () => {
+    const btn = $('#installBtn');
+    if (btn && !$('#settingsOv').hidden) btn.hidden = !canInstall();
+  });
+
+  /* ── управление группой ── */
+  $('#groupTitleSave')?.addEventListener('click', saveGroupTitle);
+  $('#groupLeave')?.addEventListener('click', leaveCurrentGroup);
+  $('#groupAddBtn')?.addEventListener('click', () => {
+    const panel = $('#groupAddPanel');
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) {
+      $('#groupAddSearch').value = '';
+      paintGroupAddList();
+      setTimeout(() => $('#groupAddSearch').focus(), 40);
+    }
+  });
+  $('#groupAddSearch')?.addEventListener('input', paintGroupAddDebounced);
+  $('#groupAddList')?.addEventListener('click', addGroupMemberClicked);
+
+  document.addEventListener('relik:lang', () => {
+    paintTextSize();
+    paintWalls();
+    paintThemes();
+    paintFonts();
+    paintLangSeg();
+  });
 }
 
 function closeOv(ov) {
@@ -118,11 +180,31 @@ function closeOv(ov) {
 }
 
 /* ── ЛАЙТБОКС ── */
-export function openLightbox(src) {
-  $('#lbImg').src = src;
+let lightboxSrc = '';
+let lightboxName = 'relik-image.jpg';
+
+export function openLightbox(src, name) {
+  lightboxSrc = String(src || '');
+  lightboxName = name ? String(name) : 'relik-image.jpg';
+  $('#lbImg').src = lightboxSrc;
+  $('#lbImg').alt = lightboxName;
   $('#lightbox').hidden = false;
 }
-function closeLightbox() { $('#lightbox').hidden = true; }
+function closeLightbox() {
+  $('#lightbox').hidden = true;
+  $('#lbImg').src = '';
+  lightboxSrc = '';
+}
+function downloadLightbox() {
+  if (!lightboxSrc) return;
+  const a = document.createElement('a');
+  a.href = lightboxSrc;
+  a.download = lightboxName || 'relik-image.jpg';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 /* ── НАСТРОЙКИ ── */
 export function openSettings() {
@@ -132,11 +214,37 @@ export function openSettings() {
   paintLangSeg();
   paintThemes();
   paintFonts();
+  paintTextSize();
+  paintWalls();
   $('#soundsToggle').checked = soundsEnabled();
   $('#notifyToggle').checked = notificationsEnabled();
+  const installBtn = $('#installBtn');
+  if (installBtn) installBtn.hidden = !canInstall();
+  $('#enterSendToggle').checked = prefs.enterToSend !== false;
+  $('#motionToggle').checked = prefs.motion !== false;
   $('#adminField').hidden = S.me?.role !== 'admin';
   paintAvatar();
+  const body = $('#settingsOv .m-body');
+  if (body) body.scrollTop = 0;
   $('#settingsOv').hidden = false;
+}
+
+function paintTextSize() {
+  document.querySelectorAll('#textSizeSeg [data-size]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.size === prefs.textSize);
+  });
+}
+
+function paintWalls() {
+  const wrap = $('#wallGrid');
+  if (!wrap) return;
+  wrap.innerHTML = WALLPAPERS.map((w) => {
+    const label = t(w.labelKey) || w.name;
+    return `
+    <button type="button" class="wall-swatch wsw-${w.id}${w.id === prefs.wallpaper ? ' on' : ''}"
+      data-wall="${w.id}" title="${esc(label)}" aria-label="${esc(label)}"><i></i></button>
+  `;
+  }).join('');
 }
 
 function paintThemes() {
@@ -155,7 +263,7 @@ function paintFonts() {
   if (!sel) return;
   const cur = currentFontId();
   let opts = FONTS.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
-  if (cur === 'custom') opts += '<option value="custom">Свой шрифт</option>';
+  if (cur === 'custom') opts += `<option value="custom">${t('settings.customFont')}</option>`;
   sel.innerHTML = opts;
   sel.value = cur === 'custom' ? 'custom' : cur;
 }
@@ -266,6 +374,235 @@ async function saveProfile() {
   }
 }
 
+/* ── Данные: очистка локального кэша (ключи и профиль остаются) ── */
+async function clearLocalCache() {
+  const ok = await confirmAction({
+    title: t('settings.clearCache'),
+    text: t('settings.clearCacheText'),
+    ok: t('settings.clearCacheOk'),
+    danger: true,
+    iconName: 'database',
+  });
+  if (!ok) return;
+
+  try {
+    await Promise.all([idb.clear('messages'), idb.clear('chats')]);
+  } catch (e) { /* ignore */ }
+
+  S.messages = {};
+  S.active = null;
+  S.chats = [];
+  S.unreadFrom = {};
+  S.renderLimit = {};
+  $('#settingsOv').hidden = true;
+  location.hash = '#/app';
+
+  if (SUPABASE.url && SUPABASE.anonKey) {
+    await loadChats();
+    renderSidebar();
+    toast(t('settings.cacheCleared'), { type: 'success' });
+  } else {
+    /* демо: после перезагрузки seedIfEmpty заново наполнит чаты */
+    toast(t('settings.cacheCleared'), { type: 'success' });
+    setTimeout(() => location.reload(), 500);
+  }
+}
+
+/* ── Управление группой ─────────────────────────────────────── */
+let groupChat = null;
+
+export function openGroupManager(chat) {
+  if (!chat || chat.kind !== 'group') return;
+  groupChat = chat;
+  $('#groupTitleInput').value = chat.title || '';
+  $('#groupAddPanel').hidden = true;
+  $('#groupAddSearch').value = '';
+  $('#groupOv').hidden = false;
+  paintGroupMemberList();
+  setTimeout(() => $('#groupTitleInput').focus(), 60);
+}
+
+function canManageGroup(chat) {
+  if (!chat) return false;
+  if (S.me?.role === 'admin') return true;
+  if (!chat.createdBy) return true;
+  return chat.createdBy === S.me?.id;
+}
+
+function groupMemberIds(chat) {
+  const ids = [S.me?.id, ...(chat.members || [])].filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function paintGroupMemberList() {
+  const chat = groupChat;
+  const wrap = $('#groupMemberList');
+  if (!chat || !wrap) return;
+  const manage = canManageGroup(chat);
+  wrap.innerHTML = groupMemberIds(chat).map((uid) => {
+    const u = user(uid);
+    const me = uid === S.me?.id;
+    return `<div class="member-row">
+      ${avatarHtml(u, { sm: true, online: u.seen === 'online' })}
+      <span class="info">
+        <span class="n">${esc(u.name)}${me ? ` <em class="member-you">${t('group.you')}</em>` : ''}${adminBadge(u)}</span>
+        <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + (u.seen || 'offline'))}</span>
+      </span>
+      ${manage && !me ? `<button class="icon-btn member-rm" type="button" data-rm-member="${esc(uid)}"
+        title="${t('group.remove')}" aria-label="${t('group.remove')}">${icon('userMinus', 17)}</button>` : ''}
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-rm-member]').forEach((btn) => {
+    btn.addEventListener('click', () => removeGroupMember(btn.dataset.rmMember));
+  });
+
+  $('#groupLeave').textContent = t('group.leave');
+  $('#groupTitleSave').textContent = t('settings.save');
+}
+
+async function removeGroupMember(uid) {
+  const chat = groupChat;
+  if (!chat || !uid) return;
+  const u = user(uid);
+  const ok = await confirmAction({
+    title: t('group.removeTitle'),
+    text: t('group.removeText').replace('{name}', u.name),
+    ok: t('group.remove'),
+    danger: true,
+    iconName: 'userMinus',
+  });
+  if (!ok) return;
+
+  try {
+    if (SUPABASE.url && SUPABASE.anonKey) await removeMemberFromGroup(chat.id, uid);
+    chat.members = (chat.members || []).filter((id) => id !== uid);
+    await idb.put('chats', chat);
+    emit('chat:updated', { id: chat.id });
+    paintGroupMemberList();
+    if (!$('#groupAddPanel').hidden) await paintGroupAddList();
+    renderSidebar();
+    toast(t('group.removed'), { type: 'success' });
+  } catch (err) {
+    console.error('Remove member error:', err);
+    toast(t('group.removeError'), { type: 'error' });
+  }
+}
+
+async function paintGroupAddList() {
+  const chat = groupChat;
+  const wrap = $('#groupAddList');
+  if (!chat || !wrap) return;
+  const q = $('#groupAddSearch').value.trim();
+  wrap.innerHTML = `<div class="nc-hint">…</div>`;
+
+  let users;
+  try {
+    if (SUPABASE.url && SUPABASE.anonKey) {
+      const profiles = await searchUsers(q);
+      users = profiles.map((p) => ({
+        id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null,
+        username: p.username || null, role: p.role || 'user', seen: 'offline',
+      }));
+      mergeUsers(users);
+    } else {
+      users = S.users.filter((u) => u.id !== 'u_me');
+    }
+  } catch (err) {
+    console.error('Group search error:', err);
+    users = S.users.filter((u) => u.id !== 'u_me');
+  }
+
+  const excluded = new Set(groupMemberIds(chat));
+  users = users.filter((u) => !excluded.has(u.id) && (!q || u.name.toLowerCase().includes(q.toLowerCase())
+    || String(u.username || '').toLowerCase().includes(q.toLowerCase())));
+
+  wrap.innerHTML = users.slice(0, 40).map((u) => `
+    <button class="contact" type="button" data-add-member="${esc(u.id)}">
+      ${avatarHtml(u)}
+      <span class="info"><span class="n">${esc(u.name)}${adminBadge(u)}</span>
+      <span class="s">${u.username ? '@' + esc(u.username) : ''}</span></span>
+      <span class="member-add">${icon('plus', 16)}</span>
+    </button>`).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
+}
+
+async function addGroupMemberClicked(e) {
+  const btn = e.target.closest('[data-add-member]');
+  if (!btn || !groupChat) return;
+  const uid = btn.dataset.addMember;
+  btn.disabled = true;
+  try {
+    if (SUPABASE.url && SUPABASE.anonKey) await addMemberToGroup(groupChat.id, uid);
+    groupChat.members = [...new Set([...(groupChat.members || []), uid])];
+    await idb.put('chats', groupChat);
+    emit('chat:updated', { id: groupChat.id });
+    paintGroupMemberList();
+    await paintGroupAddList();
+    renderSidebar();
+    toast(t('group.added'), { type: 'success' });
+  } catch (err) {
+    console.error('Add member error:', err);
+    btn.disabled = false;
+    toast(t('group.addError'), { type: 'error' });
+  }
+}
+
+async function saveGroupTitle() {
+  const chat = groupChat;
+  if (!chat) return;
+  const title = $('#groupTitleInput').value.trim();
+  if (!title) { toast(t('group.needName'), { type: 'error' }); return; }
+  if (title === chat.title) { toast(t('settings.saved'), { type: 'success' }); return; }
+  try {
+    if (SUPABASE.url && SUPABASE.anonKey) await updateGroupTitle(chat.id, title);
+    chat.title = title;
+    await idb.put('chats', chat);
+    emit('chat:updated', { id: chat.id });
+    renderSidebar();
+    toast(t('settings.saved'), { type: 'success' });
+  } catch (err) {
+    console.error('Rename group error:', err);
+    toast(t('group.renameError'), { type: 'error' });
+  }
+}
+
+async function leaveCurrentGroup() {
+  const chat = groupChat;
+  if (!chat) return;
+  const ok = await confirmAction({
+    title: t('side.leaveTitle'),
+    text: t('side.leaveText'),
+    ok: t('side.leaveOk'),
+    danger: true,
+    iconName: 'logout',
+  });
+  if (!ok) return;
+
+  try {
+    if (SUPABASE.url && SUPABASE.anonKey) await leaveGroup(chat.id);
+  } catch (err) {
+    console.error('Leave group error:', err);
+    toast(t('side.leaveError'), { type: 'error' });
+    return;
+  }
+
+  S.chats = S.chats.filter((c) => c.id !== chat.id);
+  delete S.messages[chat.id];
+  clearChatPrefs(chat.id);
+  if (S.unreadFrom) delete S.unreadFrom[chat.id];
+  if (S.renderLimit) delete S.renderLimit[chat.id];
+  await idb.del('chats', chat.id);
+  if (S.active === chat.id) {
+    S.active = null;
+    $('#appView').classList.remove('pane-chat');
+    location.hash = '#/app';
+  }
+  $('#groupOv').hidden = true;
+  groupChat = null;
+  renderSidebar();
+  toast(t('side.left'), { type: 'success' });
+}
+
 /* ── АДМИН: список пользователей ── */
 async function openAdminUsers() {
   $('#adminSearch').value = '';
@@ -295,7 +632,7 @@ async function paintAdminUsers() {
           <span class="n">${esc(p.display_name)}${adminBadge(p)}${isMe ? ` <span class="field-hint">(${t('admin.you')})</span>` : ''}</span>
           <span class="u">${p.username ? '@' + esc(p.username) : '—'}</span>
         </span>
-        ${isMe ? '' : `<button class="btn btn-ghost" type="button" data-role-uid="${p.id}" data-role="${next}">${label}</button>`}
+        ${isMe ? '' : `<button class="btn btn-ghost" type="button" data-role-uid="${esc(p.id)}" data-role="${next}">${label}</button>`}
       </div>`;
     }).join('') || `<div class="nc-hint">${t('admin.empty')}</div>`;
 
@@ -351,7 +688,7 @@ async function paintContacts() {
 
   wrap.innerHTML = users.map((u) => {
     const dm = S.chats.find((c) => c.kind === 'dm' && c.userId === u.id);
-    return `<button class="contact" data-uid="${u.id}" data-hcid="${dm?.id || ''}">
+    return `<button class="contact" data-uid="${esc(u.id)}" data-hcid="${esc(dm?.id || '')}">
       ${avatarHtml(u, { online: u.seen === 'online' })}
       <span class="info">
         <span class="n">${esc(u.name)}${adminBadge(u)}</span>
@@ -436,7 +773,7 @@ async function paintGroupContacts() {
   const available = users.filter((u) => !selectedGroupMembers.has(u.id));
 
   wrap.innerHTML = available.map((u) => `
-    <button class="contact" data-gc-uid="${u.id}">
+    <button class="contact" data-gc-uid="${esc(u.id)}">
       ${avatarHtml(u)}
       <span class="info">
         <span class="n">${esc(u.name)}${adminBadge(u)}</span>
@@ -459,10 +796,10 @@ function paintGroupMembers() {
 
   container.innerHTML = Array.from(selectedGroupMembers).map((uid) => {
     const u = user(uid);
-    return `<button class="group-member" data-uid="${uid}">
+    return `<button class="group-member" data-uid="${esc(uid)}">
       ${avatarHtml(u)}
       <span>${esc(u.name)}${adminBadge(u)}</span>
-      <span class="rm" data-rm="${uid}">${icon('x', 14)}</span>
+      <span class="rm" data-rm="${esc(uid)}">${icon('x', 14)}</span>
     </button>`;
   }).join('');
 
@@ -478,7 +815,8 @@ function paintGroupMembers() {
 
 async function createGroupChat() {
   const title = $('#gcTitle').value.trim();
-  if (!title) { toast(t('group.needName')); return; }
+  if (!title) { toast(t('group.needName'), { type: 'error' }); return; }
+  if (!selectedGroupMembers.size) { toast(t('group.needMembers'), { type: 'error' }); return; }
 
   $('#gcOv').hidden = true;
 

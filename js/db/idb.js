@@ -3,7 +3,9 @@
    недоступен или падать — тогда работаем на памяти, чтобы приложение
    открывалось, а не показывало пустой экран. */
 
-const DB_NAME = 'relik-db';
+const DB_NAME = /(?:^|[?&])demo=1(?:&|$)/.test(typeof location !== 'undefined' ? location.search : '')
+  ? 'relik-db-demo'
+  : 'relik-db';
 const VERSION = 1;
 let dbp = null;
 let broken = false;
@@ -101,6 +103,10 @@ export const idb = {
     async () => pr((await open()).transaction(st, 'readwrite').objectStore(st).delete(key)),
     () => { memStore(st).delete(key); },
   ),
+  clear: (st) => run(
+    async () => pr((await open()).transaction(st, 'readwrite').objectStore(st).clear()),
+    () => { memStore(st).clear(); },
+  ),
   bulkPut: (st, arr) => run(
     async () => {
       const db = await open();
@@ -124,6 +130,31 @@ export const idb = {
     () => [...memStore('messages').values()]
       .filter((m) => m.chatId === chatId)
       .sort((a, b) => a.ts - b.ts),
+  ),
+  /* Удалить все сообщения одного чата одним проходом по индексу */
+  delMessagesOf: (chatId) => run(
+    async () => {
+      if (!chatId) return;
+      const db = await open();
+      await new Promise((res, rej) => {
+        const tx = db.transaction('messages', 'readwrite');
+        const store = tx.objectStore('messages');
+        const req = store.index('byChat').openKeyCursor(IDBKeyRange.only(chatId));
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (!cur) return;
+          store.delete(cur.primaryKey);
+          cur.continue();
+        };
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+      });
+    },
+    () => {
+      for (const [k, v] of memStore('messages')) {
+        if (v.chatId === chatId) memStore('messages').delete(k);
+      }
+    },
   ),
 };
 

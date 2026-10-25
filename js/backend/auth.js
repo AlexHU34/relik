@@ -176,9 +176,26 @@ export async function signIn(email, password) {
 
 /* ── Выход ── */
 export async function signOut() {
-  await sb.auth.signOut();
-  await idb.del('settings', 'me');
-  await idb.del('settings', 'keyPair');
+  try {
+    await sb.auth.signOut();
+  } catch (e) {
+    console.warn('Sign out request failed:', e && e.message ? e.message : e);
+  }
+  /* не оставляем расшифрованную переписку и черновики на устройстве */
+  try {
+    await idb.clear('messages');
+    await idb.clear('chats');
+    const settings = await idb.getAll('settings');
+    for (const rec of settings) {
+      if (rec.key === 'me' || rec.key === 'keyPair' ||
+          String(rec.key).startsWith('draft:') || String(rec.key).startsWith('pin:')) {
+        await idb.del('settings', rec.key);
+      }
+    }
+  } catch (e) {
+    await idb.del('settings', 'me');
+    await idb.del('settings', 'keyPair');
+  }
 }
 
 /* ── Получение текущего пользователя ── */

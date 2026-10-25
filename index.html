@@ -243,6 +243,11 @@
             <span class="trust-ic" id="trustIc"></span>
             <span data-i18n="auth.trust">Мы не можем прочитать ваши сообщения — и это не маркетинг.</span>
           </div>
+          <a class="auth-demo" href="?demo=1">
+            <span class="ad-ic" id="demoIc"></span>
+            <span data-i18n="auth.demo">Посмотреть демо без регистрации</span>
+            <span class="ad-arrow">→</span>
+          </a>
           <p class="auth-note" data-i18n="auth.note">Фаза 4 подключит реальный бэкенд — сейчас это демо-вход</p>
         </div>
       </section>
@@ -320,6 +325,8 @@
             <span class="cs-ic" id="csIc"></span>
             <input id="chatSearchInput" class="input" placeholder="" data-i18n-ph="chat.searchPh">
             <span class="cs-count" id="chatSearchCount"></span>
+            <button class="icon-btn" id="chatSearchPrev"></button>
+            <button class="icon-btn" id="chatSearchNext"></button>
             <button class="icon-btn" id="chatSearchClose"></button>
           </div>
           <div class="pin-bar" id="pinBar" hidden>
@@ -332,6 +339,10 @@
           </div>
         </div>
         <div class="msgs" id="msgs"></div>
+        <div class="drop-hint" id="dropHint" aria-hidden="true">
+          <span class="dh-ic" id="dropIc"></span>
+          <b data-i18n="chat.dropFiles">Отпустите файл, чтобы отправить</b>
+        </div>
         <button class="to-bottom" id="toBottom" hidden></button>
         <footer class="composer">
           <div class="reply-edit-bar" id="reb">
@@ -414,6 +425,28 @@
           </div>
         </div>
         <div class="field">
+          <span data-i18n="settings.textSize">Размер текста</span>
+          <div class="seg seg-3" id="textSizeSeg">
+            <button type="button" data-size="compact">A−</button>
+            <button type="button" data-size="normal">A</button>
+            <button type="button" data-size="large">A+</button>
+          </div>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.wallpaper">Обои чата</span>
+          <div class="wall-grid" id="wallGrid"></div>
+        </div>
+        <label class="switch-row">
+          <span data-i18n="settings.enterSend">Отправлять по Enter</span>
+          <input type="checkbox" id="enterSendToggle">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="settings.motion">Анимации интерфейса</span>
+          <input type="checkbox" id="motionToggle">
+          <i></i>
+        </label>
+        <div class="field">
           <span data-i18n="settings.lang"></span>
           <div class="seg" id="langSeg">
             <button data-lang="ru">Русский</button>
@@ -430,6 +463,14 @@
           <input type="checkbox" id="notifyToggle">
           <i></i>
         </label>
+        <div class="field">
+          <span data-i18n="settings.data">Данные</span>
+          <button class="btn btn-ghost btn-danger-soft" type="button" id="clearLocalBtn">
+            <span class="btn-ic" id="clearLocalIc"></span>
+            <span data-i18n="settings.clearCache">Очистить локальный кэш</span>
+          </button>
+          <span class="field-hint" data-i18n="settings.clearCacheHint">Сообщения и чаты на этом устройстве. Ключи и профиль останутся.</span>
+        </div>
         <div class="about">
           <div class="top">
             <img src="assets/icons/icon-192.png" alt="">
@@ -439,6 +480,7 @@
             </div>
           </div>
           <p class="e2e" data-i18n="settings.e2eNote"></p>
+          <button class="btn btn-ghost" type="button" id="installBtn" hidden data-i18n="settings.install">Установить приложение</button>
           <a class="btn btn-ghost" style="justify-content:center" href="tools/diagnostics.html" target="_blank" rel="noopener" data-i18n="settings.diag">Диагностика звонков и голоса</a>
         </div>
       </div>
@@ -494,6 +536,41 @@
     </div>
   </div>
 
+  <!-- ══════════ УПРАВЛЕНИЕ ГРУППОЙ ══════════ -->
+  <div class="overlay" id="groupOv" hidden>
+    <div class="modal group-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="group.manage">Управление группой</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="group.name">Название группы</span>
+          <div class="inline-action">
+            <input class="input" id="groupTitleInput" maxlength="80" placeholder="">
+            <button class="btn btn-ghost" type="button" id="groupTitleSave" data-i18n="settings.save">Сохранить</button>
+          </div>
+        </div>
+        <div class="field">
+          <span data-i18n="group.members">Участники</span>
+          <div class="member-list" id="groupMemberList"></div>
+        </div>
+        <button class="btn btn-ghost add-member-btn" type="button" id="groupAddBtn">
+          <span class="btn-ic" id="groupAddIc"></span>
+          <span data-i18n="group.addMembers">Добавить участников</span>
+        </button>
+        <div class="group-add-panel" id="groupAddPanel" hidden>
+          <input class="input" id="groupAddSearch" placeholder="" data-i18n-ph="newchat.search">
+          <div class="group-add-list" id="groupAddList"></div>
+        </div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost btn-danger-soft" type="button" id="groupLeave" data-i18n="group.leave">Покинуть группу</button>
+        <button class="btn" type="button" data-close data-i18n="common.done">Готово</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ══════════ ПРОФИЛЬ ══════════ -->
   <div class="overlay" id="profileOv" hidden>
     <div class="modal profile-modal" role="dialog" aria-modal="true">
@@ -509,6 +586,7 @@
         <div class="profile-actions">
           <button class="btn" id="profileCall" data-i18n="profile.call">Позвонить</button>
           <button class="btn btn-ghost" id="profileVideo" data-i18n="profile.video">Видеозвонок</button>
+          <button class="btn btn-ghost" id="profileManage" data-i18n="group.manage">Управление группой</button>
         </div>
       </div>
     </div>
@@ -565,6 +643,7 @@
 
   <!-- ══════════ ЛАЙТБОКС ══════════ -->
   <div class="lightbox" id="lightbox" hidden>
+    <button class="icon-btn lx-dl" id="lbDl" title=""></button>
     <button class="icon-btn lx-close" id="lbX"></button>
     <img id="lbImg" alt="">
   </div>
@@ -621,7 +700,11 @@
     </div>
   </div>
 
-  <div id="toasts"></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <div class="net-bar" id="netBar" hidden>
+    <span class="nb-ic" id="netIc"></span>
+    <span id="netText"></span>
+  </div>
 
   <!-- SDK грузим с defer: он больше не блокирует разбор страницы и первую отрисовку -->
   <script defer src="js/vendor/supabase.js"></script>

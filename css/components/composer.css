@@ -47,13 +47,29 @@
 /* Эмодзи */
 .emoji-wrap{position:relative}
 .emoji-pop{
-  position:absolute;bottom:50px;right:0;width:min(328px,92vw);z-index:var(--z-pop,60);
+  position:absolute;bottom:50px;right:0;width:min(360px,94vw);z-index:var(--z-pop,60);
   background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-lg);
-  box-shadow:var(--sh-pop);padding:8px;display:grid;grid-template-columns:repeat(8,1fr);
-  animation:pop .15s var(--ease);max-height:240px;overflow-y:auto;
+  box-shadow:var(--sh-pop);display:flex;flex-direction:column;overflow:hidden;
+  animation:pop .15s var(--ease);max-height:min(360px,62vh);
 }
-.emoji-pop button{font-size:19px;padding:6px;border-radius:10px;transition:background var(--t-fast),transform var(--t-fast)}
-.emoji-pop button:hover{background:var(--surface-3);transform:scale(1.15)}
+.emoji-tabs{
+  display:flex;gap:2px;padding:6px;border-bottom:1px solid var(--line);
+  overflow-x:auto;scrollbar-width:none;flex:none;
+}
+.emoji-tabs::-webkit-scrollbar{display:none}
+.emoji-tab{
+  font-size:17px;line-height:1;padding:5px 6px;border-radius:9px;opacity:.6;flex:none;
+  transition:background var(--t-fast),opacity var(--t-fast),transform var(--t-fast);
+}
+.emoji-tab:hover{opacity:1;background:var(--surface-3)}
+.emoji-tab.on{opacity:1;background:var(--accent-soft)}
+.emoji-group-title{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx-3);padding:7px 12px 2px}
+.emoji-grid{
+  display:grid;grid-template-columns:repeat(8,1fr);gap:1px;
+  padding:2px 6px 8px;overflow-y:auto;min-height:80px;
+}
+.emoji-grid button{font-size:20px;line-height:1;padding:6px 2px;border-radius:9px;transition:background var(--t-fast),transform var(--t-fast)}
+.emoji-grid button:hover{background:var(--surface-3);transform:scale(1.18)}
 
 /* Отправка / микрофон */
 .send-btn{

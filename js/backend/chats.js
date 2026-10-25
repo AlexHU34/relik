@@ -97,6 +97,7 @@ export async function loadChats() {
         kind: 'dm',
         userId: otherProfile?.id,
         members: [otherProfile?.id],
+        createdBy: conv.created_by || null,
         unread: 0,
         last: null,
         title: otherProfile?.display_name,
@@ -117,6 +118,7 @@ export async function loadChats() {
         kind: 'group',
         title: conv.title,
         hue: conv.hue || 0,
+        createdBy: conv.created_by || null,
         members: conv.conversation_members
           .map((cm) => cm.user_id)
           .filter((id) => id !== user.id),

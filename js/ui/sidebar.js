@@ -1,13 +1,17 @@
-/* Relik — сайдбар: список чатов, поиск, профиль */
-import { S, emit, user, chatTitle } from './state.js';
+/* Relik — сайдбар: список чатов, поиск, закрепление, мьют, контекстное меню */
+import { S, emit, chatTitle } from './state.js';
 import { $, esc, fmtTime, fmtDay, avatarHtml, adminBadge, preview } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';
-import { loadChats as loadChatsFromBackend, searchUsers as searchUsersBackend } from '../backend/chats.js';
+import { loadChats as loadChatsFromBackend } from '../backend/chats.js';
 import { loadLatestPreviews, previewTextFor } from '../backend/messages.js';
 import { SUPABASE } from '../config.js';
 import { getStatuses, refreshChatStatuses } from '../backend/presence.js';
+import { isPinned, isMuted, togglePinned, toggleMuted, setReadAt, clearChatPrefs } from './prefs.js';
+import { openMenu, bindLongPress } from './menu.js';
+import { confirmAction } from './dialog.js';
+import { toast } from './toast.js';
 
 /* Дата для бейджа времени в списке: сегодня — время, вчера/старее — дата */
 function listTime(ts) {
@@ -22,19 +26,28 @@ function chatRow(chat) {
     : { name: chat.title, hue: chat.hue ?? 5, seen: '' };
   const online = chat.kind === 'dm' && u.seen === 'online';
   const active = chat.id === S.active ? ' active' : '';
-  return `<button class="chat-item${active}" data-cid="${chat.id}">
+  const pinned = isPinned(chat.id);
+  const muted = isMuted(chat.id);
+  const flags = `${pinned ? `<span class="ci-flag pin" title="${t('side.pinned')}">${icon('pin', 11)}</span>` : ''}
+    ${muted ? `<span class="ci-flag mute" title="${t('side.muted')}">${icon('bellOff', 11)}</span>` : ''}`;
+  return `<div class="chat-item${active}${pinned ? ' pinned' : ''}" data-cid="${esc(chat.id)}" role="button" tabindex="0"
+      aria-label="${esc(chatTitle(chat))}">
     ${avatarHtml(u, { online })}
     <span class="ci-main">
       <span class="ci-top">
-        <span class="ci-name">${esc(chatTitle(chat))}</span>
+        <span class="ci-name">${esc(chatTitle(chat))}${flags}</span>
         <span class="ci-time">${listTime(chat.last?.ts)}</span>
       </span>
       <span class="ci-bottom">
         <span class="ci-preview">${preview(chat)}</span>
       </span>
     </span>
-    <span class="ci-side">${chat.unread ? `<span class="badge">${chat.unread}</span>` : ''}</span>
-  </button>`;
+    <span class="ci-side">
+      ${chat.unread ? `<span class="badge">${chat.unread > 99 ? '99+' : chat.unread}</span>` : ''}
+      <button class="ci-more" type="button" data-chat-menu="${esc(chat.id)}"
+        title="${t('side.actions')}" aria-label="${t('side.actions')}">${icon('more', 16)}</button>
+    </span>
+  </div>`;
 }
 
 export function renderSidebar() {
@@ -48,7 +61,12 @@ export function renderSidebar() {
       if (String(c.username || '').toLowerCase().includes(q)) return true;
       return String(c.last?.text || '').toLowerCase().includes(q);
     })
-    .sort((a, b) => (b.last?.ts || 0) - (a.last?.ts || 0));
+    .sort((a, b) => {
+      const pa = isPinned(a.id) ? 1 : 0;
+      const pb = isPinned(b.id) ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      return (b.last?.ts || 0) - (a.last?.ts || 0);
+    });
 
   if (!rows.length) {
     list.innerHTML = q
@@ -63,16 +81,175 @@ export function renderSidebar() {
   if (av) av.innerHTML = avatarHtml(S.me || { name: '?', hue: 0 });
   $('#meName') && ($('#meName').innerHTML = esc(S.me?.name || '') + adminBadge(S.me));
   $('#meMail') && ($('#meMail').textContent = S.me?.username ? '@' + S.me.username : (S.me?.mail || ''));
+
+  /* непрочитанные в заголовке вкладки и на иконке приложения */
+  const total = S.me ? S.chats.reduce((n, c) => n + (c.unread || 0), 0) : 0;
+  document.title = total ? `(${total > 99 ? '99+' : total}) Relik` : 'Relik';
+  try {
+    if (navigator.setAppBadge) {
+      const p = total ? navigator.setAppBadge(total) : navigator.clearAppBadge?.();
+      p?.catch?.(() => {});
+    }
+  } catch (e) { /* Badging API не поддерживается */ }
+}
+
+/* ── контекстное меню чата ─────────────────────────────────── */
+function openChatMenu(chat, pos) {
+  if (!chat) return;
+  const pinned = isPinned(chat.id);
+  const muted = isMuted(chat.id);
+  const isGroup = chat.kind === 'group';
+  openMenu([
+    {
+      label: pinned ? t('side.unpin') : t('side.pin'),
+      icon: 'pin',
+      onClick: () => {
+        const now = togglePinned(chat.id);
+        renderSidebar();
+        toast(t(now ? 'side.pinnedToast' : 'side.unpinnedToast'), { type: 'success' });
+      },
+    },
+    {
+      label: muted ? t('side.unmute') : t('side.mute'),
+      icon: muted ? 'bell' : 'bellOff',
+      onClick: () => {
+        const now = toggleMuted(chat.id);
+        renderSidebar();
+        toast(t(now ? 'side.mutedToast' : 'side.unmutedToast'), { type: 'success' });
+      },
+    },
+    {
+      label: t('side.markRead'),
+      icon: 'checkCircle',
+      disabled: !chat.unread,
+      onClick: () => markChatRead(chat),
+    },
+    { sep: true },
+    {
+      label: t('side.clear'),
+      icon: 'database',
+      onClick: () => clearChatHistory(chat),
+    },
+    {
+      label: isGroup ? t('side.leave') : t('side.delete'),
+      icon: isGroup ? 'logout' : 'trash',
+      danger: true,
+      onClick: () => leaveOrDelete(chat),
+    },
+  ], pos);
+}
+
+function markChatRead(chat) {
+  chat.unread = 0;
+  setReadAt(chat.id);
+  idb.put('chats', chat);
+  renderSidebar();
+  toast(t('side.markedRead'), { type: 'success' });
+}
+
+async function clearChatHistory(chat) {
+  const ok = await confirmAction({
+    title: t('side.clearTitle'),
+    text: t('side.clearText'),
+    ok: t('side.clearOk'),
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await idb.delMessagesOf(chat.id);
+  } catch (e) { /* ignore */ }
+  S.messages[chat.id] = [];
+  chat.last = null;
+  chat.unread = 0;
+  delete chat.pin;
+  await idb.put('chats', chat);
+  await idb.del('settings', 'pin:' + chat.id);
+  await idb.del('settings', 'draft:' + chat.id);
+  setReadAt(chat.id);
+  emit('chat:cleared', { id: chat.id });
+  renderSidebar();
+  toast(t('side.cleared'), { type: 'success' });
+}
+
+async function leaveOrDelete(chat) {
+  const isGroup = chat.kind === 'group';
+  const ok = await confirmAction({
+    title: t(isGroup ? 'side.leaveTitle' : 'side.deleteTitle'),
+    text: t(isGroup ? 'side.leaveText' : 'side.deleteText'),
+    ok: t(isGroup ? 'side.leaveOk' : 'side.deleteOk'),
+    danger: true,
+    iconName: isGroup ? 'logout' : 'trash',
+  });
+  if (!ok) return;
+
+  if (isGroup && SUPABASE.url && SUPABASE.anonKey) {
+    try {
+      const { leaveGroup } = await import('../backend/groups.js');
+      await leaveGroup(chat.id);
+    } catch (err) {
+      console.warn('Leave group error:', err);
+      toast(t('side.leaveError'), { type: 'error' });
+      return;
+    }
+  }
+
+  S.chats = S.chats.filter((c) => c.id !== chat.id);
+  delete S.messages[chat.id];
+  clearChatPrefs(chat.id);
+  await idb.del('chats', chat.id);
+  if (S.active === chat.id) {
+    S.active = null;
+    $('#appView').classList.remove('pane-chat');
+    location.hash = '#/app';
+    emit('chat:removed', { id: chat.id });
+  }
+  renderSidebar();
+  toast(t(isGroup ? 'side.left' : 'side.deleted'), { type: 'success' });
 }
 
 /* Делегирование кликов навешивается один раз в initSidebar() */
 export function initSidebar() {
   const list = $('#sideList');
 
+  const openFromRow = (row) => {
+    if (!row) return;
+    location.hash = `#/chat/${row.dataset.cid}`;
+  };
+
   list.addEventListener('click', (e) => {
+    const menuBtn = e.target.closest('[data-chat-menu]');
+    if (menuBtn) {
+      e.stopPropagation();
+      const chat = S.chats.find((c) => c.id === menuBtn.dataset.chatMenu);
+      openChatMenu(chat, { anchor: menuBtn, align: 'right' });
+      return;
+    }
     const item = e.target.closest('.chat-item');
     if (!item) return;
-    location.hash = `#/chat/${item.dataset.cid}`;
+    openFromRow(item);
+  });
+
+  list.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const item = e.target.closest('.chat-item');
+    if (!item || e.target.closest('button')) return;
+    e.preventDefault();
+    openFromRow(item);
+  });
+
+  list.addEventListener('contextmenu', (e) => {
+    const item = e.target.closest('.chat-item');
+    if (!item) return;
+    e.preventDefault();
+    const chat = S.chats.find((c) => c.id === item.dataset.cid);
+    openChatMenu(chat, { x: e.clientX, y: e.clientY });
+  });
+
+  bindLongPress(list, (e) => {
+    const item = e.target.closest('.chat-item');
+    if (!item) return;
+    const chat = S.chats.find((c) => c.id === item.dataset.cid);
+    openChatMenu(chat, { x: e.clientX, y: e.clientY });
   });
 
   $('#searchInput').addEventListener('input', (e) => {
@@ -89,6 +266,7 @@ export function initSidebar() {
   /* Ctrl/Cmd+K — быстрый поиск */
   document.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'k') return;
+    if (!S.me) return;
     e.preventDefault();
     if (location.hash !== '#/app') location.hash = '#/app';
     setTimeout(() => $('#searchInput')?.focus(), 60);

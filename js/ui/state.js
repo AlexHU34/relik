@@ -11,7 +11,10 @@ export const S = {
   reactOpen: null,   // id сообщения с открытой панелью реакций
   filter: '',        // поиск по чатам
   typingChat: null,  // chatId, где показать «печатает…»
+  typingUser: null,  // кто именно печатает (для групп)
   demoShown: false,  // тост про демо-медиа показывали
+  unreadFrom: {},    // chatId -> ts последнего прочтения (для разделителя)
+  renderLimit: {},   // chatId -> сколько сообщений показывать
 };
 
 export const bus = new EventTarget();

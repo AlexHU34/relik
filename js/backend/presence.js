@@ -156,7 +156,7 @@ export function initTyping(chatId, onTyping) {
     .channel(`typing:${chatId}`)
     .on('broadcast', { event: 'typing' }, (p) => {
       const uid = p.payload && p.payload.user_id;
-      if (uid && uid !== S.me?.id) onTyping?.();
+      if (uid && uid !== S.me?.id) onTyping?.(uid);
     });
   typingChannel.subscribe();
 }

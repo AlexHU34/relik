@@ -1,6 +1,5 @@
 /* Relik — утилиты: экранирование, формат времени/дат, сниппеты, аватары */
 import { lang, t } from '../i18n/i18n.js';
-import { user } from './state.js';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -10,20 +9,35 @@ export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
 }[c]));
 
 export function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString(lang === 'ru' ? 'ru' : 'en', { hour: '2-digit', minute: '2-digit' });
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString(lang === 'ru' ? 'ru' : 'en', { hour: '2-digit', minute: '2-digit' });
 }
 
 export function fmtDay(ts) {
   const d = new Date(ts), n = new Date();
+  if (Number.isNaN(d.getTime())) return '';
   const sameDay = d.toDateString() === n.toDateString();
   if (sameDay) return t('chat.today');
   const y = new Date(n); y.setDate(n.getDate() - 1);
   if (d.toDateString() === y.toDateString()) return t('chat.yesterday');
-  return new Intl.DateTimeFormat(lang === 'ru' ? 'ru' : 'en', { day: 'numeric', month: 'short' }).format(d);
+  const sameYear = d.getFullYear() === n.getFullYear();
+  return new Intl.DateTimeFormat(lang === 'ru' ? 'ru' : 'en', sameYear
+    ? { day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+}
+
+export function fmtSize(b) {
+  const n = Number(b) || 0;
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + ' GB';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + ' MB';
+  if (n >= 1e3) return Math.round(n / 1e3) + ' KB';
+  return n + ' B';
 }
 
 export function fmtDur(s) {
-  const m = Math.floor(s / 60), r = Math.round(s % 60);
+  const total = Math.max(0, Math.round(Number(s) || 0));
+  const m = Math.floor(total / 60), r = total % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
@@ -42,13 +56,15 @@ export function snippet(m) {
 }
 
 /* Аватар с буквой или фото; opts: {sm, lg, online} */
-export function avatarHtml(u, opts = {}) {  if (!u) return '';
+export function avatarHtml(u, opts = {}) {
+  if (!u) return '';
   const cls = ['avatar', opts.sm ? 'sm' : '', opts.lg ? 'lg' : ''].filter(Boolean).join(' ');
   const dot = opts.online ? '<i class="online-dot"></i>' : '';
   const inner = u.avatar
     ? `<img src="${esc(u.avatar)}" alt="">`
     : `<b>${esc((u.name || '?').slice(0, 1).toUpperCase())}</b>`;
-  return `<span class="${cls}" data-h="${u.hue ?? 0}">${inner}${dot}</span>`;
+  const hue = Number(u.hue);
+  return `<span class="${cls}" data-h="${Number.isFinite(hue) ? hue : 0}">${inner}${dot}</span>`;
 }
 
 export function adminBadge(u) {

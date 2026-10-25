@@ -5,13 +5,12 @@ import { sb } from './supabaseClient.js';
 import { idb, newId } from '../db/idb.js';
 import { SUPABASE } from '../config.js';
 import { S } from '../ui/state.js';
+import { t } from '../i18n/i18n.js';
 import {
   getKeyPair,
   getTheirPublicKey,
   encryptForChat,
   decryptFromChat,
-  encryptForGroup,
-  decryptFromGroup,
 } from '../crypto/encryption.js';
 
 /* Опросы и голоса передаются обычными сообщениями с префиксом —
@@ -92,8 +91,13 @@ function applySpecial(m) {
     m.reaction = s.reaction;
     m.text = '';
   } else if (s.kind === 'media') {
-    m.type = s.media.kind === 'image' ? 'image' : 'file';
+    const kind = s.media.kind === 'voice' ? 'voice' : s.media.kind === 'image' ? 'image' : 'file';
+    m.type = kind;
     m.file = { name: s.media.name, size: s.media.size, src: s.media.src };
+    if (kind === 'voice') {
+      const v = s.media.voice || {};
+      m.voice = { dur: v.dur || 0, bars: v.bars || [], rate: v.rate || 1, src: s.media.src };
+    }
     m.text = '';
   } else {
     m.type = 'pollclose';
@@ -110,9 +114,9 @@ function previewOfText(text) {
   if (!s) return text;
   if (s.kind === 'poll') return '📊 ' + s.text;
   if (s.kind === 'media') {
-    return s.media.kind === 'image'
-      ? '📷 Фото'
-      : '📄 ' + (s.media.name || 'файл');
+    if (s.media.kind === 'image') return `📷 ${t('msg.photo')}`;
+    if (s.media.kind === 'voice') return `🎙 ${t('msg.voice')}`;
+    return `📄 ${s.media.name || t('msg.file')}`;
   }
   return null;
 }

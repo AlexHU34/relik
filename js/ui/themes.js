@@ -151,6 +151,7 @@ export function applyTheme(id, persist = true) {
     for (const [k, v] of Object.entries(theme.vars)) root.style.setProperty(k, v);
   }
   root.dataset.theme = theme.id;
+  root.style.colorScheme = theme.id === 'light' ? 'light' : 'dark';
   if (persist) localStorage.setItem('relik.theme', theme.id);
 }
 

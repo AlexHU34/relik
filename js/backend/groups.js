@@ -3,7 +3,6 @@
 
 import { sb } from './supabaseClient.js';
 import { getKeyPair, getTheirPublicKey, generateGroupKey, encryptGroupKeyForUser, decryptGroupKey, encryptForGroup, decryptFromGroup } from '../crypto/encryption.js';
-import { sendMessage } from './messages.js';
 
 /* ── Создание группы ── */
 export async function createGroup(title, memberIds) {

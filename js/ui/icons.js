@@ -51,6 +51,18 @@ const P = {
   eyeOff: '<path d="m3 3 18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M6.8 6.8C4 8.4 2 12 2 12s3.5 6 10 6c2 0 3.8-.6 5.3-1.6"/><path d="M9.9 4.3A10.9 10.9 0 0 1 12 4c6.5 0 10 6 10 6a17.7 17.7 0 0 1-2.8 3.5"/>',
   spark: '<path d="m12 3 1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8L12 3Z"/><path d="m18.5 15 .9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9.9-2.3Z"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14.5 14.5 0 0 1 4 9 14.5 14.5 0 0 1-4 9 14.5 14.5 0 0 1-4-9 14.5 14.5 0 0 1 4-9Z"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/>',
+  bellOff: '<path d="M18 8a6 6 0 0 0-9.3-5"/><path d="M6.3 6.3A6 6 0 0 0 6 8c0 7-3 8-3 8h13"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
+  chevronUp: '<path d="m18 15-6-6-6 6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  userPlus: '<circle cx="9" cy="8" r="4"/><path d="M3 21v-1a6 6 0 0 1 6-6h2"/><path d="M19 8v6M16 11h6"/>',
+  userMinus: '<circle cx="9" cy="8" r="4"/><path d="M3 21v-1a6 6 0 0 1 6-6h2"/><path d="M16 11h6"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>',
+  wifiOff: '<path d="M2 2l20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M5 12.9a10 10 0 0 1 3-1.9"/><path d="M14.5 10.5a10 10 0 0 1 4.5 2.4"/><path d="M2 8.8a15 15 0 0 1 4-2.4"/><path d="M18 6.4A15 15 0 0 1 22 8.8"/><path d="M12 20h.01"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="10" r="1.2" fill="currentColor" stroke="none"/><path d="M12 21a3 3 0 0 1 0-6 3 3 0 0 0 3-3"/>',
+  type: '<path d="M4 19 10 5l6 14"/><path d="M7 14h6"/><path d="M17 19h4"/>',
+  database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+  checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
 };
 
 /* icon('send', 18) → строка <svg> (текущий цвет наследуется) */

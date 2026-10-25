@@ -1,5 +1,6 @@
 /* Relik — системные уведомления браузера (когда вкладка не активна) */
 import { t } from '../i18n/i18n.js';
+import { isMuted } from './prefs.js';
 
 const KEY = 'relik.notify';
 
@@ -27,6 +28,7 @@ export async function setNotifications(on) {
 
 export function notifyMessage(chat, text, onClick) {
   if (!notificationsEnabled()) return;
+  if (isMuted(chat?.id)) return;
   if (document.visibilityState === 'visible') return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
