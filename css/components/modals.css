@@ -94,7 +94,8 @@ html[data-device="phone"] .m-foot .btn{flex:1;min-width:120px}
 .contact .s{font-size:var(--fs-2xs);color:var(--tx-3)}
 .contact .c-ic{width:38px;height:38px;border-radius:12px;background:var(--surface-3);color:var(--tx-2);display:grid;place-items:center;flex:none}
 .contact .c-ic.grad{background:var(--grad);color:#fff}
-.nc-hint{font-size:var(--fs-2xs);color:var(--tx-3);padding:2px 10px 6px}
+.nc-hint{font-size:var(--fs-2xs);color:var(--tx-3);padding:2px 10px 6px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.nc-err{font-family:var(--font-mono,monospace);font-size:10px;line-height:1.4;color:var(--danger,#e5484d);opacity:.85;word-break:break-word;max-width:100%}
 
 /* Подтверждение email */
 .verify-sub{font-size:var(--fs-sm);color:var(--tx-2);line-height:1.5}

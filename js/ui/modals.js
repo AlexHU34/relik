@@ -83,6 +83,9 @@ export function initModals() {
   /* ── новый чат ── */
   $('#ncSearch').addEventListener('input', paintContactsDebounced);
   $('#ncGroup').addEventListener('click', openGroupCreator);
+  $('#ncList').addEventListener('click', (e) => {
+    if (e.target.closest('[data-retry-contacts]')) paintContacts();
+  });
   $('#lbX').addEventListener('click', closeLightbox);
   $('#lbDl').addEventListener('click', downloadLightbox);
   document.addEventListener('relik:lang', paintContacts);
@@ -90,6 +93,9 @@ export function initModals() {
   /* ── создание группы ── */
   $('#gcSearch').addEventListener('input', paintGroupContactsDebounced);
   $('#gcCreate').addEventListener('click', createGroupChat);
+  $('#gcContacts').addEventListener('click', (e) => {
+    if (e.target.closest('[data-retry-groups]')) paintGroupContacts();
+  });
 
   /* ── темы, шрифты, звуки, аватар ── */
   $('#themeGrid').addEventListener('click', (e) => {
@@ -883,8 +889,11 @@ async function paintContacts() {
   const wrap = $('#ncList');
   if (!wrap || $('#ncOv').hidden) return;
   const q = $('#ncSearch').value.trim();
+  if (!wrap.querySelector('.contact')) wrap.innerHTML = `<div class="nc-hint">${t('newchat.loading')}</div>`;
 
   let users;
+  let failed = false;
+  let errMsg = '';
   if (SUPABASE.url && SUPABASE.anonKey) {
     try {
       const profiles = await searchUsers(q);
@@ -894,7 +903,17 @@ async function paintContacts() {
       mergeUsers(users);
     } catch (err) {
       console.error('Search users error:', err);
+      failed = true;
+      errMsg = String(err?.message || err || '').trim().slice(0, 160);
+      /* офлайн-запасной вариант: собеседники из уже сохранённых чатов */
       users = S.users.filter((u) => !u.id.startsWith('u_') && (!q || u.name.toLowerCase().includes(q.toLowerCase())));
+      for (const c of S.chats) {
+        if (c.kind !== 'dm' || !c.userId) continue;
+        if (users.some((u) => u.id === c.userId)) continue;
+        const name = c.title || '';
+        if (q && !name.toLowerCase().includes(q.toLowerCase())) continue;
+        users.push({ id: c.userId, name, hue: c.hue ?? 210, avatar: null, username: null, role: 'user', seen: 'offline' });
+      }
     }
   } else {
     users = S.users.filter((u) => !q || u.name.toLowerCase().includes(q.toLowerCase()));
@@ -909,7 +928,10 @@ async function paintContacts() {
         <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + u.seen)}</span>
       </span>
     </button>`;
-  }).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
+  }).join('') || `<div class="nc-hint">${t(failed ? 'newchat.loadError' : 'newchat.empty')}
+    ${failed ? `<button class="btn btn-ghost" type="button" data-retry-contacts>${t('newchat.retry')}</button>` : ''}
+    ${failed && errMsg ? `<div class="nc-err">${esc(errMsg)}</div>` : ''}
+  </div>`;
 }
 
 /* Добавить/обновить контакты в общем состоянии */
@@ -967,9 +989,11 @@ async function paintGroupContacts() {
   const wrap = $('#gcContacts');
   if (!wrap || $('#gcOv').hidden) return;
   const q = $('#gcSearch').value.toLowerCase().trim();
+  if (!wrap.querySelector('.contact')) wrap.innerHTML = `<div class="nc-hint">${t('newchat.loading')}</div>`;
 
   let users;
   let failed = false;
+  let errMsg = '';
   if (SUPABASE.url && SUPABASE.anonKey) {
     try {
       const profiles = await searchUsers(q);
@@ -980,6 +1004,7 @@ async function paintGroupContacts() {
     } catch (err) {
       console.error('Search users error:', err);
       failed = true;
+      errMsg = String(err?.message || err || '').trim().slice(0, 160);
       users = S.users.filter((u) => !u.id.startsWith('u_') && (!q || u.name.toLowerCase().includes(q.toLowerCase())));
     }
   } else {
@@ -995,7 +1020,10 @@ async function paintGroupContacts() {
         <span class="n">${esc(u.name)}${adminBadge(u)}</span>
       </span>
     </button>
-  `).join('') || `<div class="nc-hint">${t(failed ? 'group.searchError' : 'newchat.empty')}</div>`;
+  `).join('') || `<div class="nc-hint">${t(failed ? 'group.searchError' : 'newchat.empty')}
+    ${failed ? `<button class="btn btn-ghost" type="button" data-retry-groups>${t('newchat.retry')}</button>` : ''}
+    ${failed && errMsg ? `<div class="nc-err">${esc(errMsg)}</div>` : ''}
+  </div>`;
 
   wrap.querySelectorAll('[data-gc-uid]').forEach((btn) => {
     btn.addEventListener('click', () => {

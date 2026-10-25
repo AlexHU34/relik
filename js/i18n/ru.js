@@ -283,6 +283,9 @@ export default {
   'newchat.groupSub': 'До 200 участников',
   'newchat.contacts': 'Контакты',
   'newchat.empty': 'Никого не найдено',
+  'newchat.loading': 'Загружаем контакты…',
+  'newchat.loadError': 'Не удалось загрузить контакты. Проверьте вход и связь.',
+  'newchat.retry': 'Повторить',
 
   'group.create': 'Создать группу',
   'group.name': 'Название группы',

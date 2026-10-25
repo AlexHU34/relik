@@ -209,6 +209,16 @@ export async function getProfile(userId) {
 }
 
 /* ── Поиск пользователей по имени или @username (пустой запрос — все контакты) ── */
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label}: таймаут ${Math.round(ms / 1000)} с`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 export async function searchUsers(query) {
   const q = String(query || '').trim().replace(/^@+/, '');
   const safe = q.replace(/[,()]/g, ' ').trim();
@@ -228,13 +238,13 @@ export async function searchUsers(query) {
         ? req.or(`display_name.ilike.%${safe}%,username.ilike.%${safe}%`)
         : req.ilike('display_name', `%${safe}%`);
     }
-    const { data, error } = await req;
+    const { data, error } = await withTimeout(req, 12000, 'profiles');
     if (!error) return data || [];
     lastError = error;
     /* 42703 / schema cache — колонки нет: пробуем следующий набор */
     if (!/42703|column.*does not exist|schema cache/i.test(error.message || '')) break;
   }
-  throw lastError || new Error('Profiles search failed');
+  throw lastError || new Error('Не удалось получить список пользователей');
 }
 
 /* ── Получение участников чата ── */

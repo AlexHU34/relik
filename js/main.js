@@ -463,6 +463,14 @@ async function validateSession(force = false) {
         showAuth();
         toast(t('auth.sessionExpired'), { type: 'error' });
       }
+    } else if (data.user.id !== S.me.id) {
+      /* В браузере активна сессия другого аккаунта */
+      S.me = null;
+      S.chats = [];
+      S.active = null;
+      S.messages = {};
+      showAuth();
+      toast(t('auth.otherTab'), { type: 'error', duration: 0 });
     }
   } catch (e) { /* офлайн — не выкидываем из аккаунта */ }
 }
@@ -826,6 +834,7 @@ async function boot() {
     paintEmptyChips();
     animateWelcome();
     bootDone();                       // ← экран уже на месте, белой заглушки больше нет
+    if (S.me) validateSession(true);
 
     /* дальше — только фон: сеть может быть медленной или недоступной */
     withTimeout(restoreSession(), 12000)

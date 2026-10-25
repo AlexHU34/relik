@@ -283,6 +283,9 @@ export default {
   'newchat.groupSub': 'Up to 200 members',
   'newchat.contacts': 'Contacts',
   'newchat.empty': 'Nobody found',
+  'newchat.loading': 'Loading contacts…',
+  'newchat.loadError': 'Could not load contacts. Check your session and connection.',
+  'newchat.retry': 'Retry',
 
   'group.create': 'Create group',
   'group.name': 'Group name',
