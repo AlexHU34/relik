@@ -152,7 +152,7 @@ export async function createDmChat(targetUserId) {
         .select('user_id')
         .eq('conversation_id', member.conversation_id)
         .eq('user_id', targetUserId)
-        .single();
+        .maybeSingle();
 
       if (other) {
         // Чат уже существует
@@ -188,7 +188,7 @@ export async function getProfile(userId) {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
   return data;

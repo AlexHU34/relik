@@ -29,7 +29,7 @@ export async function getUserStatus(userId) {
     .from('profiles')
     .select('last_seen')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
   if (error) return 'offline';
 

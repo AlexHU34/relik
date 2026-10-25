@@ -187,12 +187,20 @@ export async function signIn(email, password) {
   if (error) throw error;
 
   const { data: profile, error: profileError } = await withTimeout(
-    sb.from('profiles').select('*').eq('id', data.user.id).single(),
+    sb.from('profiles').select('*').eq('id', data.user.id).maybeSingle(),
     15000,
     'profile-timeout',
   );
 
   if (profileError) throw profileError;
+
+  /* Аккаунт в Auth есть, а профиля нет (оборвалась регистрация/старый баг).
+     Восстанавливаем профиль и ключи прямо при входе. */
+  if (!profile) {
+    const meta = data.user.user_metadata || {};
+    const name = meta.display_name || meta.name || String(email).split('@')[0] || 'Relik user';
+    return await finalizeProfile(data.user, email, name, password);
+  }
 
   // Дешифрование приватного ключа из бэкапа
   let privateKeyJwk = null;
@@ -326,11 +334,11 @@ export async function restoreSession() {
   if (error || !session) return null;
 
   const { data: profile, error: profileError } = await withTimeout(
-    sb.from('profiles').select('*').eq('id', session.user.id).single(),
+    sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle(),
     15000,
     'profile-timeout',
   );
-  if (profileError) return null;
+  if (profileError || !profile) return null;
 
   const keyPairRec = await idb.get('settings', 'keyPair');
   const privateKey = jwkToString(keyPairRec?.value?.privateKey);

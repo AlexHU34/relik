@@ -426,7 +426,7 @@ async function conversationOfMessage(messageId) {
     .from('messages')
     .select('conversation_id')
     .eq('id', messageId)
-    .single();
+    .maybeSingle();
   if (error) return null;
   return data?.conversation_id || null;
 }
