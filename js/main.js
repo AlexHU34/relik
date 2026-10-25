@@ -996,6 +996,18 @@ setInterval(() => {
   retryOutbox();
 }, 20000);
 
+/* Открыть чат по клику на push-уведомление */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const url = e.data && e.data.type === 'relik:open-chat' ? e.data.url : '';
+    if (!url) return;
+    try {
+      const u = new URL(url, location.href);
+      if (u.hash) location.hash = u.hash;
+    } catch (err) { /* ignore */ }
+  });
+}
+
 /* Заголовок и версия */
 document.title = APP.name;
 console.info(`%cRelik v${APP.version}`, 'color:#5b6cf9;font-weight:bold', `· ${APP.phase}`);

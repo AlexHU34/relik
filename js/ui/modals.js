@@ -10,6 +10,7 @@ import { renderSidebar, loadChats } from './sidebar.js';
 import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll, deleteAccount } from '../backend/auth.js';
 import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } from '../backend/chats.js';
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
+import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -150,6 +151,50 @@ export function initModals() {
     e.target.value = '';
   });
   $('#soundsToggle').addEventListener('change', (e) => setSounds(e.target.checked));
+  /* ── Web Push ── */
+  const paintPush = async () => {
+    const box = $('#pushToggle');
+    if (!box) return;
+    const st = await pushState();
+    box.checked = st === 'on';
+    box.disabled = st === 'unsupported';
+    const hint = $('#pushHint');
+    if (hint) {
+      hint.textContent = st === 'unsupported'
+        ? t('settings.pushNoSupport')
+        : st === 'denied'
+          ? t('settings.pushDenied')
+          : t('settings.pushHint');
+    }
+  };
+  paintPush();
+  $('#pushToggle')?.addEventListener('change', async (e) => {
+    const want = e.target.checked;
+    e.target.disabled = true;
+    try {
+      if (want) {
+        await enablePush();
+        toast(t('settings.pushOn'));
+      } else {
+        await disablePush();
+        toast(t('settings.pushOff'));
+      }
+    } catch (err) {
+      const code = String(err?.message || '');
+      e.target.checked = !want;
+      toast(
+        /denied/i.test(code) ? t('settings.pushDenied')
+          : /unsupported/i.test(code) ? t('settings.pushNoSupport')
+            : /need_sql/i.test(code) ? t('settings.pushNeedSql')
+              : /no_backend|not_configured/i.test(code) ? t('settings.pushNoServer')
+                : t('toast.error'),
+        { type: 'error' },
+      );
+    } finally {
+      e.target.disabled = false;
+      paintPush();
+    }
+  });
   $('#notifyToggle').addEventListener('change', async (e) => {
     const wanted = e.target.checked;
     try {

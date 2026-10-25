@@ -12,6 +12,7 @@ import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
 import { sendMessage, editMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
 import { logEvent } from '../backend/telemetry.js';
+import { notifyPush } from '../backend/push.js';
 import { readFileAsDataURL, uploadEncryptedBlob, dataUrlToBlob, rememberMediaPreview } from '../backend/storage.js';
 import { prefs } from './prefs.js';
 import { currentDevice } from './device.js';
@@ -331,6 +332,7 @@ export async function sendCurrent() {
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
+    notifyPush(chat);
   } catch (err) {
     console.error('Send message error:', err);
     msg.status = 'error';
@@ -453,6 +455,7 @@ export async function retryMessage(m, opts = {}) {
     delete m.error;
     await idb.put('messages', m);
     ok = true;
+    notifyPush(chat);
   } catch (err) {
     const msg = String(err?.message || '');
     /* сообщение уже дошло раньше, но клиент не успел отметить — это успех */
