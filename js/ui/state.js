@@ -16,6 +16,9 @@ export const S = {
   demoShown: false,  // тост про демо-медиа показывали
   unreadFrom: {},    // chatId -> ts последнего прочтения (для разделителя)
   renderLimit: {},   // chatId -> сколько сообщений показывать
+  reqIn: [],         // входящие заявки в контакты [{id, from, to, status, ts}]
+  reqOut: [],        // исходящие заявки
+  contacts: [],      // принятые контакты [{userId, reqId}]
 };
 
 export const bus = new EventTarget();

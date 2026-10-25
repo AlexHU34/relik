@@ -9,7 +9,8 @@ import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
-import { initModals, openSettings, contactClicked, openNewChat } from './ui/modals.js';
+import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime } from './ui/modals.js';
+import { seedDemoRequests } from './backend/contacts.js';
 import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
 import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
@@ -35,13 +36,17 @@ function paintChrome() {
   const paint = (sel, ic, title) => {
     const b = $(sel);
     if (!b) return;
-    if (ic) b.innerHTML = icon(ic, 18);
+    /* сохраняем счётчик-бейдж внутри кнопки */
+    const badge = b.querySelector('.dot-badge');
+    if (ic) b.innerHTML = icon(ic, 18) + (badge ? badge.outerHTML : '');
     if (title) {
       b.title = t(title);
       b.setAttribute('aria-label', t(title));
     }
   };
   paint('#newChatBtn', 'plus', 'side.newChat');
+  paint('#peopleBtn', 'search', 'side.findPeople');
+  paint('#requestsBtn', 'mail', 'side.requests');
   paint('#settingsBtn', 'sliders', 'side.settings');
   paint('#logoutBtn', 'logout', 'side.logout');
   paint('#backBtn', 'back');
@@ -478,6 +483,8 @@ async function validateSession(force = false) {
 /* ── кнопки сайдбара и шапки ── */
 function initChrome() {
   $('#newChatBtn').addEventListener('click', openNewChat);
+  $('#peopleBtn').addEventListener('click', openPeople);
+  $('#requestsBtn').addEventListener('click', openRequests);
   $('#emptyNewChat').addEventListener('click', openNewChat);
   $('#emptySettings').addEventListener('click', openSettings);
   $('#ncList').addEventListener('click', contactClicked);
@@ -547,7 +554,20 @@ let sidebarTimer = null;
 let sidebarBusy = false;
 
 function startGlobalRealtime() {
-  if (!isRealBackend || !S.me || globalSub) return;
+  if (!S.me) return;
+
+  /* заявки в контакты работают и в демо-режиме:
+     счётчик на конверте + live-обновление */
+  refreshRequests().catch(() => {});
+  startContactRealtime();
+  /* realtime может быть не включён для таблицы — тихо сверяем раз в 30 с */
+  if (!window.__reqTimer) {
+    window.__reqTimer = setInterval(() => {
+      if (document.visibilityState === 'visible' && S.me) refreshRequests().catch(() => {});
+    }, 30000);
+  }
+
+  if (!isRealBackend || globalSub) return;
   globalSub = subscribeAllMessages(async (row) => {
     if (!row) return;
     const chat = chatById(row.conversation_id);
@@ -804,6 +824,7 @@ async function boot() {
   window.addEventListener('focus', () => {
     if (S.me) reloadChats().then(() => retryOutbox()).catch(() => {});
     validateSession();
+    refreshRequests().catch(() => {});
   });
   }
 
@@ -891,6 +912,7 @@ async function boot() {
     showApp();
     armPin();
     maybeDemo();
+    seedDemoRequests(S.users).then(() => refreshRequests()).catch(() => {});
     startGlobalRealtime();
     initCalls();
   } else {

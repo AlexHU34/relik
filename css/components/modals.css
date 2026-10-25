@@ -93,6 +93,26 @@ html[data-device="phone"] .m-foot .btn{flex:1;min-width:120px}
 .contact .n{font-weight:600;font-size:var(--fs-md)}
 .contact .s{font-size:var(--fs-2xs);color:var(--tx-3)}
 .contact .c-ic{width:38px;height:38px;border-radius:12px;background:var(--surface-3);color:var(--tx-2);display:grid;place-items:center;flex:none}
+
+/* Поиск людей и заявки в контакты */
+.people-row{cursor:default}
+.people-row .info{flex:1;overflow:hidden}
+.people-row .n,.people-row .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.people-row .pc-act{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto}
+.pc-btn{
+  font-size:var(--fs-2xs);font-weight:600;color:var(--tx-2);
+  border:1px solid var(--line-2);border-radius:var(--r-full);
+  padding:5px 11px;background:transparent;white-space:nowrap;
+  transition:background var(--t-fast),color var(--t-fast),border-color var(--t-fast);
+}
+.pc-btn:hover{background:var(--surface-3);color:var(--tx)}
+.pc-btn.ok{background:var(--accent-soft);border-color:var(--accent-glow);color:var(--accent)}
+.pc-btn.ok:hover{background:var(--accent);color:#fff}
+.pc-btn:disabled{opacity:.5;pointer-events:none}
+@media (max-width:420px){
+  .people-row .pc-act{margin-left:6px}
+  .pc-btn{padding:5px 9px}
+}
 .contact .c-ic.grad{background:var(--grad);color:#fff}
 .nc-hint{font-size:var(--fs-2xs);color:var(--tx-3);padding:2px 10px 6px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 .nc-err{font-family:var(--font-mono,monospace);font-size:10px;line-height:1.4;color:var(--danger,#e5484d);opacity:.85;word-break:break-word;max-width:100%}

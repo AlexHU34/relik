@@ -9,6 +9,7 @@ import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
 import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll } from '../backend/auth.js';
 import { searchUsers, createDmChat, listProfiles, setUserRole } from '../backend/chats.js';
+import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -37,6 +38,7 @@ const paintContactsDebounced = debounce(paintContacts);
 const paintGroupContactsDebounced = debounce(paintGroupContacts);
 const paintAdminUsersDebounced = debounce(paintAdminUsers);
 const paintGroupAddDebounced = debounce(paintGroupAddList);
+const paintPeopleDebounced = debounce(paintPeople);
 
 export function initModals() {
   /* статичные иконки закрытия */
@@ -61,6 +63,7 @@ export function initModals() {
       closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
       closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv'));
       closeOv($('#groupOv')); closeOv($('#readOv'));
+      closeOv($('#peopleOv')); closeOv($('#reqOv'));
     }
   });
   document.addEventListener('keydown', (e) => {
@@ -89,6 +92,17 @@ export function initModals() {
   $('#lbX').addEventListener('click', closeLightbox);
   $('#lbDl').addEventListener('click', downloadLightbox);
   document.addEventListener('relik:lang', paintContacts);
+
+  /* ── поиск людей и заявки в контакты ── */
+  $('#peopleSearch').addEventListener('input', paintPeopleDebounced);
+  $('#peopleList').addEventListener('click', peopleAction);
+  $('#reqIn').addEventListener('click', peopleAction);
+  $('#reqOut').addEventListener('click', peopleAction);
+  $('#reqContacts').addEventListener('click', peopleAction);
+  document.addEventListener('relik:lang', () => {
+    if (!$('#peopleOv').hidden) paintPeople();
+    if (!$('#reqOv').hidden) paintRequests();
+  });
 
   /* ── создание группы ── */
   $('#gcSearch').addEventListener('input', paintGroupContactsDebounced);
@@ -949,7 +963,12 @@ export async function contactClicked(e) {
   if (!c) return;
   $('#ncOv').hidden = true;
   location.hash = '#/app';
-  const uid = c.dataset.uid;
+  await openDmWith(c.dataset.uid);
+}
+
+/* открыть (или создать) личный чат с человеком */
+export async function openDmWith(uid) {
+  if (!uid) return;
   const chat = S.chats.find((x) => x.kind === 'dm' && x.userId === uid);
   if (chat) { location.hash = `#/chat/${chat.id}`; return; }
 
@@ -963,7 +982,6 @@ export async function contactClicked(e) {
       toast(err.message || t('toast.error'));
     }
   } else {
-    const u = user(uid);
     const fresh = {
       id: newId(), kind: 'dm', userId: uid, members: [uid],
       unread: 0, last: null,
@@ -972,6 +990,243 @@ export async function contactClicked(e) {
     idb.put('chats', fresh);
     location.hash = `#/chat/${fresh.id}`;
   }
+}
+
+/* ── Поиск людей и заявки в контакты ───────────────────────── */
+
+/* обновить заявки и счётчик на конверте */
+export async function refreshRequests() {
+  if (!S.me) return { incoming: [], outgoing: [], contacts: [] };
+  let data = { incoming: [], outgoing: [], contacts: [] };
+  try {
+    /* в демо-режиме один раз показываем входящую заявку, чтобы был виден механизм */
+    if (!(SUPABASE.url && SUPABASE.anonKey)) await seedDemoRequests(S.users);
+    data = await listRequests();
+  } catch (err) {
+    console.error('Contact requests error:', err);
+  }
+  S.reqIn = data.incoming || [];
+  S.reqOut = data.outgoing || [];
+  S.contacts = data.contacts || [];
+  updateReqBadge();
+  return data;
+}
+
+export function updateReqBadge() {
+  const badge = $('#reqBadge');
+  if (!badge) return;
+  const n = S.reqIn.length;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.hidden = n === 0;
+  const btn = $('#requestsBtn');
+  if (btn) btn.classList.toggle('has-requests', n > 0);
+}
+
+export function openPeople() {
+  if (!$('#peopleOv')) return;
+  $('#peopleSearch').value = '';
+  $('#peopleOv').hidden = false;
+  paintPeople();
+  setTimeout(() => { try { $('#peopleSearch').focus(); } catch (e) { /* ignore */ } }, 80);
+}
+
+function relOf(uid) {
+  const contact = S.contacts.find((c) => c.userId === uid);
+  if (contact) return { kind: 'contact', reqId: contact.reqId };
+  const inc = S.reqIn.find((r) => r.from === uid);
+  if (inc) return { kind: 'incoming', reqId: inc.id };
+  const out = S.reqOut.find((r) => r.to === uid);
+  if (out) return { kind: 'outgoing', reqId: out.id };
+  return { kind: 'none' };
+}
+
+function peopleActions(uid, rel) {
+  if (rel.kind === 'contact') {
+    return `<button class="pc-btn" type="button" data-pact="write" data-puid="${esc(uid)}">${esc(t('people.write'))}</button>`;
+  }
+  if (rel.kind === 'incoming') {
+    return `<button class="pc-btn ok" type="button" data-pact="accept" data-preq="${esc(rel.reqId)}" data-puid="${esc(uid)}">${esc(t('req.accept'))}</button>`;
+  }
+  if (rel.kind === 'outgoing') {
+    return `<button class="pc-btn" type="button" data-pact="cancel" data-preq="${esc(rel.reqId)}" data-puid="${esc(uid)}">${esc(t('req.cancel'))}</button>`;
+  }
+  return `<button class="pc-btn ok" type="button" data-pact="add" data-puid="${esc(uid)}">${esc(t('people.add'))}</button>`;
+}
+
+function peopleRow(u) {
+  const rel = relOf(u.id);
+  const sub = rel.kind === 'outgoing'
+    ? esc(t('people.pendingOut'))
+    : rel.kind === 'contact'
+      ? esc(t('req.inContacts'))
+      : u.username ? '@' + esc(u.username) : esc(t('chat.' + (u.seen || 'offline')));
+  return `<div class="contact people-row" data-puid="${esc(u.id)}">
+    ${avatarHtml(u, { online: u.seen === 'online' })}
+    <span class="info">
+      <span class="n">${esc(u.name)}${adminBadge(u)}</span>
+      <span class="s">${sub}</span>
+    </span>
+    <span class="pc-act">${peopleActions(u.id, rel)}</span>
+  </div>`;
+}
+
+async function paintPeople() {
+  const wrap = $('#peopleList');
+  if (!wrap || $('#peopleOv').hidden) return;
+  const q = $('#peopleSearch').value.trim();
+  wrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+
+  await refreshRequests();
+
+  let profiles = [];
+  let failed = '';
+  if (SUPABASE.url && SUPABASE.anonKey) {
+    try {
+      profiles = await searchUsers(q);
+    } catch (err) {
+      console.error('People search error:', err);
+      failed = String(err?.message || err || '').slice(0, 160);
+    }
+  } else {
+    const needle = q.replace(/^@+/, '').toLowerCase();
+    profiles = S.users
+      .filter((u) => u.id !== S.me?.id)
+      .filter((u) => !needle || u.name.toLowerCase().includes(needle))
+      .map((u) => ({ id: u.id, display_name: u.name, avatar_hue: u.hue, avatar: u.avatar || null, username: u.username || null, role: u.role || 'user' }));
+  }
+
+  const users = profiles
+    .filter((p) => p.id !== S.me?.id)
+    .map((p) => ({ id: p.id, name: p.display_name, hue: p.avatar_hue, avatar: p.avatar || null, username: p.username || null, role: p.role || 'user' }));
+  mergeUsers(users);
+
+  /* контакты — первыми */
+  users.sort((a, b) => {
+    const ra = relOf(a.id).kind === 'contact' ? 0 : 1;
+    const rb = relOf(b.id).kind === 'contact' ? 0 : 1;
+    return ra - rb;
+  });
+
+  if (!users.length) {
+    wrap.innerHTML = `<div class="nc-hint">${t(failed ? 'people.error' : (q ? 'people.empty' : 'people.hintEmpty'))}
+      ${failed ? `<div class="nc-err">${esc(failed)}</div>` : ''}
+    </div>`;
+    return;
+  }
+
+  wrap.innerHTML = users.map(peopleRow).join('');
+}
+
+export async function openRequests() {
+  if (!$('#reqOv')) return;
+  $('#reqOv').hidden = false;
+  paintRequests();
+}
+
+async function paintRequests() {
+  const inWrap = $('#reqIn');
+  const outWrap = $('#reqOut');
+  const ctWrap = $('#reqContacts');
+  if (!inWrap || $('#reqOv').hidden) return;
+  inWrap.innerHTML = outWrap.innerHTML = ctWrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+
+  const ok = await contactsReady();
+  if (!ok) {
+    inWrap.innerHTML = `<div class="nc-hint">${t('req.needSql')}<div class="nc-err">supabase/contacts.sql</div></div>`;
+    outWrap.innerHTML = '';
+    ctWrap.innerHTML = '';
+    return;
+  }
+
+  await refreshRequests();
+
+  const rowsFor = (list, kind) => list.map((r) => {
+    const uid = kind === 'in' ? r.from : (kind === 'out' ? r.to : r.userId);
+    const u = user(uid);
+    const name = u?.name || '…';
+    const acts = kind === 'in'
+      ? `<button class="pc-btn ok" type="button" data-pact="accept" data-preq="${esc(r.id)}" data-puid="${esc(uid)}">${esc(t('req.accept'))}</button>
+         <button class="pc-btn" type="button" data-pact="decline" data-preq="${esc(r.id)}" data-puid="${esc(uid)}">${esc(t('req.decline'))}</button>`
+      : kind === 'out'
+        ? `<button class="pc-btn" type="button" data-pact="cancel" data-preq="${esc(r.id)}" data-puid="${esc(uid)}">${esc(t('req.cancel'))}</button>`
+        : `<button class="pc-btn ok" type="button" data-pact="write" data-puid="${esc(uid)}">${esc(t('people.write'))}</button>
+           <button class="pc-btn" type="button" data-pact="remove" data-puid="${esc(uid)}">${esc(t('req.remove'))}</button>`;
+    return `<div class="contact people-row">
+      ${avatarHtml(u)}
+      <span class="info">
+        <span class="n">${esc(name)}${adminBadge(u)}</span>
+        <span class="s">${u?.username ? '@' + esc(u.username) : (kind === 'in' ? t('req.wants') : kind === 'out' ? t('people.pendingOut') : t('req.inContacts'))}</span>
+      </span>
+      <span class="pc-act">${acts}</span>
+    </div>`;
+  }).join('');
+
+  inWrap.innerHTML = rowsFor(S.reqIn, 'in') || `<div class="nc-hint">${t('req.emptyIn')}</div>`;
+  outWrap.innerHTML = rowsFor(S.reqOut, 'out') || `<div class="nc-hint">${t('req.emptyOut')}</div>`;
+  ctWrap.innerHTML = rowsFor(S.contacts, 'ct') || `<div class="nc-hint">${t('req.emptyContacts')}</div>`;
+}
+
+/* действия в обоих окнах */
+async function peopleAction(e) {
+  const btn = e.target.closest('[data-pact]');
+  if (!btn) {
+    /* клик по строке контакта — открыть переписку */
+    const row = e.target.closest('.people-row');
+    if (row && relOf(row.dataset.puid).kind === 'contact') {
+      closeOv($('#peopleOv'));
+      closeOv($('#reqOv'));
+      await openDmWith(row.dataset.puid);
+    }
+    return;
+  }
+  const act = btn.dataset.pact;
+  const uid = btn.dataset.puid;
+  const reqId = btn.dataset.preq;
+  btn.disabled = true;
+  try {
+    if (act === 'add') {
+      const status = await sendRequest(uid);
+      toast(t(status === 'accepted' ? 'req.accepted' : 'req.sent'));
+    } else if (act === 'accept') {
+      await respondRequest(reqId, true);
+      toast(t('req.accepted'));
+    } else if (act === 'decline') {
+      await respondRequest(reqId, false);
+      toast(t('req.declined'));
+    } else if (act === 'cancel') {
+      await cancelRequest(reqId);
+      toast(t('req.canceled'));
+    } else if (act === 'remove') {
+      await removeContact(uid);
+      toast(t('req.removed'));
+    } else if (act === 'write') {
+      closeOv($('#peopleOv'));
+      closeOv($('#reqOv'));
+      await openDmWith(uid);
+      return;
+    }
+  } catch (err) {
+    console.error('Contact action error:', err);
+    const msg = String(err?.message || err || '');
+    toast(/could not find|does not exist|schema cache/i.test(msg) ? t('req.needSql') : (msg || t('toast.error')), { type: 'error' });
+  }
+  await refreshRequests();
+  if (!$('#peopleOv').hidden) paintPeople();
+  if (!$('#reqOv').hidden) paintRequests();
+}
+
+/* realtime: пришла заявка — показать сразу */
+let reqSub = null;
+export function startContactRealtime() {
+  if (reqSub) return;
+  reqSub = subscribeRequests(async (payload) => {
+    await refreshRequests();
+    if (payload?.eventType === 'INSERT' && $('#reqOv').hidden) {
+      toast(t('req.toastNew'));
+    }
+    if (!$('#peopleOv').hidden) paintPeople();
+    if (!$('#reqOv').hidden) paintRequests();
+  });
 }
 
 /* ── создание группы ── */

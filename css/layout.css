@@ -171,6 +171,16 @@ html[data-device="phone"] .empty::before{width:320px;height:320px}
 .side-logo{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;border-radius:12px;padding:4px 6px 4px 0}
 .side-logo img{width:32px;height:32px;border-radius:10px;box-shadow:0 8px 22px -10px var(--accent-glow)}
 .side-logo b{font-size:17.5px;font-weight:800;letter-spacing:-.02em}
+.side-actions{display:flex;align-items:center;gap:1px;flex:none}
+.side-actions .icon-btn{width:34px;height:34px}
+.icon-btn.has-badge{position:relative}
+.dot-badge{
+  position:absolute;top:1px;right:1px;min-width:15px;height:15px;padding:0 4px;
+  border-radius:var(--r-full);background:var(--accent);color:#fff;
+  font-size:9.5px;font-weight:700;line-height:15px;text-align:center;
+  box-shadow:0 0 0 2px var(--surface-1,#0e0f16);pointer-events:none;
+}
+.icon-btn.has-requests{color:var(--accent)}
 .side-search{padding:4px 14px 12px;position:relative}
 .side-search .input{padding:9px 12px 9px 38px;font-size:var(--fs-sm)}
 .side-search .search-ic{position:absolute;left:26px;top:50%;translate:0 -50%;color:var(--tx-3);pointer-events:none}

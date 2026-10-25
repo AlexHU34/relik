@@ -264,7 +264,13 @@
           <img src="assets/icons/icon-192.png" alt="">
           <b>Relik</b>
         </div>
-        <button class="icon-btn" id="newChatBtn" title=""></button>
+        <div class="side-actions">
+          <button class="icon-btn" id="peopleBtn" title=""></button>
+          <button class="icon-btn has-badge" id="requestsBtn" title="">
+            <span class="dot-badge" id="reqBadge" hidden>0</span>
+          </button>
+          <button class="icon-btn" id="newChatBtn" title=""></button>
+        </div>
       </div>
       <div class="side-search">
         <input class="input" id="searchInput" placeholder="" data-i18n-ph="side.search">
@@ -546,6 +552,39 @@
         </button>
         <span class="nc-hint" data-i18n="newchat.contacts">Контакты</span>
         <div id="ncList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ПОИСК ЛЮДЕЙ ══════════ -->
+  <div class="overlay" id="peopleOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="people.title">Найти людей</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <input class="input" id="peopleSearch" placeholder="" data-i18n-ph="people.ph" autocomplete="off">
+        <span class="nc-hint" data-i18n="people.hint">Введите @username или имя, чтобы добавить человека в контакты</span>
+        <div id="peopleList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ЗАЯВКИ В КОНТАКТЫ ══════════ -->
+  <div class="overlay" id="reqOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="req.title">Контакты и заявки</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <span class="nc-hint" data-i18n="req.incoming">Входящие заявки</span>
+        <div id="reqIn" style="display:grid;gap:2px"></div>
+        <span class="nc-hint" data-i18n="req.outgoing">Отправленные</span>
+        <div id="reqOut" style="display:grid;gap:2px"></div>
+        <span class="nc-hint" data-i18n="req.contacts">Мои контакты</span>
+        <div id="reqContacts" style="display:grid;gap:2px"></div>
       </div>
     </div>
   </div>
