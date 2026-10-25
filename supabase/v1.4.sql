@@ -52,7 +52,7 @@ create policy "members add"
   on public.conversation_members for insert
   with check (
     user_id = auth.uid()
-    or public.is_conversation_creator(conversation_id)
+    or public.is_conversation_creator(conversation_id, auth.uid())
   );
 
 drop policy if exists "members leave" on public.conversation_members;
@@ -63,7 +63,7 @@ create policy "members leave"
 drop policy if exists "creator removes members" on public.conversation_members;
 create policy "creator removes members"
   on public.conversation_members for delete
-  using (public.is_conversation_creator(conversation_id));
+  using (public.is_conversation_creator(conversation_id, auth.uid()));
 
 -- ── Ключи групп: каждому участнику — своя зашифрованная копия ──
 create table if not exists public.group_keys (
@@ -92,7 +92,7 @@ create policy "members distribute group keys"
   on public.group_keys for insert
   with check (
     auth.uid() = sender_id
-    and public.is_conversation_member(conversation_id)
+    and public.is_conversation_member(conversation_id, auth.uid())
     and public.is_conversation_member(conversation_id, user_id)
   );
 
