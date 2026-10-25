@@ -1,6 +1,6 @@
 /* Relik — модальные окна: настройки, новый чат, создание группы, лайтбокс */
-import { S, user, emit } from './state.js';
-import { $, esc, avatarHtml, adminBadge } from './utils.js';
+import { S, user, emit, chatById, chatTitle } from './state.js';
+import { $, esc, avatarHtml, adminBadge, fmtTime } from './utils.js';
 import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -109,6 +109,15 @@ export function initModals() {
   $('#reqIn').addEventListener('click', peopleAction);
   $('#reqOut').addEventListener('click', peopleAction);
   $('#reqContacts').addEventListener('click', peopleAction);
+
+  /* ── поиск по всей переписке ── */
+  $('#gsSearch').addEventListener('input', gsDebounced);
+  $('#gsList').addEventListener('click', gsPick);
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-search-messages]')) {
+      openGlobalSearch($('#searchInput')?.value || '');
+    }
+  });
   document.addEventListener('relik:lang', () => {
     if (!$('#peopleOv').hidden) paintPeople();
     if (!$('#reqOv').hidden) paintRequests();
@@ -972,6 +981,71 @@ async function paintAdminUsers() {
     console.error('Admin list error:', err);
     wrap.innerHTML = `<div class="nc-hint">${esc(err.message || t('toast.error'))}</div>`;
   }
+}
+
+/* ── Поиск по всей переписке ─────────────────────────────────
+   Работает по локальному кэшу расшифрованных сообщений (IndexedDB).
+   Серверный поиск невозможен: на сервере только шифротекст. */
+export function openGlobalSearch(initial = '') {
+  const ov = $('#gsOv');
+  if (!ov) return;
+  $('#gsSearch').value = initial;
+  ov.hidden = false;
+  paintGlobalSearch();
+  setTimeout(() => { try { $('#gsSearch').focus(); } catch (e) { /* ignore */ } }, 60);
+}
+
+const gsDebounced = debounce(paintGlobalSearch, 220);
+
+async function paintGlobalSearch() {
+  const wrap = $('#gsList');
+  if (!wrap || $('#gsOv').hidden) return;
+  const q = $('#gsSearch').value.trim().toLowerCase();
+  if (q.length < 2) {
+    wrap.innerHTML = `<div class="nc-hint">${t('gs.typeMore')}</div>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+
+  let all = [];
+  try {
+    all = await idb.getAll('messages');
+  } catch (e) {
+    all = [];
+  }
+
+  const hits = all
+    .filter((m) => !m.hidden && !m.localDeleted && m.text && String(m.text).toLowerCase().includes(q))
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    .slice(0, 60);
+
+  if (!hits.length) {
+    wrap.innerHTML = `<div class="nc-hint">${t('gs.empty')}</div>`;
+    return;
+  }
+
+  wrap.innerHTML = hits.map((m) => {
+    const chat = chatById(m.chatId);
+    const title = chat ? chatTitle(chat) : '…';
+    const idx = String(m.text).toLowerCase().indexOf(q);
+    const from = Math.max(0, idx - 35);
+    const snippet = (from > 0 ? '…' : '') + String(m.text).slice(from, idx + q.length + 55) + (m.text.length > idx + q.length + 55 ? '…' : '');
+    return `<button class="contact" data-gs-chat="${esc(m.chatId)}" data-gs-id="${esc(m.id)}">
+      <span class="c-ic">${icon('search', 16)}</span>
+      <span class="info">
+        <span class="n">${esc(title)}</span>
+        <span class="s">${esc(snippet)}</span>
+      </span>
+      <span class="s" style="flex:none">${fmtTime(m.ts)}</span>
+    </button>`;
+  }).join('');
+}
+
+async function gsPick(e) {
+  const b = e.target.closest('[data-gs-chat]');
+  if (!b) return;
+  $('#gsOv').hidden = true;
+  location.hash = `#/chat/${b.dataset.gsChat}`;
 }
 
 /* ── НОВЫЙ ЧАТ: только принятые контакты ── */

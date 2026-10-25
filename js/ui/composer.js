@@ -715,6 +715,9 @@ function friendlySendError(err) {
   if (/recipient_blocked/i.test(msg)) {
     return t('profile.blockedSend');
   }
+  if (/rate_limited/i.test(msg)) {
+    return t('comp.rateLimited');
+  }
   if (/not valid JSON|Unexpected token/i.test(msg)) {
     return t('comp.keyError');
   }

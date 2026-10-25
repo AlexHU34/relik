@@ -100,7 +100,8 @@ export function renderSidebar(force = false) {
 
   if (!rows.length) {
     list.innerHTML = q
-      ? `<div class="side-empty"><span class="se-ic">${icon('search', 18)}</span><b>${t('side.empty')}</b></div>`
+      ? `<div class="side-empty"><span class="se-ic">${icon('search', 18)}</span><b>${t('side.empty')}</b>
+           <button class="btn btn-ghost" type="button" data-search-messages style="margin-top:8px" data-i18n="gs.open">Искать в сообщениях</button></div>`
       : `<div class="side-empty"><span class="se-ic">${icon('plus', 20)}</span><b>${t(folder === 'all' ? 'side.noChats' : 'folder.empty')}</b><span>${t(folder === 'all' ? 'side.noChatsHint' : 'folder.emptyHint')}</span></div>`;
   } else {
     list.innerHTML = rows.map(chatRow).join('');

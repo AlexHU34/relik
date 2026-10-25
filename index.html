@@ -555,6 +555,21 @@
     </div>
   </div>
 
+  <!-- ══════════ ПОИСК ПО ВСЕЙ ПЕРЕПИСКЕ ══════════ -->
+  <div class="overlay" id="gsOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="gs.title">Поиск по переписке</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <input class="input" id="gsSearch" placeholder="" data-i18n-ph="gs.ph" autocomplete="off">
+        <span class="nc-hint" data-i18n="gs.hint">Ищет по сообщениям, уже сохранённым на этом устройстве</span>
+        <div id="gsList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ══════════ НОВЫЙ ЧАТ ══════════ -->
   <div class="overlay" id="ncOv" hidden>
     <div class="modal" role="dialog" aria-modal="true">
