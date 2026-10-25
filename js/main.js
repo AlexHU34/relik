@@ -26,6 +26,7 @@ import { enablePrefsSync, loadRemotePrefs } from './backend/prefsSync.js';
 import { clearGroupKeyCache } from './backend/groupKeys.js';
 import { clearMediaObjectUrls } from './backend/storage.js';
 import { ensureDeviceV2, clearDeviceV2 } from './backend/devices.js';
+import { clearV2Sessions } from './backend/v2Messages.js';
 import { CRYPTO_V2 } from './config.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
@@ -450,6 +451,7 @@ function initChrome() {
     clearMediaObjectUrls();
     clearTtlTimers();
     clearDeviceV2().catch(() => {});
+    clearV2Sessions().catch(() => {});
     document.title = 'Relik';
     try { navigator.clearAppBadge?.(); } catch (e) { /* ignore */ }
     stopCalls();
@@ -751,6 +753,7 @@ async function boot() {
       startGlobalRealtime();
       initCalls();
       syncPrefsFromCloud().catch(() => {});
+      if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
       maybeDemo();
       reloadChats().catch(() => {});
     } else {
@@ -790,6 +793,7 @@ async function boot() {
           initCalls();
           startGlobalRealtime();
           syncPrefsFromCloud().catch(() => {});
+      if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
           maybeDemo();
           route();
         }

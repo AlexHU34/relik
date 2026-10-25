@@ -326,7 +326,7 @@ export async function sendCurrent() {
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
   try {
-    await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
@@ -398,7 +398,7 @@ async function sendScheduled(item) {
   playSent();
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
   try {
-    await sendMessage(chat.id, item.text, item.replyId || null, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chat.id, item.text, item.replyId || null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
@@ -445,7 +445,7 @@ export async function retryMessage(m, opts = {}) {
 
   let ok = false;
   try {
-    await sendMessage(chat.id, wire, m.replyTo?.id || null, chat.kind, chat.publicKey, m.id);
+    await sendMessage(chat.id, wire, m.replyTo?.id || null, chat.kind, chat.publicKey, m.id, chat.userId || null);
     m.status = 'sent';
     delete m.error;
     await idb.put('messages', m);
@@ -585,7 +585,7 @@ async function sendPoll(poll) {
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
   try {
-    await sendMessage(chat.id, encodePoll(poll), null, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chat.id, encodePoll(poll), null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();
@@ -619,7 +619,7 @@ export async function sendReaction(message, emoji, on) {
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
   try {
-    await sendMessage(chat.id, encodeReaction(message.id, emoji, on), null, chat.kind, chat.publicKey, event.id);
+    await sendMessage(chat.id, encodeReaction(message.id, emoji, on), null, chat.kind, chat.publicKey, event.id, chat.userId || null);
     event.status = 'sent';
     await idb.put('messages', event);
   } catch (err) {
@@ -651,7 +651,7 @@ export async function closePoll(pollMsg) {
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
   try {
-    await sendMessage(chat.id, encodePollClose(pollMsg.id), null, chat.kind, chat.publicKey, event.id);
+    await sendMessage(chat.id, encodePollClose(pollMsg.id), null, chat.kind, chat.publicKey, event.id, chat.userId || null);
     event.status = 'sent';
     await idb.put('messages', event);
   } catch (err) {
@@ -686,7 +686,7 @@ export async function votePoll(pollMsg, options) {
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
 
   try {
-    await sendMessage(chat.id, encodeVote(pollMsg.id, picked), null, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chat.id, encodeVote(pollMsg.id, picked), null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
   } catch (err) {
@@ -968,7 +968,7 @@ async function sendMediaPayload(payload, chatId = S.active) {
   if (!(SUPABASE.url && SUPABASE.anonKey)) return msg;
 
   try {
-    await sendMessage(chat.id, msg.wire, replyId, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chat.id, msg.wire, replyId, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chat.id) renderMessages();

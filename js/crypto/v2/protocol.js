@@ -239,6 +239,7 @@ export async function x3dhRespond({
   const theirIdentity = await importEcdhPublic(initiatorIdentityJwk);
   const theirEphemeral = await importEcdhPublic(initiatorEphemeralJwk);
   const otp = opkId ? oneTimePrekeys.find((x) => Number(x.id) === Number(opkId)) : null;
+  if (opkId && !otp) throw new Error('One-time prekey is missing or already used');
   const otpPriv = otp ? await importEcdhPrivate(otp.key) : null;
 
   const parts = [

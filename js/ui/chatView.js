@@ -635,7 +635,7 @@ function sendReadUpto(chatId) {
   S.messages[chatId].push(event);
   idb.put('messages', event).catch(() => {});
 
-  sendMessage(chatId, encodeRead(upto), null, chat.kind, chat.publicKey, event.id)
+  sendMessage(chatId, encodeRead(upto), null, chat.kind, chat.publicKey, event.id, chat.userId || null)
     .then(() => { event.status = 'sent'; idb.put('messages', event).catch(() => {}); })
     .catch((err) => {
       console.warn('Read receipt error:', err);
@@ -1211,7 +1211,7 @@ async function changeChatTtl(chat, seconds) {
     S.messages[chat.id] = S.messages[chat.id] || [];
     S.messages[chat.id].push(event);
     idb.put('messages', event).catch(() => {});
-    sendMessage(chat.id, encodeTtl(sec), null, chat.kind, chat.publicKey, event.id)
+    sendMessage(chat.id, encodeTtl(sec), null, chat.kind, chat.publicKey, event.id, chat.userId || null)
       .then(() => { event.status = 'sent'; idb.put('messages', event).catch(() => {}); })
       .catch((err) => {
         console.warn('TTL signal error:', err);
@@ -1510,7 +1510,7 @@ async function forwardTo(chatId2) {
   }
 
   try {
-    await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id);
+    await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
     if (S.active === chatId2) renderMessages();
@@ -1947,7 +1947,7 @@ function toolsHtml(m, mine) {
     `<button data-act="pin" title="${t('msg.pin')}">${icon('pin', 15)}</button>`,
     isText ? `<button data-act="copy" title="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
     mine && m.status === 'read' ? `<button data-act="readby" title="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
-    mine && isText ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
+    mine && isText && m.cryptoVersion !== 2 ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
     canDelete ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
   ].join('');
   return `<div class="tools">${tools}</div>`;

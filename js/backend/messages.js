@@ -3,7 +3,7 @@
 
 import { sb } from './supabaseClient.js';
 import { idb, newId } from '../db/idb.js';
-import { SUPABASE } from '../config.js';
+import { SUPABASE, CRYPTO_V2 } from '../config.js';
 import { S } from '../ui/state.js';
 import { t } from '../i18n/i18n.js';
 import {
@@ -13,6 +13,7 @@ import {
   decryptFromChat,
 } from '../crypto/encryption.js';
 import { encryptGroupText, decryptGroupText } from './groupKeys.js';
+import { encryptV2Dm, decryptV2Row, isV2Row } from './v2Messages.js';
 
 /* Опросы и голоса передаются обычными сообщениями с префиксом —
    так они остаются E2E-зашифрованными и не требуют новых таблиц. */
@@ -199,10 +200,30 @@ async function chatKeys(theirPublicKeyJwk) {
 
 /* ── Строка из Supabase → сообщение приложения (с дешифровкой) ── */
 async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
+  /* Свои v2-сообщения нельзя расшифровать чужой ratchet-сессией:
+     берём локальную копию (текст/медиа), если она есть. */
+  if (isV2Row(m) && m.sender_id === S.me?.id) {
+    const cached = await idb.get('messages', m.id);
+    if (cached) {
+      return {
+        ...cached,
+        deleted: !!m.deleted,
+        edited: !!m.edited,
+        status: cached.status === 'error' || cached.status === 'sending' ? 'sent' : cached.status,
+        ts: cached.ts || Number(m.envelope?.ts) || Date.now(),
+        cryptoVersion: 2,
+      };
+    }
+  }
+
   let text = m.ciphertext;
   let decryptFailed = false;
 
-  if (keyPair && theirPubKey && m.iv && chatKind === 'dm') {
+  if (isV2Row(m)) {
+    const v2 = await decryptV2Row(m);
+    if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
+    else text = v2.text;
+  } else if (keyPair && theirPubKey && m.iv && chatKind === 'dm') {
     try {
       text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
     } catch (err) {
@@ -230,6 +251,7 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     deleted: m.deleted,
   });
   if (decryptFailed) msg.decryptFailed = true;
+  if (isV2Row(m)) msg.cryptoVersion = 2;
   return msg;
 }
 
@@ -244,7 +266,9 @@ export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = 
   if (error) throw error;
 
   const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
-  const messages = await Promise.all(data.map((m) => rowToMessage(m, keyPair, theirPubKey, chatKind)));
+  /* v2 ratchet нельзя расшифровывать параллельно: порядок важен */
+  const messages = [];
+  for (const row of data) messages.push(await rowToMessage(row, keyPair, theirPubKey, chatKind));
 
   // Кэшируем в IndexedDB (уже дешифрованные)
   await idb.bulkPut('messages', messages);
@@ -267,7 +291,9 @@ export async function fetchMessagesSince(chatId, afterTs, chatKind = 'dm', their
   if (!data.length) return [];
 
   const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
-  const messages = await Promise.all(data.map((m) => rowToMessage(m, keyPair, theirPubKey, chatKind)));
+  /* v2 ratchet нельзя расшифровывать параллельно: порядок важен */
+  const messages = [];
+  for (const row of data) messages.push(await rowToMessage(row, keyPair, theirPubKey, chatKind));
   await idb.bulkPut('messages', messages);
   return messages;
 }
@@ -276,7 +302,7 @@ export async function fetchMessagesSince(chatId, afterTs, chatKind = 'dm', their
 export async function loadLatestPreviews() {
   const { data, error } = await sb
     .from('messages')
-    .select('conversation_id, sender_id, ciphertext, iv, created_at')
+    .select('id, conversation_id, sender_id, ciphertext, iv, created_at, crypto_version, sender_device, envelope')
     .order('created_at', { ascending: false })
     .limit(300);
 
@@ -294,7 +320,7 @@ export async function loadLatestPreviews() {
 }
 
 /* ── Отправка сообщения с шифрованием ── */
-export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null, messageId = null) {
+export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null, messageId = null, peerUserId = null) {
   /* id уже есть у оптимистичного сообщения в ленте — используем его же */
   const msgId = messageId || newId();
 
@@ -306,31 +332,53 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     senderId = user.id;
   }
 
-  let ciphertext, iv;
+  const now = Date.now();
+  let ciphertext = '';
+  let iv = '';
+  let v2 = null;
 
   if (SUPABASE.url && SUPABASE.anonKey) {
-    // Шифруем сообщение
-    const keyPair = await getKeyPair();
-    if (!keyPair) throw new Error('No key pair found');
+    if (chatKind === 'dm' && CRYPTO_V2.enabled && peerUserId) {
+      try {
+        v2 = await encryptV2Dm({
+          chatId,
+          peerUserId,
+          senderId,
+          text,
+          messageId: msgId,
+          ts: now,
+        });
+      } catch (err) {
+        console.warn('v2 encrypt failed, fallback to v1:', err?.message || err);
+        v2 = null;
+      }
+    }
 
-    if (chatKind === 'dm' && theirPublicKeyJwk) {
-      const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
-      const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey);
-      ciphertext = encrypted.ciphertext;
-      iv = encrypted.iv;
-    } else if (chatKind === 'group') {
-      /* E2E: общий ключ группы; если миграции ещё нет — как раньше */
-      const encrypted = await encryptGroupText(chatId, text);
-      if (encrypted) {
+    if (!v2) {
+      const keyPair = await getKeyPair();
+      if (chatKind === 'dm' && theirPublicKeyJwk) {
+        if (!keyPair) throw new Error('No key pair found');
+        const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+        const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey);
         ciphertext = encrypted.ciphertext;
         iv = encrypted.iv;
+      } else if (chatKind === 'group') {
+        /* E2E: общий ключ группы; если миграции ещё нет — как раньше */
+        const encrypted = await encryptGroupText(chatId, text);
+        if (encrypted) {
+          ciphertext = encrypted.ciphertext;
+          iv = encrypted.iv;
+        } else {
+          ciphertext = text;
+          iv = '';
+        }
       } else {
         ciphertext = text;
         iv = '';
       }
     } else {
-      ciphertext = text;
-      iv = '';
+      ciphertext = v2.ciphertext;
+      iv = v2.iv;
     }
   } else {
     // Демо-режим: открытым текстом
@@ -338,24 +386,28 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     iv = '';
   }
 
-  const { error } = await sb
-    .from('messages')
-    .insert({
-      id: msgId,
-      conversation_id: chatId,
-      sender_id: senderId,
-      ciphertext,
-      iv,
-      reply_to: replyToId,
-    });
+  const row = {
+    id: msgId,
+    conversation_id: chatId,
+    sender_id: senderId,
+    ciphertext,
+    iv,
+    reply_to: replyToId,
+  };
+  if (v2) {
+    row.crypto_version = 2;
+    row.sender_device = v2.senderDevice;
+    row.envelope = v2.envelope;
+  }
 
+  const { error } = await sb.from('messages').insert(row);
   if (error) throw error;
 
-  return applySpecial({
+  const msg = applySpecial({
     id: msgId,
     chatId,
     sender: 'u_me',
-    ts: Date.now(),
+    ts: v2 ? v2.envelope.ts : now,
     type: 'text',
     text, // возвращаем оригинальный текст для UI
     reactions: [],
@@ -364,6 +416,8 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     edited: false,
     deleted: false,
   });
+  if (v2) msg.cryptoVersion = 2;
+  return msg;
 }
 
 /* ── Редактирование сообщения ── */
@@ -378,6 +432,15 @@ async function conversationOfMessage(messageId) {
 }
 
 export async function editMessage(messageId, newText, chatKind = 'dm', theirPublicKeyJwk = null) {
+  /* v2 использует одноразовые message keys — правка на месте невозможна */
+  try {
+    const { data: meta } = await sb.from('messages').select('crypto_version').eq('id', messageId).maybeSingle();
+    if (Number(meta?.crypto_version) === 2) throw new Error('Editing v2 messages is not supported yet');
+  } catch (err) {
+    if (/not supported/i.test(err?.message || '')) throw err;
+    /* нет колонки/сети — продолжаем как v1 */
+  }
+
   let ciphertext = newText;
   let iv = '';
 
@@ -475,7 +538,11 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
           let decryptFailed = false;
 
           // Дешифруем если есть ключи
-          if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
+          if (isV2Row(m)) {
+            const v2 = await decryptV2Row(m);
+            if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
+            else text = v2.text;
+          } else if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
             try {
               const keyPair = await getKeyPair();
               const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
@@ -497,7 +564,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
             id: m.id,
             chatId: m.conversation_id,
             sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
-            ts: new Date(m.created_at).getTime(),
+            ts: isV2Row(m) ? Number(m.envelope?.ts) || Date.now() : new Date(m.created_at).getTime(),
             type: 'text',
             text,
             reactions: [],
@@ -507,6 +574,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
             deleted: m.deleted,
           });
           if (decryptFailed) message.decryptFailed = true;
+          if (isV2Row(m)) message.cryptoVersion = 2;
           await idb.put('messages', message);
           callbacks.onMessage?.(message);
         } else if (payload.eventType === 'UPDATE') {
@@ -515,7 +583,15 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
           let decryptFailed = false;
 
           // Дешифруем редактирование
-          if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
+          if (isV2Row(m)) {
+            if (!m.deleted) {
+              const v2 = await decryptV2Row(m);
+              if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
+              else text = v2.text;
+            } else {
+              text = '';
+            }
+          } else if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
             try {
               const keyPair = await getKeyPair();
               const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
@@ -590,6 +666,14 @@ export function subscribeAllMessages(onInsert) {
 
 /* Текст для превью входящего сообщения (с расшифровкой, если возможно) */
 export async function previewTextFor(row, chat) {
+  if (isV2Row(row)) {
+    if (row.sender_id === S.me?.id) {
+      const cached = await idb.get('messages', row.id);
+      if (cached) return previewOfText(cached.wire || cached.text || '');
+    }
+    const v2 = await decryptV2Row(row);
+    return v2 && !v2.failed ? previewOfText(v2.text) : '…';
+  }
   if (!row.iv) return previewOfText(row.ciphertext || '…');
   try {
     if (chat && chat.kind === 'group') {
