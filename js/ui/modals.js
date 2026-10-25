@@ -1151,7 +1151,7 @@ async function paintPeople() {
   const wrap = $('#peopleList');
   if (!wrap || $('#peopleOv').hidden) return;
   const q = $('#peopleSearch').value.trim();
-  wrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+  if (!wrap.querySelector('.people-row')) wrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
 
   await refreshRequests();
 

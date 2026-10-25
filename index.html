@@ -236,6 +236,13 @@
                 <button type="button" class="pass-toggle" id="passToggle" aria-label=""></button>
               </div>
             </div>
+            <div class="consent" id="consentField" hidden>
+              <label class="consent-row">
+                <input type="checkbox" id="authConsent">
+                <span data-i18n="auth.consent">Я принимаю условия и даю согласие на обработку персональных данных</span>
+              </label>
+              <a class="auth-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
+            </div>
             <button class="btn btn-lg auth-cta" type="submit" id="authGo" data-i18n="auth.login">Войти</button>
             <button type="button" class="auth-forgot" id="forgotBtn" data-i18n="auth.forgot">Забыли пароль?</button>
           </form>

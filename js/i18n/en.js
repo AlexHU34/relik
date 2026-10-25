@@ -66,6 +66,8 @@ export default {
   'auth.welcomeLogin': 'Welcome back!',
   'auth.welcomeSignup': 'Account created. Welcome!',
   'auth.note': 'Demo mode: data stays in this browser only',
+  'auth.consent': 'I accept the terms and consent to personal data processing',
+  'auth.needConsent': 'Please tick the consent checkbox',
   'legal.link': 'Terms & privacy',
   'auth.sessionExpired': 'Your session has expired. Sign in again — users and messages will load after that.',
   'auth.otherTab': 'Another account signed in in another tab. For two accounts, use a separate incognito window or browser profile.',

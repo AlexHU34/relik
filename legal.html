@@ -105,10 +105,24 @@
     <p>Приложение предоставляется на условиях «как есть» (as is) и «как доступно» (as available), без каких-либо явных или подразумеваемых гарантий, включая гарантии пригодности для конкретных целей, сохранности данных и бесперебойной работы.</p>
     <p>Автор проекта не несёт ответственности за: утрату данных, прямой или косвенный ущерб, упущенную выгоду, последствия использования приложения третьими лицами, а также за действия пользователей, нарушающие законодательство. Ответственность за соблюдение местных законов при использовании приложения лежит на пользователе.</p>
 
-    <h2>8. Изменения</h2>
+    <h2>8. Соответствие требованиям законодательства</h2>
+    <p>Проект небольшой, но мы не делаем вид, что закон нас не касается. Что учтено:</p>
+    <ul>
+      <li><strong>Политика обработки ПД опубликована</strong> (эта страница) — требование ч. 2 ст. 18.1 152-ФЗ. Отсутствие такой страницы — штраф по ч. 3 ст. 13.11 КоАП: для гражданина 1 500–3 000 ₽.</li>
+      <li><strong>Согласие на обработку</strong> запрашивается при регистрации отдельной галочкой (ст. 9 152-ФЗ).</li>
+      <li><strong>Удаление данных</strong> доступно по кнопке (ст. 21 152-ФЗ) — без писем и ожидания.</li>
+      <li><strong>Минимизация:</strong> мы не спрашиваем телефон, адрес, паспорт, дату рождения; не используем аналитику и сторонние трекеры.</li>
+      <li><strong>Шифрование содержимого</strong> снижает последствия возможной утечки: сервер хранит только шифротекст.</li>
+    </ul>
+    <p><strong>Что важно знать про локализацию.</strong> Ч. 5 ст. 18 152-ФЗ требует, чтобы запись, систематизация, накопление, хранение и извлечение персональных данных граждан РФ выполнялись с использованием баз данных на территории РФ. Сейчас серверная часть расположена в Supabase за пределами РФ: для семейного проекта по инвайтам это осознанное ограничение, но <em>при публичном запуске в РФ базу потребуется перенести</em>. Штраф по ч. 8 ст. 13.11 КоАП для гражданина — 30 000–50 000 ₽.</p>
+    <p><strong>Уведомление Роскомнадзора.</strong> По ст. 22 152-ФЗ оператор обязан уведомить РКН о намерении обрабатывать персональные данные (реестр операторов: <code>pd.rkn.gov.ru</code>). Штраф за неуведомление по ч. 10 ст. 13.11 КоАП для гражданина — 5 000–10 000 ₽. Это действие выполняет владелец проекта, а не приложение.</p>
+    <p><strong>Организатор распространения информации.</strong> По ст. 10.1 149-ФЗ сервис обмена сообщениями может быть отнесён к ОРИ с обязанностью хранить метаданные и предоставлять уполномоченным органам возможность декодирования сообщений. При сквозном шифровании последнее технически невыполнимо; практическое последствие для такого сервиса — предписание или блокировка, а не ответственность пользователей. Проект не позиционируется как публичный сервис и работает по инвайт-кодам.</p>
+    <p>Мы не обещаем «неприкосновенности»: ни один текст на сайте не отменяет закон. Задача документов — честно описать правила и снизить риск претензий к добросовестному разработчику.</p>
+
+    <h2>9. Изменения</h2>
     <p>Условия могут меняться. Актуальная редакция всегда доступна по этому адресу; дата редакции указана в начале страницы. Продолжение использования после изменений означает согласие с новой редакцией.</p>
 
-    <h2>9. Связь</h2>
+    <h2>10. Связь</h2>
     <p>Вопросы по данным и работе сервиса: через раздел «Настройки» в приложении или через issues в репозитории проекта на GitHub.</p>
 
     <div class="doc-foot">Relik — независимый некоммерческий проект. Документ не является юридической консультацией и не заменяет консультацию юриста.</div>
@@ -155,10 +169,16 @@
     <h2>7. No warranty, limitation of liability</h2>
     <p>The app is provided “as is” and “as available”, without any express or implied warranties, including fitness for a particular purpose, data preservation or uninterrupted operation. The author is not liable for data loss, direct or indirect damages, lost profits, consequences of third-party use, or for users’ unlawful actions. Users are responsible for complying with their local laws.</p>
 
-    <h2>8. Changes</h2>
+    <h2>8. Legal compliance (Russia)</h2>
+    <p>What is covered: this policy page is published (art. 18.1(2) of 152-FZ; missing policy is an administrative fine of RUB 1,500–3,000 for an individual under art. 13.11(3) of the Administrative Code); consent to personal data processing is a separate checkbox at sign-up (art. 9); data can be deleted in one click (art. 21); data collection is minimised (no phone, address, birth date, analytics or third-party trackers); message content is encrypted, so a server breach exposes ciphertext only.</p>
+    <p><strong>Data localisation.</strong> Art. 18(5) of 152-FZ requires recording, systematisation and storage of Russian citizens’ personal data in databases located in Russia. The backend currently runs on Supabase outside Russia: an accepted limitation for a family-scale invite-only project, but a public launch in Russia would require moving the database. The administrative fine under art. 13.11(8) is RUB 30,000–50,000 for an individual.</p>
+    <p><strong>Roskomnadzor notification.</strong> Under art. 22 of 152-FZ an operator must notify the regulator before processing personal data (operator registry at <code>pd.rkn.gov.ru</code>). Failure to notify carries a fine of RUB 5,000–10,000 for an individual (art. 13.11(10)). This is an action for the project owner, not something the app can do.</p>
+    <p><strong>Organiser of information dissemination.</strong> Under art. 10.1 of 149-FZ a messaging service may be classified as an ORI with obligations to retain metadata and to give authorities the ability to decode messages. With end-to-end encryption the latter is technically impossible; the practical consequence is an order or blocking, not liability for users. The project is not positioned as a public service and requires an invite code.</p>
+
+    <h2>9. Changes</h2>
     <p>These terms may change. The current revision is always available at this address; the revision date is shown at the top. Continued use after changes means acceptance of the new revision.</p>
 
-    <h2>9. Contact</h2>
+    <h2>10. Contact</h2>
     <p>Questions about data and the service: via “Settings” in the app or via issues in the project repository on GitHub.</p>
 
     <div class="doc-foot">Relik is an independent non-commercial project. This document is not legal advice and does not replace consulting a lawyer.</div>

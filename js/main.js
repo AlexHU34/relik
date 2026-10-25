@@ -105,6 +105,7 @@ const isRealBackend = !!sb; // использует ли реальный Supaba
 function paintAuth() {
   $('#authGo').textContent = t(authMode === 'login' ? 'auth.login' : 'auth.create');
   $('#nameField').hidden = authMode === 'login';
+  $('#consentField').hidden = authMode === 'login';
   document.querySelectorAll('.auth-tab').forEach((b) => {
     b.classList.toggle('on', b.dataset.mode === authMode);
   });
@@ -227,6 +228,7 @@ function initAuth() {
     if (!/.+@.+\..+/.test(email)) return bad(t('auth.badEmail'));
     if (pass.length < 6) return bad(t('auth.shortPass'));
     if (authMode === 'signup' && !name) return bad(t('auth.needName'));
+    if (authMode === 'signup' && !$('#authConsent').checked) return bad(t('auth.needConsent'));
 
     lastPass = pass;
 
