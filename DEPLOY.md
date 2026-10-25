@@ -5,9 +5,7 @@
 1. **Supabase проект** (бесплатный тариф)
    - Создайте проект на https://supabase.com
    - Выполните `supabase/schema.sql` в SQL Editor
-   - Выполните `supabase/group_keys.sql` (E2E групп и политики участников)
-   - Выполните `supabase/storage.sql` (bucket `files` для шифрованных медиа)
-   - Выполните `supabase/user_prefs.sql` (синхронизация настроек)
+   - Выполните `supabase/v1.4.sql` (E2E групп, Storage и настройки; или отдельные файлы из папки `supabase/`)
    - Включите Realtime для `messages` и `reactions`
    - Получите Project URL и anon key
    - Вставьте в `js/config.js`

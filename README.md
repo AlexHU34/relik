@@ -190,12 +190,11 @@ cd C:\67\relik
 ## Ключевые файлы для настройки
 
 1. `supabase/schema.sql` — выполнить в SQL-редакторе проекта Supabase
-2. `supabase/group_keys.sql` — E2E-ключи групп и политики добавления/удаления участников
-3. `supabase/storage.sql` — bucket `files` и политики для шифрованных медиа
-4. `supabase/user_prefs.sql` — выполнить для синхронизации закрепов/мьютов между устройствами
-5. `js/config.js` — вставить `SUPABASE.url` и `SUPABASE.anonKey`
-6. `js/backend/` — Supabase клиент и API
-7. `js/crypto/` — криптография (ECDH, AES-GCM)
+2. `supabase/v1.4.sql` — все миграции v1.4 одним файлом (ключи групп, Storage, настройки)
+   - или по отдельности: `group_keys.sql`, `storage.sql`, `user_prefs.sql`
+3. `js/config.js` — вставить `SUPABASE.url` и `SUPABASE.anonKey`
+4. `js/backend/` — Supabase клиент и API
+5. `js/crypto/` — криптография (ECDH, AES-GCM)
 
 ## Инструкция по настройке Supabase
 
@@ -206,9 +205,9 @@ cd C:\67\relik
 ### 2. Настройка базы данных
 1. Откройте SQL Editor в Supabase Dashboard
 2. Скопируйте и выполните содержимое `supabase/schema.sql`
-3. Выполните `supabase/group_keys.sql` — ключи групп и политики участников
-4. Выполните `supabase/user_prefs.sql` — синхронизация настроек
-5. Убедитесь, что все таблицы созданы
+3. Выполните `supabase/v1.4.sql` — ключи групп, Storage и синхронизация настроек одним файлом
+   (или по отдельности `group_keys.sql`, `storage.sql`, `user_prefs.sql`)
+4. Убедитесь, что все таблицы созданы
 
 ### 3. Настройка Storage
 1. Выполните `supabase/storage.sql` в SQL Editor — он создаст bucket `files`
