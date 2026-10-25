@@ -5,7 +5,8 @@
 /* ---------- Лента (контейнер сообщений) ---------- */
 .msgs{
   overflow-y:auto;overflow-x:hidden;min-height:0;display:flex;flex-direction:column;
-  padding:18px max(20px, calc((100% - 920px)/2)) 10px;scroll-behavior:smooth;
+  padding:18px max(20px, calc((100% - 920px)/2)) 10px;
+  overscroll-behavior:contain;
 }
 .day{display:grid;place-items:center;margin:12px 0 10px;position:sticky;top:0;z-index:3;pointer-events:none}
 .day span{
@@ -401,3 +402,8 @@ html[data-motion="off"] .msg-loading .ic{animation:none}
   background:rgba(0,0,0,.34);border:1px solid var(--line);white-space:pre;font-family:ui-monospace,Consolas,monospace;
   font-size:var(--fs-xs);line-height:1.5;max-width:100%}
 .msg-text .msg-code code{font:inherit;background:none;padding:0}
+
+/* phones and weak GPUs: skip backdrop blur for smooth scrolling */
+@media (max-width:720px), (hover:none){
+  .chat-head,.chat-search,.day span{backdrop-filter:none}
+}

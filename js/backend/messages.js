@@ -639,6 +639,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
     )
     .subscribe((status) => {
       console.log('Realtime status:', status);
+      try { callbacks.onStatus?.(status); } catch (e) { /* не критично */ }
     });
 
   return {

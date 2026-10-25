@@ -34,6 +34,7 @@ let unseenCount = 0;
 let forwardMsg = null;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
+let realtimeStatus = 'offline'; // статус канала Supabase Realtime
 let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
 let autoScrolling = false;
@@ -680,6 +681,45 @@ function stopActiveSync() {
   activeSyncTick = null;
 }
 
+/* ── добавляет только новые сообщения в конец ленты ──
+   Возвращает false, если безопаснее перерисовать всё (поиск, ограничение
+   истории, баннеры, приветствие). */
+function appendToFeed(newMsgs) {
+  if (!newMsgs.length || searchQuery) return false;
+  const holder = els.msgs;
+  if (!holder) return false;
+  if (holder.querySelector('.chat-welcome, .load-earlier, .locked-banner')) return false;
+
+  const visible = (S.messages[S.active] || [])
+    .filter((m) => !m.hidden && (!m.decryptFailed || showLocked));
+  const limit = S.renderLimit?.[S.active] || PAGE_SIZE;
+  if (visible.length > limit) return false;
+
+  const firstNew = visible.findIndex((m) => m.id === newMsgs[0].id);
+  if (firstNew <= 0) return false;
+  let prev = visible[firstNew - 1];
+  let day = new Date(prev.ts).toDateString();
+
+  let html = '';
+  for (const m of newMsgs) {
+    const nd = new Date(m.ts).toDateString();
+    const newDay = nd !== day;
+    if (newDay) {
+      html += `<div class="day"><span>${fmtDay(m.ts)}</span></div>`;
+      day = nd;
+    }
+    const cont = !newDay && prev.sender === m.sender && (m.ts - prev.ts) < 4 * 60e3;
+    html += msgHtml(m, !cont, -1);
+    prev = m;
+  }
+
+  const typing = holder.querySelector('.typing');
+  if (typing) typing.remove();
+  holder.insertAdjacentHTML('beforeend', html);
+  if (S.typingChat === S.active) holder.insertAdjacentHTML('beforeend', typingHtml());
+  return true;
+}
+
 function startActiveSync(id, chat) {
   stopActiveSync();
   let busy = false;
@@ -697,6 +737,7 @@ function startActiveSync(id, chat) {
       await hydrateMessagesMedia(fresh).catch(() => {});
 
       let added = 0;
+      const addedMsgs = [];
       S.messages[id] = S.messages[id] || [];
       for (const m of fresh) {
         const i = S.messages[id].findIndex((x) => x.id === m.id);
@@ -712,6 +753,7 @@ function startActiveSync(id, chat) {
           S.messages[id][i] = merged;
         } else {
           S.messages[id].push(m);
+          addedMsgs.push(m);
           added++;
         }
       }
@@ -723,9 +765,13 @@ function startActiveSync(id, chat) {
         const st = els.msgs.scrollTop + els.msgs.clientHeight >= els.msgs.scrollHeight - 140;
         const incoming = fresh.some((m) => m.sender !== 'u_me' && !m.hidden);
         if (!st && incoming) unseenCount += fresh.filter((m) => m.sender !== 'u_me' && !m.hidden).length;
-        renderMessages();
+        /* в обычном случае дописываем только новые узлы: без пересборки всей ленты */
+        const visibleNew = addedMsgs.filter((m) => !m.hidden && (!m.decryptFailed || showLocked));
+        const appended = visibleNew.length ? appendToFeed(visibleNew) : false;
+        if (!appended) renderMessages();
         if (st) {
-          scrollBottom();
+          /* мгновенно: анимация прокрутки на каждое новое сообщение ощущается тормозом */
+          scrollBottom(false);
           sendReadUpto(id);
         } else {
           updateToBottom();
@@ -748,7 +794,10 @@ function startActiveSync(id, chat) {
   };
 
   activeSyncTick = tick;
-  pollTimer = setInterval(tick, 4000);
+  /* Если realtime подключён, опрос нужен только как страховка — реже.
+     Без realtime (VPN, RLS, сеть) держим частый опрос. */
+  const period = realtimeStatus === 'SUBSCRIBED' ? 15000 : 4000;
+  pollTimer = setInterval(tick, period);
 }
 
 /* ── открытие чата ─────────────────────────────────────────── */
@@ -763,6 +812,7 @@ export async function openChat(id) {
 
   // Отписываемся от предыдущего чата
   stopActiveSync();
+  realtimeStatus = 'offline';
   if (currentSubscription) {
     currentSubscription.unsubscribe();
     currentSubscription = null;
@@ -906,7 +956,7 @@ export async function openChat(id) {
           renderMessages();
           scheduleTtlForChat(id);
           if (near) {
-            scrollBottom();
+            scrollBottom(false);
             if (!document.hidden) sendReadUpto(id);
           } else {
             updateToBottom();
@@ -952,6 +1002,11 @@ export async function openChat(id) {
           idb.put('chats', chat);
           renderSidebar();
         }
+      },
+      /* realtime подключился/отвалился — меняем частоту страховочного опроса */
+      onStatus: (status) => {
+        realtimeStatus = status;
+        if (S.active === id) startActiveSync(id, chat);
       },
     }, chat.kind, chat.publicKey);
 
@@ -1673,9 +1728,9 @@ function bubbleHtml(m, mine) {
     const src = safeMediaSrc(m.file?.src, 'image');
     const thumb = safeMediaSrc(m.file?.thumb, 'image');
     out += src
-      ? `<button class="msg-img"><img src="${esc(src)}" loading="lazy" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
+      ? `<button class="msg-img"><img src="${esc(src)}" loading="lazy" decoding="async" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
       : (thumb
-        ? `<button class="msg-img"><img class="thumb" src="${esc(thumb)}" alt=""></button>`
+        ? `<button class="msg-img"><img class="thumb" src="${esc(thumb)}" loading="lazy" decoding="async" alt=""></button>`
         : (m.media
           ? (m.mediaError ? mediaErrorHtml() : `<div class="msg-loading">${icon('image', 18)} ${t('media.loading')}</div>`)
           : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`));
@@ -1686,7 +1741,7 @@ function bubbleHtml(m, mine) {
     out += src
       ? `<video class="msg-video" src="${esc(src)}"${thumb ? ` poster="${esc(thumb)}"` : ''} controls playsinline preload="metadata"></video>`
       : (thumb
-        ? `<div class="msg-video pending"><img src="${esc(thumb)}" alt=""><span>${icon('play', 22)}</span></div>`
+        ? `<div class="msg-video pending"><img src="${esc(thumb)}" loading="lazy" decoding="async" alt=""><span>${icon('play', 22)}</span></div>`
         : (m.media
           ? (m.mediaError ? mediaErrorHtml() : mediaLoadHtml(false, 'video'))
           : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`));
@@ -1698,7 +1753,7 @@ function bubbleHtml(m, mine) {
       ? `<button class="video-note" type="button"><video src="${esc(src)}"${thumb ? ` poster="${esc(thumb)}"` : ''} playsinline loop preload="metadata"></video>
           <span class="vn-play">${icon('play', 20)}</span></button>`
       : (thumb
-        ? `<button class="video-note" type="button"><img src="${esc(thumb)}" alt=""><span class="vn-play">${icon('play', 20)}</span></button>`
+        ? `<button class="video-note" type="button"><img src="${esc(thumb)}" loading="lazy" decoding="async" alt=""><span class="vn-play">${icon('play', 20)}</span></button>`
         : (m.media
           ? (m.mediaError ? mediaErrorHtml(true) : mediaLoadHtml(true, 'video'))
           : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`));

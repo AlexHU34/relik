@@ -11,6 +11,8 @@ import { getStatuses, refreshChatStatuses } from '../backend/presence.js';
 import { isPinned, isMuted, togglePinned, toggleMuted, setReadAt, clearChatPrefs, getChatFolder, setChatFolder } from './prefs.js';
 import { openMenu, bindLongPress } from './menu.js';
 import { confirmAction } from './dialog.js';
+
+let lastSidebarSignature = '';
 import { toast } from './toast.js';
 
 /* Дата для бейджа времени в списке: сегодня — время, вчера/старее — дата */
@@ -50,7 +52,7 @@ function chatRow(chat) {
   </div>`;
 }
 
-export function renderSidebar() {
+export function renderSidebar(force = false) {
   const list = $('#sideList');
   if (!list) return;
   const q = S.filter.toLowerCase().trim();
@@ -76,6 +78,23 @@ export function renderSidebar() {
     b.classList.toggle('on', b.dataset.folder === folder);
   });
 
+  /* Перерисовываем список только если данные реально изменились:
+     раньше каждые 10 секунд пересобирался весь innerHTML. */
+  const signature = [
+    folder, q,
+    S.me?.name || '', S.me?.username || '', S.me?.mail || '', S.me?.avatar ? 1 : 0,
+    rows.map((c) => [
+      c.id, c.kind, chatTitle(c), c.last?.ts || 0, c.last?.text || '', c.last?.type || '',
+      c.unread || 0, c.username || '', isPinned(c.id) ? 1 : 0, isMuted(c.id) ? 1 : 0,
+    ].join('~')).join('|'),
+  ].join('#');
+
+  if (!force && signature === lastSidebarSignature && list.childElementCount) {
+    paintMeChip();
+    return;
+  }
+  lastSidebarSignature = signature;
+
   if (!rows.length) {
     list.innerHTML = q
       ? `<div class="side-empty"><span class="se-ic">${icon('search', 18)}</span><b>${t('side.empty')}</b></div>`
@@ -85,10 +104,7 @@ export function renderSidebar() {
   }
 
   /* профиль */
-  const av = $('#meAvatar');
-  if (av) av.innerHTML = avatarHtml(S.me || { name: '?', hue: 0 });
-  $('#meName') && ($('#meName').innerHTML = esc(S.me?.name || '') + adminBadge(S.me));
-  $('#meMail') && ($('#meMail').textContent = S.me?.username ? '@' + S.me.username : (S.me?.mail || ''));
+  paintMeChip();
 
   /* непрочитанные в заголовке вкладки и на иконке приложения */
   const total = S.me ? S.chats.reduce((n, c) => n + (c.unread || 0), 0) : 0;
@@ -99,6 +115,14 @@ export function renderSidebar() {
       p?.catch?.(() => {});
     }
   } catch (e) { /* Badging API не поддерживается */ }
+}
+
+/* профиль внизу сайдбара — рисуем отдельно, чтобы не пересобирать список */
+function paintMeChip() {
+  const av = $('#meAvatar');
+  if (av) av.innerHTML = avatarHtml(S.me || { name: '?', hue: 0 });
+  if ($('#meName')) $('#meName').innerHTML = esc(S.me?.name || '') + adminBadge(S.me);
+  if ($('#meMail')) $('#meMail').textContent = S.me?.username ? '@' + S.me.username : (S.me?.mail || '');
 }
 
 /* ── контекстное меню чата ─────────────────────────────────── */
