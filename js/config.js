@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.8.2',
+  version: '1.8.3',
   phase: 'E2E Encrypted Messenger',
 };
 
@@ -26,9 +26,19 @@ export const SUPABASE = forcedDemo ? { url: '', anonKey: '' } : REAL_SUPABASE;
 /* TURN для звонков. STUN работает не за всеми NAT; для надёжности
    укажите свой TURN (coturn и т.п.). Пустые значения = только STUN. */
 export const RELAY = {
-  urls: [],              // например ['turn:turn.example.com:3478']
-  username: '',
-  credential: '',
+  /* TURN на нашем VPS: turn:62.113.99.46:3478 (coturn, supabase/scripts/vps.sh).
+     UDP — основной путь, TCP — запасной для сетей, где UDP режут. */
+  urls: [
+    'turn:62.113.99.46:3478?transport=udp',
+    'turn:62.113.99.46:3478?transport=tcp',
+  ],
+  /* Свой STUN на том же сервере: не зависим от Google/Twilio, которые
+     в РФ могут быть недоступны. */
+  stunUrls: [
+    'stun:62.113.99.46:3478',
+  ],
+  username: 'relik',
+  credential: 'NxMgeplZdnCJKJoO',
 };
 
 /* Протокол v2 (X3DH + Double Ratchet).
