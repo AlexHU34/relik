@@ -19,9 +19,8 @@ try {
   forcedDemo = q.get('demo') === '1';
 } catch (e) { /* location может быть недоступен */ }
 
-/* Phase 4/5: создайте бесплатный проект на https://supabase.com
-   и вставьте сюда Project URL + anon public key.
-   До этого приложение работает в демо-режиме (IndexedDB). */
+/* Supabase: вставьте Project URL + anon public key.
+   Без ключей приложение работает в демо-режиме (IndexedDB). */
 export const SUPABASE = forcedDemo ? { url: '', anonKey: '' } : REAL_SUPABASE;
 
 /* Быстрые реакции на сообщение */
