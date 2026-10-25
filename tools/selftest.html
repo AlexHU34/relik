@@ -78,6 +78,7 @@ import * as keygen from '../js/crypto/keygen.js';
 import * as ecdh from '../js/crypto/ecdh.js';
 import * as enc from '../js/crypto/encryption.js';
 import { fingerprintForPair, rawPublicKeyBytes, formatFingerprint, fingerprintsEqual } from '../js/crypto/fingerprint.js';
+import * as v2 from '../js/crypto/v2/protocol.js';
 import { encodeMedia, decodeSpecial } from '../js/backend/messages.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from '../js/ui/richText.js';
 import { idb } from '../js/db/idb.js';
@@ -246,6 +247,76 @@ async function run() {
     const svg = qr.createSvgTag({ cellSize: 4, margin: 1 });
     if (!svg.includes('<svg') || svg.length < 500) throw new Error('bad svg');
     return svg.length + ' bytes';
+  });
+
+  await test('v2: X3DH даёт одинаковый секрет', async () => {
+    const A = await v2.generateDeviceBundle({ prekeys: 2 });
+    const B = await v2.generateDeviceBundle({ prekeys: 2 });
+    const init = await v2.x3dhInitiate(A.privateBundle.identityPrivate, B.publicBundle);
+    const resp = await v2.x3dhRespond({
+      identityPrivateJwk: B.privateBundle.identityPrivate,
+      signedPrekeyPrivateJwk: B.privateBundle.signedPrekeyPrivate,
+      oneTimePrekeys: B.privateBundle.oneTimePrekeys,
+      initiatorIdentityJwk: A.publicBundle.identityKey,
+      initiatorEphemeralJwk: init.ephemeral,
+      opkId: init.opkId,
+    });
+    if (v2.toB64u(init.sk) !== v2.toB64u(resp.sk)) throw new Error('X3DH mismatch');
+    return 'P-256 + HKDF';
+  });
+
+  await test('v2: Double Ratchet в обе стороны', async () => {
+    const A = await v2.generateDeviceBundle({ prekeys: 1 });
+    const B = await v2.generateDeviceBundle({ prekeys: 1 });
+    const init = await v2.x3dhInitiate(A.privateBundle.identityPrivate, B.publicBundle);
+    const resp = await v2.x3dhRespond({
+      identityPrivateJwk: B.privateBundle.identityPrivate,
+      signedPrekeyPrivateJwk: B.privateBundle.signedPrekeyPrivate,
+      oneTimePrekeys: B.privateBundle.oneTimePrekeys,
+      initiatorIdentityJwk: A.publicBundle.identityKey,
+      initiatorEphemeralJwk: init.ephemeral,
+      opkId: init.opkId,
+    });
+    const bPriv = await v2.importEcdhPrivate(B.privateBundle.signedPrekeyPrivate);
+    const bPub = await v2.importEcdhPublic(B.publicBundle.signedPrekey);
+    const aState = await v2.ratchetInitInitiator(init.sk, B.publicBundle.signedPrekey);
+    const bState = await v2.ratchetInitResponder(resp.sk, { publicKey: bPub, privateKey: bPriv });
+    const aad = v2.buildAAD({ conversation_id: 'c', sender_id: 'a', sender_device_id: 'da', recipient_device_id: 'db', message_id: 'm' });
+    const e1 = await v2.ratchetEncrypt(aState, 'hello', aad);
+    const d1 = await v2.ratchetDecrypt(bState, e1.header, e1.iv, e1.ct, aad);
+    if (new TextDecoder().decode(d1) !== 'hello') throw new Error('A→B');
+    const e2 = await v2.ratchetEncrypt(bState, 'hi', aad);
+    const d2 = await v2.ratchetDecrypt(aState, e2.header, e2.iv, e2.ct, aad);
+    if (new TextDecoder().decode(d2) !== 'hi') throw new Error('B→A');
+    return 'ratchet ok';
+  });
+
+  await test('v2: out-of-order и AAD tamper', async () => {
+    const A = await v2.generateDeviceBundle({ prekeys: 1 });
+    const B = await v2.generateDeviceBundle({ prekeys: 1 });
+    const init = await v2.x3dhInitiate(A.privateBundle.identityPrivate, B.publicBundle);
+    const resp = await v2.x3dhRespond({
+      identityPrivateJwk: B.privateBundle.identityPrivate,
+      signedPrekeyPrivateJwk: B.privateBundle.signedPrekeyPrivate,
+      oneTimePrekeys: B.privateBundle.oneTimePrekeys,
+      initiatorIdentityJwk: A.publicBundle.identityKey,
+      initiatorEphemeralJwk: init.ephemeral,
+      opkId: init.opkId,
+    });
+    const bPriv = await v2.importEcdhPrivate(B.privateBundle.signedPrekeyPrivate);
+    const bPub = await v2.importEcdhPublic(B.publicBundle.signedPrekey);
+    const aState = await v2.ratchetInitInitiator(init.sk, B.publicBundle.signedPrekey);
+    const bState = await v2.ratchetInitResponder(resp.sk, { publicKey: bPub, privateKey: bPriv });
+    const aad = v2.buildAAD({ conversation_id: 'c', sender_id: 'a', sender_device_id: 'da', recipient_device_id: 'db', message_id: 'm' });
+    const e1 = await v2.ratchetEncrypt(aState, 'one', aad);
+    const e2 = await v2.ratchetEncrypt(aState, 'two', aad);
+    const d2 = await v2.ratchetDecrypt(bState, e2.header, e2.iv, e2.ct, aad);
+    const d1 = await v2.ratchetDecrypt(bState, e1.header, e1.iv, e1.ct, aad);
+    if (new TextDecoder().decode(d2) !== 'two' || new TextDecoder().decode(d1) !== 'one') throw new Error('order');
+    let tampered = false;
+    try { await v2.ratchetDecrypt(bState, e1.header, e1.iv, e1.ct, v2.buildAAD({ conversation_id: 'evil' })); } catch (e) { tampered = true; }
+    if (!tampered) throw new Error('AAD accepted');
+    return 'skipped + AAD';
   });
 
   await test('Файл: шифрование байтов', async () => {

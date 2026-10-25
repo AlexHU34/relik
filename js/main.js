@@ -25,6 +25,8 @@ import { applyPrefs, isMuted, applyRemotePrefs } from './ui/prefs.js';
 import { enablePrefsSync, loadRemotePrefs } from './backend/prefsSync.js';
 import { clearGroupKeyCache } from './backend/groupKeys.js';
 import { clearMediaObjectUrls } from './backend/storage.js';
+import { ensureDeviceV2, clearDeviceV2 } from './backend/devices.js';
+import { CRYPTO_V2 } from './config.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
 function paintChrome() {
@@ -298,6 +300,7 @@ async function enterApp(welcomeKey) {
   maybeDemo();
   startGlobalRealtime();
   initCalls();
+  if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
   processScheduled().catch(() => {});
   syncPrefsFromCloud().catch(() => {});
 }
@@ -446,6 +449,7 @@ function initChrome() {
     clearGroupKeyCache().catch(() => {});
     clearMediaObjectUrls();
     clearTtlTimers();
+    clearDeviceV2().catch(() => {});
     document.title = 'Relik';
     try { navigator.clearAppBadge?.(); } catch (e) { /* ignore */ }
     stopCalls();

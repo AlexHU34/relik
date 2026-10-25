@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.6.0',
+  version: '1.7.0',
   phase: 'E2E Encrypted Messenger',
 };
 
@@ -29,6 +29,15 @@ export const RELAY = {
   urls: [],              // например ['turn:turn.example.com:3478']
   username: '',
   credential: '',
+};
+
+/* Протокол v2 (X3DH + Double Ratchet).
+   enabled = false: приложение работает по v1, новые таблицы не нужны.
+   После выполнения supabase/crypto_v2.sql и проверки на двух устройствах
+   можно включить true — новые личные сообщения пойдут по v2. */
+export const CRYPTO_V2 = {
+  enabled: false,
+  prekeys: 20,
 };
 
 /* Быстрые реакции на сообщение */
