@@ -139,14 +139,28 @@ export async function createDmChat(targetUserId) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
+  /* Атомарный RPC из supabase/dm_fix.sql: оба участника в одной транзакции.
+     Если миграции ещё нет — работаем старым способом. */
+  try {
+    const { data, error } = await sb.rpc('create_dm', { target_user: targetUserId });
+    if (!error && data) return data;
+    if (error && !/could not find|does not exist|schema cache|function/i.test(error.message || '')) {
+      throw error;
+    }
+  } catch (err) {
+    if (!/could not find|does not exist|schema cache|function/i.test(err?.message || '')) throw err;
+  }
+
   // Проверяем, есть ли уже чат
   const { data: existing } = await sb
     .from('conversation_members')
-    .select('conversation_id')
+    .select('conversation_id, conversations(kind)')
     .eq('user_id', user.id);
 
   if (existing) {
     for (const member of existing) {
+      /* Группа — не личный чат, даже если в ней есть этот человек */
+      if (member.conversations?.kind !== 'dm') continue;
       const { data: other } = await sb
         .from('conversation_members')
         .select('user_id')

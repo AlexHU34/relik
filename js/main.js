@@ -543,7 +543,12 @@ function startGlobalRealtime() {
   globalSub = subscribeAllMessages(async (row) => {
     if (!row) return;
     const chat = chatById(row.conversation_id);
-    if (!chat) return;
+    if (!chat) {
+      /* Новый чат создан другим человеком, пока мы были онлайн.
+         Подтягиваем список, иначе сообщение некуда положить. */
+      reloadChats().then(() => renderSidebar()).catch(() => {});
+      return;
+    }
     if (row.sender_id === S.me.id) return; // свои сообщения обрабатываются локально
     if (S.active === row.conversation_id) return; // открытый чат — своя подписка
 
@@ -579,6 +584,15 @@ async function refreshChatListQuiet() {
     let changed = false;
     let incoming = false;
     let audible = false;
+
+    /* Если появился чат, которого нет в локальном списке (его создал
+       собеседник), сначала перечитываем список чатов. */
+    const known = new Set(S.chats.map((c) => c.id));
+    const hasUnknown = [...latest.keys()].some((id) => !known.has(id));
+    if (hasUnknown) {
+      await reloadChats();
+      changed = true;
+    }
 
     for (const chat of S.chats) {
       const rows = latest.get(chat.id) || [];
