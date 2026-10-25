@@ -176,6 +176,8 @@ Relik шифрует **содержимое** переписки на клиен
 
 ## 6. Дорожная карта криптографии
 
+Подробный проект v2 — в [`CRYPTO-V2.md`](CRYPTO-V2.md).
+
 **P2 — следующий протокол:**
 
 - X3DH: identity key, signed prekey, one-time prekeys;
