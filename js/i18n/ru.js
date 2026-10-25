@@ -126,6 +126,7 @@ export default {
   'chat.freeChip': 'Бесплатный Supabase',
   'chat.welcomeTitle': 'Это начало вашей истории',
   'chat.welcomeSub': 'Сообщения защищены сквозным шифрованием',
+  'chat.groupE2eOff': 'E2E групп ещё не включено: выполните supabase/v1.4.sql в Supabase SQL Editor. Пока сообщения группы уходят без шифрования.',
   'chat.previewEmpty': 'Начните переписку…',
   'chat.typing': 'печатает…',
   'chat.share': 'Ссылка-приглашение',

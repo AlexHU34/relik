@@ -126,6 +126,7 @@ export default {
   'chat.freeChip': 'Free Supabase',
   'chat.welcomeTitle': 'This is the beginning of your story',
   'chat.welcomeSub': 'Messages are protected by end-to-end encryption',
+  'chat.groupE2eOff': 'Group E2E is not enabled yet: run supabase/v1.4.sql in the Supabase SQL Editor. Group messages are sent unencrypted until then.',
   'chat.previewEmpty': 'Say hello…',
   'chat.typing': 'typing…',
   'chat.share': 'Invite link',

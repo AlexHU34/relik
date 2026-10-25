@@ -168,7 +168,7 @@ function press(digit) {
   if (buffer.length >= 8) return;
   buffer += digit;
   paintDots();
-  if (navigator.vibrate) navigator.vibrate(8);
+  if (navigator.vibrate && navigator.userActivation?.isActive) navigator.vibrate(8);
   /* для PIN известной длины не заставляем жать OK */
   const c = readCfg();
   if (mode === 'unlock' && c && buffer.length === Number(c.len)) {

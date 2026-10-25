@@ -19,6 +19,7 @@ import { getReadAt, setReadAt, isMuted, prefs } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
 import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead } from '../backend/messages.js';
 import { hydrateMessagesMedia, hydrateMessageMedia } from '../backend/storage.js';
+import { hasGroupKeysTable } from '../backend/groupKeys.js';
 
 const PAGE_SIZE = 240;
 
@@ -36,6 +37,7 @@ let toolsOpen = null;           // панель действий сообщен�
 let autoScrolling = false;
 const readMarks = new Map();    // chatId -> { upto, at } — последняя отправленная отметка
 const demoReads = new Set();    // сообщения, для которых демо уже «прочитало»
+let groupMigrationWarned = false;
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
@@ -661,8 +663,7 @@ export async function openChat(id) {
   }
 
   S.active = id;
-  S.reply = null; S.editing = null; S.reactOpen = null;
-  toolsOpen = null;
+  S.reply = null; S.editing = null; S.reactOpen = null;  toolsOpen = null;
   unseenCount = 0;
   searchHits = [];
   searchIndex = 0;
@@ -680,6 +681,15 @@ export async function openChat(id) {
 
   if (chat.unread) { chat.unread = 0; await idb.put('chats', chat); }
   setReadAt(id);
+
+  /* Один раз за сессию: если миграция ключей групп не выполнена,
+     честно предупреждаем — сообщения пока уходят без E2E. */
+  if (chat.kind === 'group' && SUPABASE.url && SUPABASE.anonKey && !groupMigrationWarned) {
+    groupMigrationWarned = true;
+    hasGroupKeysTable().then((ok) => {
+      if (!ok) toast(t('chat.groupE2eOff'), { type: 'warn', duration: 7000 });
+    }).catch(() => {});
+  }
 
   /* Мгновенно показываем кэш, сеть — фоном */
   S.messages[id] = await idb.messagesOf(id);
