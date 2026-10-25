@@ -6,14 +6,15 @@
 --   2) storage:    bucket files для шифрованных медиа
 --   3) user_prefs: синхронизация настроек между устройствами
 -- ============================================================
+
 -- ============================================================
--- Relik: E2E-РєР»СЋС‡Рё РіСЂСѓРїРїРѕРІС‹С… С‡Р°С‚РѕРІ + Р±РµР·РѕРїР°СЃРЅРѕРµ СѓРїСЂР°РІР»РµРЅРёРµ СѓС‡Р°СЃС‚РЅРёРєР°РјРё
--- Р’С‹РїРѕР»РЅРёС‚Рµ РѕРґРёРЅ СЂР°Р· РІ Supabase в†’ SQL Editor в†’ Run.
--- Р‘РµР· СЌС‚РѕР№ РјРёРіСЂР°С†РёРё РіСЂСѓРїРїС‹ СЂР°Р±РѕС‚Р°СЋС‚ РєР°Рє СЂР°РЅСЊС€Рµ (Р±РµР· E2E),
--- Р° РїСЂРёР»РѕР¶РµРЅРёРµ РїСЂРѕРґРѕР»Р¶Р°РµС‚ СЂР°Р±РѕС‚Р°С‚СЊ.
+-- Relik: E2E-ключи групповых чатов + безопасное управление участниками
+-- Выполните один раз в Supabase → SQL Editor → Run.
+-- Без этой миграции группы работают как раньше (без E2E),
+-- а приложение продолжает работать.
 -- ============================================================
 
--- в”Ђв”Ђ РџРѕРјРѕС‰РЅРёРєРё Р±РµР· СЂРµРєСѓСЂСЃРёРё RLS в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+-- ── Помощники без рекурсии RLS ─────────────────────────────
 create or replace function public.is_conversation_member(conv uuid, uid uuid default auth.uid())
 returns boolean
 language sql
@@ -45,7 +46,7 @@ revoke all on function public.is_conversation_creator(uuid, uuid) from public;
 grant execute on function public.is_conversation_member(uuid, uuid) to authenticated;
 grant execute on function public.is_conversation_creator(uuid, uuid) to authenticated;
 
--- в”Ђв”Ђ РЈС‡Р°СЃС‚РЅРёРєРё: СЃРѕР·РґР°С‚РµР»СЊ РјРѕР¶РµС‚ РґРѕР±Р°РІР»СЏС‚СЊ Рё СѓРґР°Р»СЏС‚СЊ, СѓС‡Р°СЃС‚РЅРёРє вЂ” РІС‹Р№С‚Рё в”Ђв”Ђ
+-- ── Участники: создатель может добавлять и удалять, участник — выйти ──
 drop policy if exists "members add" on public.conversation_members;
 create policy "members add"
   on public.conversation_members for insert
@@ -64,7 +65,7 @@ create policy "creator removes members"
   on public.conversation_members for delete
   using (public.is_conversation_creator(conversation_id));
 
--- в”Ђв”Ђ РљР»СЋС‡Рё РіСЂСѓРїРї: РєР°Р¶РґРѕРјСѓ СѓС‡Р°СЃС‚РЅРёРєСѓ вЂ” СЃРІРѕСЏ Р·Р°С€РёС„СЂРѕРІР°РЅРЅР°СЏ РєРѕРїРёСЏ в”Ђв”Ђ
+-- ── Ключи групп: каждому участнику — своя зашифрованная копия ──
 create table if not exists public.group_keys (
   conversation_id uuid not null references public.conversations(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -101,21 +102,21 @@ create policy "own group keys update"
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
--- Realtime РґР»СЏ group_keys РЅРµ РЅСѓР¶РµРЅ: РєР»СЋС‡Рё С‡РёС‚Р°СЋС‚СЃСЏ РїСЂРё РѕС‚РєСЂС‹С‚РёРё С‡Р°С‚Р°.
+-- Realtime для group_keys не нужен: ключи читаются при открытии чата.
 
 -- ============================================================
--- РџРѕСЃР»Рµ РјРёРіСЂР°С†РёРё: РєР»СЋС‡ СЃРѕР·РґР°С‘С‚СЃСЏ РїСЂРё СЃРѕР·РґР°РЅРёРё РіСЂСѓРїРїС‹ Рё РїСЂРё РїРµСЂРІРѕРј
--- СЃРѕРѕР±С‰РµРЅРёРё РІ СЃС‚Р°СЂРѕР№ РіСЂСѓРїРїРµ; РїСЂРё СѓРґР°Р»РµРЅРёРё СѓС‡Р°СЃС‚РЅРёРєР° РєР»СЋС‡ СЂРѕС‚РёСЂСѓРµС‚СЃСЏ.
+-- После миграции: ключ создаётся при создании группы и при первом
+-- сообщении в старой группе; при удалении участника ключ ротируется.
 -- ============================================================
 
 
 -- ============================================================
--- Relik: Supabase Storage РґР»СЏ E2E-С€РёС„СЂРѕРІР°РЅРЅС‹С… РјРµРґРёР°
--- Р’С‹РїРѕР»РЅРёС‚Рµ РѕРґРёРЅ СЂР°Р· РІ Supabase в†’ SQL Editor в†’ Run.
+-- Relik: Supabase Storage для E2E-шифрованных медиа
+-- Выполните один раз в Supabase → SQL Editor → Run.
 --
--- Р’ bucket 'files' РїРѕРїР°РґР°РµС‚ С‚РѕР»СЊРєРѕ AES-GCM-С€РёС„СЂРѕС‚РµРєСЃС‚.
--- РљР»СЋС‡ С„Р°Р№Р»Р° РїРµСЂРµРґР°С‘С‚СЃСЏ РІРЅСѓС‚СЂРё Р·Р°С€РёС„СЂРѕРІР°РЅРЅРѕРіРѕ СЃРѕРѕР±С‰РµРЅРёСЏ,
--- РїРѕСЌС‚РѕРјСѓ РїСѓР±Р»РёС‡РЅРѕРµ С‡С‚РµРЅРёРµ Р±РµР·РѕРїР°СЃРЅРѕ: Р±РµР· РєР»СЋС‡Р° СЌС‚Рѕ РјСѓСЃРѕСЂ.
+-- В bucket 'files' попадает только AES-GCM-шифротекст.
+-- Ключ файла передаётся внутри зашифрованного сообщения,
+-- поэтому публичное чтение безопасно: без ключа это мусор.
 -- ============================================================
 
 insert into storage.buckets (id, name, public, file_size_limit)
@@ -149,9 +150,9 @@ create policy "relik files delete"
   using (bucket_id = 'files' and owner = auth.uid());
 
 
--- Relik вЂ” СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРёС… РЅР°СЃС‚СЂРѕРµРє РјРµР¶РґСѓ СѓСЃС‚СЂРѕР№СЃС‚РІР°РјРё
--- Р’С‹РїРѕР»РЅРёС‚Рµ РІ Supabase SQL Editor (Dashboard в†’ SQL Editor в†’ Run).
--- Р‘РµР· СЌС‚РѕР№ С‚Р°Р±Р»РёС†С‹ РїСЂРёР»РѕР¶РµРЅРёРµ РїСЂРѕРґРѕР»Р¶Р°РµС‚ СЂР°Р±РѕС‚Р°С‚СЊ Р»РѕРєР°Р»СЊРЅРѕ.
+-- Relik — синхронизация пользовательских настроек между устройствами
+-- Выполните в Supabase SQL Editor (Dashboard → SQL Editor → Run).
+-- Без этой таблицы приложение продолжает работать локально.
 
 create table if not exists public.user_prefs (
   user_id uuid primary key references public.profiles(id) on delete cascade,
@@ -166,4 +167,3 @@ create policy "own user prefs"
   on public.user_prefs for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
-
