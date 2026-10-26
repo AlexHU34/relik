@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.18.0';
+const VER = 'relik-v1.19.0';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
@@ -16,7 +16,7 @@ const ASSETS = [
   './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/contacts.js', './js/backend/blocks.js', './js/backend/telemetry.js', './js/backend/push.js',
   './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js', './js/crypto/fingerprint.js', './js/crypto/recovery.js', './js/crypto/v2/protocol.js',
   './js/vendor/bip39-wordlist.js',
-  './js/backend/keyStore.js', './js/ui/keyRecovery.js', './js/backend/expiry.js',
+  './js/backend/keyStore.js', './js/ui/keyRecovery.js', './js/backend/expiry.js', './js/backend/scheduled.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png',
 ];
 

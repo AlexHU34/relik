@@ -11,6 +11,13 @@
 
 Проверка: `adb devices` должен показать устройство.
 
+## Сборка в облаке (без Android Studio)
+
+В репозитории есть workflow `.github/workflows/android.yml`: при push в `mobile/`
+или по кнопке **Actions → Android debug APK → Run workflow** собирается
+`app-debug.apk` и прикрепляется к запуску (Artifacts → `relik-debug-apk`).
+Скачать можно с GitHub без установки SDK.
+
 ## Сборка (первый раз)
 
 ```powershell

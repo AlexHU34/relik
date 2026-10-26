@@ -13,6 +13,7 @@ import { sendTypingSignal } from '../backend/presence.js';
 import { sendMessage, editMessage, encodePoll, encodeVote, encodeReaction, encodePollClose, encodeMedia } from '../backend/messages.js';
 import { logEvent } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
+import { scheduleOnServer, cancelOnServer, sendNowOnServer, reconcileLocal, scheduledSupported } from '../backend/scheduled.js';
 import { readFileAsDataURL, uploadEncryptedBlob, dataUrlToBlob, rememberMediaPreview } from '../backend/storage.js';
 import { prefs } from './prefs.js';
 import { currentDevice } from './device.js';
@@ -428,6 +429,24 @@ async function saveScheduledFromDialog() {
     replyId: S.reply?.id || null,
     replyBox: S.reply ? { ...S.reply } : null,
   };
+
+  /* Пытаемся отправить через сервер: тогда сообщение уйдёт,
+     даже если приложение закрыто. Без миграции — локальный режим. */
+  if (scheduledSupported()) {
+    try {
+      await scheduleOnServer({
+        ...record,
+        chatKind: chat.kind,
+        publicKey: chat.publicKey || null,
+        peerUserId: chat.kind === 'dm' ? (chat.userId || null) : null,
+      });
+      record.server = true;
+    } catch (err) {
+      if (String(err?.message || '') === 'need_sql') toast(t('sched.needSql'), { type: 'error' });
+      record.server = false;
+    }
+  }
+
   await idb.put('settings', { key: 'sched:' + record.id, value: record });
   els.scheduleOv.hidden = true;
   clearReplyEdit();
@@ -435,6 +454,7 @@ async function saveScheduledFromDialog() {
 }
 
 let schedBusy = false;
+let lastReconcile = 0;
 
 async function sendScheduled(item) {
   const chat = chatById(item?.chatId);
@@ -466,10 +486,14 @@ export async function processScheduled() {
   if (schedBusy || !S.me) return;
   schedBusy = true;
   try {
+    if (Date.now() - lastReconcile > 5 * 60 * 1000) {
+      lastReconcile = Date.now();
+      reconcileLocal().catch(() => {});
+    }
     const all = await idb.getAll('settings');
     const now = Date.now();
     const due = all
-      .filter((rec) => String(rec.key).startsWith('sched:') && Number(rec.value?.dueAt) <= now)
+      .filter((rec) => String(rec.key).startsWith('sched:') && !rec.value?.server && Number(rec.value?.dueAt) <= now)
       .sort((a, b) => (a.value?.dueAt || 0) - (b.value?.dueAt || 0))
       .slice(0, 20);
     for (const rec of due) {
@@ -537,9 +561,15 @@ async function onScheduledListClick(e) {
   try {
     const rec = await idb.get('settings', 'sched:' + sid);
     if (!rec?.value) return;
+    if (rec.value.server) {
+      if (cancel) await cancelOnServer(rec.value.id);
+      else await sendNowOnServer(rec.value.id);
+    }
     await idb.del('settings', 'sched:' + sid);
     if (cancel) {
       toast(t('sched.cancelled'), { type: 'success' });
+    } else if (rec.value.server) {
+      toast(t('sched.sentNow'), { type: 'success' });
     } else {
       await sendScheduled(rec.value);
       toast(t('sched.sentNow'), { type: 'success' });

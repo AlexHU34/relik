@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Relik — Android-оболочка (Capacitor). Релиз в сторах запланирован на 2027.",
   "scripts": {
-    "sync:web": "powershell -ExecutionPolicy Bypass -File ./sync-web.ps1",
+    "sync:web": "node sync-web.mjs",
     "add:android": "npx cap add android",
     "sync": "npm run sync:web && npx cap sync android",
     "open": "npx cap open android",

@@ -337,6 +337,50 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     senderId = user.id;
   }
 
+  const { row, ts } = await buildMessageRow({
+    chatId, text, replyToId, chatKind, theirPublicKeyJwk, messageId: msgId, peerUserId,
+  });
+
+  const { error } = await sb.from('messages').insert(row);
+  if (error) throw error;
+
+  const msg = applySpecial({
+    id: msgId,
+    chatId,
+    sender: 'u_me',
+    ts,
+    type: 'text',
+    text, // возвращаем оригинальный текст для UI
+    reactions: [],
+    status: 'sent',
+    replyTo: replyToId ? { id: replyToId } : null,
+    edited: false,
+    deleted: false,
+  });
+  if (row.crypto_version === 2) msg.cryptoVersion = 2;
+  return msg;
+}
+
+/* Собрать зашифрованную строку messages без отправки.
+   Нужно для отложенных сообщений: шифруем сразу, сервер хранит
+   только шифротекст и вставляет его в нужное время. */
+export async function buildMessageRow({
+  chatId, text, replyToId = null, chatKind = 'dm',
+  theirPublicKeyJwk = null, messageId = null, peerUserId = null,
+}) {
+  if (peerUserId && chatKind === 'dm') {
+    const { hideUser } = await import('./blocks.js');
+    if (hideUser(peerUserId)) throw new Error('recipient_blocked');
+  }
+
+  const msgId = messageId || newId();
+  let senderId = S.me?.id || null;
+  if (!senderId) {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    senderId = user.id;
+  }
+
   const now = Date.now();
   let ciphertext = '';
   let iv = '';
@@ -345,14 +389,7 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
   if (SUPABASE.url && SUPABASE.anonKey) {
     if (chatKind === 'dm' && CRYPTO_V2.enabled && peerUserId) {
       try {
-        v2 = await encryptV2Dm({
-          chatId,
-          peerUserId,
-          senderId,
-          text,
-          messageId: msgId,
-          ts: now,
-        });
+        v2 = await encryptV2Dm({ chatId, peerUserId, senderId, text, messageId: msgId, ts: now });
       } catch (err) {
         console.warn('v2 encrypt failed, fallback to v1:', err?.message || err);
         v2 = null;
@@ -368,7 +405,6 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
         ciphertext = encrypted.ciphertext;
         iv = encrypted.iv;
       } else if (chatKind === 'group') {
-        /* E2E: общий ключ группы; если миграции ещё нет — как раньше */
         const encrypted = await encryptGroupText(chatId, text);
         if (encrypted) {
           ciphertext = encrypted.ciphertext;
@@ -386,7 +422,6 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
       iv = v2.iv;
     }
   } else {
-    // Демо-режим: открытым текстом
     ciphertext = text;
     iv = '';
   }
@@ -405,24 +440,7 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     row.envelope = v2.envelope;
   }
 
-  const { error } = await sb.from('messages').insert(row);
-  if (error) throw error;
-
-  const msg = applySpecial({
-    id: msgId,
-    chatId,
-    sender: 'u_me',
-    ts: v2 ? v2.envelope.ts : now,
-    type: 'text',
-    text, // возвращаем оригинальный текст для UI
-    reactions: [],
-    status: 'sent',
-    replyTo: replyToId ? { id: replyToId } : null,
-    edited: false,
-    deleted: false,
-  });
-  if (v2) msg.cryptoVersion = 2;
-  return msg;
+  return { row, ts: v2 ? v2.envelope.ts : now };
 }
 
 /* ── Редактирование сообщения ── */
