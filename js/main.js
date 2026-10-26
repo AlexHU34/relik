@@ -556,6 +556,7 @@ function initChrome() {
     S.messages = {};
     S.unreadFrom = {};
     S.renderLimit = {};
+    S.drafts = {};
     S.typingChat = null;
     clearGroupKeyCache().catch(() => {});
     clearMediaObjectUrls();

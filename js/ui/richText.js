@@ -120,11 +120,18 @@ function blocksHtml(raw) {
   return out.join('');
 }
 
-/* Основное: сырой текст → безопасный HTML. */
+/* Основное: сырой текст → безопасный HTML.
+   Кэш на 300 записей: при перерисовке ленты один и тот же текст
+   форматируется заново десятки раз (реакции, прочтения, смена языка). */
+const FORMAT_CACHE = new Map();
 export function formatText(raw) {
   const text = String(raw ?? '');
   if (!text) return '';
-  return blocksHtml(text);
+  const cached = FORMAT_CACHE.get(text);
+  if (cached !== undefined) return cached;
+  const html = blocksHtml(text);
+  if (FORMAT_CACHE.size < 300) FORMAT_CACHE.set(text, html);
+  return html;
 }
 
 /* Сообщение из одних эмодзи — показываем крупно. */

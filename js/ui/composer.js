@@ -1,11 +1,11 @@
 /* Relik — композер: ввод, ответ/редактирование, эмодзи, медиа, «микрофон» */
-import { S, chatById } from './state.js';
-import { $, fmtDur } from './utils.js';
+import { S, chatById, chatTitle } from './state.js';
+import { $, fmtDur, esc, preview } from './utils.js';
 import { icon } from './icons.js';
-import { t } from '../i18n/i18n.js';
+import { t, lang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
 import { SUPABASE } from '../config.js';
-import { deliverMessage, renderMessages, refreshPollCard, refreshMessageReactions } from './chatView.js';
+import { deliverMessage, renderMessages, refreshPollCard, refreshMessageReactions, refreshMessageStatus } from './chatView.js';
 import { renderSidebar } from './sidebar.js';
 import { toast } from './toast.js';
 import { playSent } from './sounds.js';
@@ -36,8 +36,9 @@ export function initComposer() {
     emojiBtn: $('#emojiBtn'), emojiPop: $('#emojiPop'),
     recUi: $('#recUi'), recTime: $('#recTime'), recCancel: $('#recCancel'),
     attPhoto: $('#attPhoto'), attFile: $('#attFile'), attPoll: $('#attPoll'),
-    attAlbum: $('#attAlbum'), attVideo: $('#attVideo'), attCircle: $('#attCircle'), attLater: $('#attLater'),
+    attAlbum: $('#attAlbum'), attVideo: $('#attVideo'), attCircle: $('#attCircle'), attLater: $('#attLater'), attSched: $('#attSched'),
     scheduleOv: $('#scheduleOv'), scheduleAt: $('#scheduleAt'), schedulePreview: $('#schedulePreview'), scheduleGo: $('#scheduleGo'),
+    schedListOv: $('#schedListOv'), schedList: $('#schedList'),
     pollOv: $('#pollOv'), pollQuestion: $('#pollQuestion'), pollOptions: $('#pollOptions'), pollMulti: $('#pollMulti'), pollAnon: $('#pollAnon'),
   };
 
@@ -57,6 +58,7 @@ export function initComposer() {
   $('#attVideoIc').innerHTML = icon('video', 17);
   $('#attCircleIc').innerHTML = icon('circle', 17);
   $('#attLaterIc').innerHTML = icon('clock', 17);
+  $('#attSchedIc').innerHTML = icon('clock', 17);
   setSendMode('mic');
   initCircleRecorder();
 
@@ -110,6 +112,8 @@ export function initComposer() {
   els.attVideo.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('video'); });
   els.attCircle.addEventListener('click', () => { els.attachMenu.hidden = true; openCircleRecorder(); });
   els.attLater.addEventListener('click', () => { els.attachMenu.hidden = true; openScheduleDialog(); });
+  els.attSched?.addEventListener('click', () => { els.attachMenu.hidden = true; openScheduledList(); });
+  els.schedList?.addEventListener('click', onScheduledListClick);
   els.attFile.addEventListener('click', () => { els.attachMenu.hidden = true; pickAndSend('file'); });
   els.attPoll.addEventListener('click', () => { els.attachMenu.hidden = true; openPollCreator(); });
   $('#pollAddOpt').addEventListener('click', () => addPollOption());
@@ -119,7 +123,10 @@ export function initComposer() {
   window.addEventListener('online', processScheduled);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') processScheduled();
+    else flushDraft();
   });
+  window.addEventListener('pagehide', flushDraft);
+  window.addEventListener('beforeunload', flushDraft);
   processScheduled();
   els.pollOptions.addEventListener('click', (e) => {
     const rm = e.target.closest('[data-rm-opt]');
@@ -215,18 +222,51 @@ function renderEmojiPicker() {
     <div class="emoji-grid">${cur.emojis.map((e) => `<button type="button" data-emoji="${e}">${e}</button>`).join('')}</div>`;
 }
 
+/* Черновик привязан к чату, в котором его начали: id фиксируем в момент
+   ввода, иначе при быстром переключении текст уезжал в следующий чат. */
+function persistDraft(id, v) {
+  if (!id) return;
+  const text = String(v ?? '');
+  const next = text.trim() ? text : '';
+  const changed = (S.drafts[id] || '') !== next;
+  S.drafts[id] = next;
+  try {
+    if (next) idb.put('settings', { key: 'draft:' + id, value: next });
+    else idb.del('settings', 'draft:' + id);
+  } catch (e) { /* ignore */ }
+  if (changed) paintDraft(id, next);
+}
+
+/* Точечно обновляем превью строки в списке: полный renderSidebar()
+   на каждом черновике сбрасывал бы прокрутку списка чатов. */
+function paintDraft(id, text) {
+  const chat = chatById(id);
+  if (!chat) return;
+  const safe = (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id).replace(/"/g, '\\"');
+  const row = document.querySelector(`#sideList .chat-item[data-cid="${safe}"] .ci-preview`);
+  if (!row) return;
+  row.classList.toggle('draft', !!text);
+  row.innerHTML = text
+    ? `<span class="who">${t('side.draft')}:</span> ${esc(text.length > 120 ? text.slice(0, 120) + '…' : text)}`
+    : preview(chat);
+}
+
 function scheduleDraft() {
   if (S.editing) return;
   clearTimeout(draftTimer);
-  draftTimer = setTimeout(async () => {
-    const id = S.active;
-    if (!id) return;
-    const v = els.ta.value;
-    try {
-      if (v.trim()) await idb.put('settings', { key: 'draft:' + id, value: v });
-      else await idb.del('settings', 'draft:' + id);
-    } catch (e) { /* ignore */ }
-  }, 500);
+  const id = S.active;
+  if (!id) return;
+  const value = els.ta.value;
+  draftTimer = setTimeout(() => persistDraft(id, value), 500);
+}
+
+/* Сохранить черновик немедленно (переключение чата, скрытие вкладки) */
+export function flushDraft() {
+  clearTimeout(draftTimer);
+  if (S.editing) return;
+  const id = S.active;
+  if (!id) return;
+  persistDraft(id, els.ta.value);
 }
 
 function togglePopup(which) {
@@ -259,12 +299,19 @@ export function refreshBar() {
 }
 
 function clearReplyEdit(keepText = false) {
+  const wasEditing = !!S.editing;
   S.reply = null; S.editing = null;
   refreshBar();
-  if (!keepText) {
-    els.ta.value = '';
+  /* Отмена редактирования не должна оставлять в поле изменённый текст:
+     возвращаем черновик, который был до входа в режим правки. */
+  if (!keepText || wasEditing) {
+    els.ta.value = wasEditing ? (S.drafts?.[S.active] || '') : '';
     els.ta.style.height = 'auto';
-    setSendMode('mic');
+    if (els.ta.value) {
+      els.ta.dispatchEvent(new Event('input'));
+    } else {
+      setSendMode('mic');
+    }
   } else {
     syncSendMode();
   }
@@ -312,6 +359,7 @@ export async function sendCurrent() {
   const replyBox = S.reply ? { ...S.reply } : null;
 
   idb.del('settings', 'draft:' + chat.id).catch(() => {});
+  if (S.drafts[chat.id]) { S.drafts[chat.id] = ''; renderSidebar(); }
 
   /* Сообщение появляется в ленте сразу, не дожидаясь ответа сервера */
   const msg = {
@@ -331,14 +379,14 @@ export async function sendCurrent() {
     await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
     notifyPush(chat);
   } catch (err) {
     console.error('Send message error:', err);
     msg.status = 'error';
     msg.error = String(err?.message || '');
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
     toast(friendlySendError(err));
   }
 }
@@ -404,13 +452,13 @@ async function sendScheduled(item) {
     await sendMessage(chat.id, item.text, item.replyId || null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
   } catch (err) {
     console.error('Scheduled send error:', err);
     msg.status = 'error';
     msg.error = String(err?.message || '');
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
   }
 }
 
@@ -435,6 +483,75 @@ export async function processScheduled() {
   }
 }
 
+/* ── список отложенных: посмотреть, отправить сейчас, отменить ── */
+function fmtDue(ts) {
+  const d = new Date(Number(ts) || 0);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+  } catch (e) {
+    return d.toLocaleString();
+  }
+}
+
+async function openScheduledList() {
+  if (!els.schedListOv || !els.schedList) return;
+  let items = [];
+  try {
+    const all = await idb.getAll('settings');
+    items = all
+      .filter((rec) => String(rec.key || '').startsWith('sched:') && rec.value?.chatId && rec.value?.text)
+      .map((rec) => rec.value)
+      .sort((a, b) => (a.dueAt || 0) - (b.dueAt || 0));
+  } catch (e) { /* ignore */ }
+  els.schedList.innerHTML = items.length
+    ? items.map((it) => {
+      const chat = chatById(it.chatId);
+      const name = chat ? chatTitle(chat) : t('sched.unknownChat');
+      return `<div class="sched-item" data-sid="${esc(it.id)}">
+        <div class="si-top">
+          <span class="si-chat">${esc(name)}</span>
+          <span>${esc(fmtDue(it.dueAt))}</span>
+        </div>
+        <div class="si-text">${esc(it.text)}</div>
+        <div class="si-actions">
+          <button type="button" class="btn btn-ghost" data-sched-cancel="${esc(it.id)}">${t('sched.cancelItem')}</button>
+          <button type="button" class="btn" data-sched-now="${esc(it.id)}">${t('sched.sendNow')}</button>
+        </div>
+      </div>`;
+    }).join('')
+    : `<div class="sched-empty">${t('sched.empty')}</div>`;
+  els.schedListOv.hidden = false;
+}
+
+async function onScheduledListClick(e) {
+  const cancel = e.target.closest('[data-sched-cancel]');
+  const sendNow = e.target.closest('[data-sched-now]');
+  if (!cancel && !sendNow) return;
+  const btn = cancel || sendNow;
+  const sid = btn.dataset.schedCancel || btn.dataset.schedNow;
+  if (!sid) return;
+  btn.disabled = true;
+  try {
+    const rec = await idb.get('settings', 'sched:' + sid);
+    if (!rec?.value) return;
+    await idb.del('settings', 'sched:' + sid);
+    if (cancel) {
+      toast(t('sched.cancelled'), { type: 'success' });
+    } else {
+      await sendScheduled(rec.value);
+      toast(t('sched.sentNow'), { type: 'success' });
+    }
+  } catch (err) {
+    console.warn('Scheduled list action error:', err);
+    toast(t('toast.error'), { type: 'error' });
+  } finally {
+    openScheduledList();
+  }
+}
+
 /* ── повторная отправка (клик по ошибке или возврат сети) ── */
 export async function retryMessage(m, opts = {}) {
   if (!m || m.status !== 'error') return false;
@@ -446,7 +563,7 @@ export async function retryMessage(m, opts = {}) {
   m.attempts = (m.attempts || 0) + 1;
   delete m.nextTry;
   await idb.put('messages', m);
-  if (S.active === chat.id) renderMessages();
+  refreshMessageStatus(m);
 
   let ok = false;
   try {
@@ -476,7 +593,7 @@ export async function retryMessage(m, opts = {}) {
       logEvent('send_failed', { attempts: m.attempts || 1, message: msg.slice(0, 120) });
     }
   }
-  if (S.active === chat.id) renderMessages();
+  if (S.active === chat.id) refreshMessageStatus(m);
   renderSidebar();
   return ok;
 }
@@ -599,12 +716,12 @@ async function sendPoll(poll) {
     await sendMessage(chat.id, encodePoll(poll), null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
   } catch (err) {
     console.error('Create poll error:', err);
     msg.status = 'error';
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
     toast(friendlySendError(err) || t('poll.createError'));
   }
 }
@@ -988,12 +1105,12 @@ async function sendMediaPayload(payload, chatId = S.active) {
     await sendMessage(chat.id, msg.wire, replyId, chat.kind, chat.publicKey, msg.id, chat.userId || null);
     msg.status = 'sent';
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
   } catch (err) {
     console.error('Media send error:', err);
     msg.status = 'error';
     await idb.put('messages', msg);
-    if (S.active === chat.id) renderMessages();
+    refreshMessageStatus(msg);
     toast(friendlySendError(err) || t('media.error'), { type: 'error' });
   }
   return msg;

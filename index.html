@@ -415,6 +415,7 @@
                 <button id="attFile"><span class="amb c-file" id="attFileIc"></span><span data-i18n="comp.file"></span></button>
                 <button id="attPoll"><span class="amb c-poll" id="attPollIc"></span><span data-i18n="comp.poll"></span></button>
                 <button id="attLater"><span class="amb c-later" id="attLaterIc"></span><span data-i18n="comp.schedule"></span></button>
+                <button id="attSched"><span class="amb c-later" id="attSchedIc"></span><span data-i18n="comp.schedList"></span></button>
               </div>
             </div>
             <textarea id="ta" rows="1" placeholder="" data-i18n-ph="comp.ph"></textarea>
@@ -917,6 +918,23 @@
       <div class="m-foot">
         <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
         <button class="btn" id="scheduleGo" data-i18n="sched.send">Запланировать</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════ ОТЛОЖЕННЫЕ СООБЩЕНИЯ (СПИСОК) ══════════ -->
+  <div class="overlay" id="schedListOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedListTitle">
+      <header class="m-head">
+        <h3 id="schedListTitle" data-i18n="sched.listTitle">Отложенные</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="sched-list" id="schedList"></div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.close">Закрыть</button>
       </div>
     </div>
   </div>

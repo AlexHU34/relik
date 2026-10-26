@@ -38,6 +38,8 @@ const playing = new Map(); // msgId -> {timer, i, bars}
 let searchQuery = '';
 let searchHits = [];
 let searchIndex = 0;
+let searchInputTimer = 0;
+let lastSearchQuery = '';
 let unseenCount = 0;
 let forwardMsg = null;
 let forwardTargets = new Set();
@@ -63,6 +65,21 @@ export function initChatView() {
   els.toBottom = $('#toBottom');
   els.toBottom.innerHTML = icon('arrowDown', 18);
   els.msgs.addEventListener('click', onMsgClick);
+  /* Панель действий: показываем только у сообщения под курсором.
+     На тач-устройствах её открывает тап (см. onMsgClick). */
+  els.msgs.addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'touch') return;
+    const el = e.target.closest?.('.msg');
+    if (!el || el.contains(e.relatedTarget)) return;
+    showTools(el);
+  });
+  els.msgs.addEventListener('pointerout', (e) => {
+    if (e.pointerType === 'touch') return;
+    const el = e.target.closest?.('.msg');
+    if (!el || el.contains(e.relatedTarget)) return;
+    if (el.classList.contains('tools-open') || el.classList.contains('react-open')) return;
+    el.querySelectorAll(':scope > .bubble > .tools').forEach((t) => t.remove());
+  });
   els.msgs.addEventListener('scroll', updateToBottom, { passive: true });
   els.toBottom.addEventListener('click', () => scrollBottom(false));
   $('#backBtn').addEventListener('click', () => {
@@ -127,10 +144,15 @@ export function initChatView() {
   $('#chatSearchPrev').addEventListener('click', () => jumpToHit(-1));
   $('#chatSearchNext').addEventListener('click', () => jumpToHit(1));
   $('#chatSearchInput').addEventListener('input', (e) => {
-    searchQuery = e.target.value.trim();
-    searchIndex = 0;
-    renderMessages();
-    if (searchQuery && searchHits.length) jumpTo(searchHits[0]);
+    const value = e.target.value.trim();
+    clearTimeout(searchInputTimer);
+    /* не перерисовываем 240 сообщений на каждую букву */
+    searchInputTimer = setTimeout(() => {
+      searchQuery = value;
+      searchIndex = 0;
+      renderMessages();
+      if (searchQuery && searchHits.length) jumpTo(searchHits[searchIndex]);
+    }, 110);
   });
   $('#chatSearchInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -273,12 +295,20 @@ export function initChatView() {
     }).catch(() => {});
   });
 
-  /* тап мимо сообщения закрывает панель действий */
+  /* тап мимо сообщения закрывает панель действий и реакции */
   document.addEventListener('click', (e) => {
-    if (!toolsOpen) return;
+    if (!toolsOpen && !S.reactOpen) return;
     if (e.target.closest('.msg')) return;
-    toolsOpen = null;
-    renderMessages();
+    closeTools();
+    closeReact();
+  });
+
+  /* Esc закрывает панель действий/реакции, не трогая остальные слои */
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!toolsOpen && !S.reactOpen) return;
+    closeTools();
+    closeReact();
   });
 }
 
@@ -408,7 +438,19 @@ function onMsgClick(e) {
   if (actEl && m) {
     const act = actEl.dataset.act;
     if (act === 'reply') { S.editing = null; S.reply = { id: m.id, name: user(m.sender).name, snippet: snippet(m) }; refreshBar(); closeReact(); }
-    else if (act === 'react') { S.reactOpen = S.reactOpen === m.id ? null : m.id; renderMessages(); }
+    else if (act === 'react') {
+      const willOpen = S.reactOpen !== m.id;
+      closeReact();
+      if (willOpen) {
+        S.reactOpen = m.id;
+        const bubble = msgEl.querySelector(':scope > .bubble');
+        bubble?.insertAdjacentHTML('beforeend', rxPickHtml());
+        msgEl.classList.add('react-open');
+        /* .tools скрывает CSS (.react-open .tools{opacity:0});
+           удалять панель внутри клика нельзя — событие всплывёт
+           до document уже без предка .msg и закроет выбор реакций. */
+      }
+    }
     else if (act === 'retry') { retryMessage(m); }
     else if (act === 'copy') {
       const text = m.text || '';
@@ -450,6 +492,7 @@ function onMsgClick(e) {
       ], { anchor: actEl, align: 'right' });
       closeReact();
     }
+    if (act !== 'react' && toolsOpen) closeTools();
     return;
   }
   if (S.reactOpen) closeReact();
@@ -457,8 +500,7 @@ function onMsgClick(e) {
   if (m && !e.target.closest('[data-act],[data-pick],[data-rx],[data-poll-opt],.poll,.reply-quote,.msg-img,.msg-video,.video-note,.album,.voice')) {
     const touch = currentDevice() === 'phone' || window.matchMedia('(hover: none)').matches;
     if (touch) {
-      toolsOpen = toolsOpen === m.id ? null : m.id;
-      renderMessages();
+      toggleTools(msgEl, m);
     }
   }
 }
@@ -520,8 +562,15 @@ async function shareChat() {
   }
 }
 
+/* Панель реакций закрываем точечно — без пересборки всей ленты. */
 function closeReact() {
-  if (S.reactOpen) { S.reactOpen = null; renderMessages(); }
+  if (!S.reactOpen) return;
+  S.reactOpen = null;
+  const open = els.msgs?.querySelectorAll('.react-open') || [];
+  open.forEach((el) => {
+    el.classList.remove('react-open');
+    el.querySelectorAll(':scope > .bubble > .rx-pick').forEach((p) => p.remove());
+  });
 }
 
 /* ── «Живая» лента: Realtime + тихий опрос на случай сбоя сокета ── */
@@ -599,6 +648,20 @@ function refreshTicks(m) {
     else meta.insertAdjacentHTML('beforeend', html);
   } else if (old) {
     old.remove();
+  }
+}
+
+/* Точечно обновить статус отправки (часики → галочки) без перерисовки
+   всей ленты. Раньше каждое подтверждение сервера пересобирало 240 сообщений. */
+export function refreshMessageStatus(m) {
+  if (!m || S.active !== m.chatId) return;
+  const el = els.msgs?.querySelector(`[data-mid="${nonzeroEscape(m.id)}"]`);
+  if (!el) return;
+  const meta = el.querySelector('.msg-meta');
+  if (meta) meta.outerHTML = metaHtml(m, m.sender === 'u_me');
+  if (toolsOpen === m.id) {
+    el.querySelectorAll(':scope > .bubble > .tools').forEach((t) => t.remove());
+    showTools(el);
   }
 }
 
@@ -714,15 +777,31 @@ function appendToFeed(newMsgs) {
   if (!newMsgs.length || searchQuery) return false;
   const holder = els.msgs;
   if (!holder) return false;
-  if (holder.querySelector('.chat-welcome, .load-earlier, .locked-banner')) return false;
+  if (holder.querySelector('.chat-welcome, .locked-banner')) return false;
 
   const visible = (S.messages[S.active] || [])
     .filter((m) => !m.hidden && (!m.decryptFailed || showLocked));
   const limit = S.renderLimit?.[S.active] || PAGE_SIZE;
-  if (visible.length > limit) return false;
 
   const firstNew = visible.findIndex((m) => m.id === newMsgs[0].id);
   if (firstNew <= 0) return false;
+
+  /* Достигли страницы истории: не пересобираем всю ленту из-за одного
+     нового сообщения — убираем самые старые узлы и дописываем новые.
+     Баннер «показать раньше» уже есть, ему только увеличиваем счётчик. */
+  const overflow = visible.length - limit;
+  if (overflow > 0) {
+    const banner = holder.querySelector('.load-earlier');
+    if (!banner) return false; // первый раз — пусть отрисует renderMessages и создаст баннер
+    const nodes = [...holder.querySelectorAll('.msg')];
+    for (let i = 0; i < overflow && i < nodes.length; i++) nodes[i].remove();
+    /* заголовки дней, оставшиеся без сообщений */
+    while (holder.firstElementChild && holder.firstElementChild.classList.contains('day')) {
+      holder.firstElementChild.remove();
+    }
+    const count = banner.querySelector('b');
+    if (count) count.textContent = String((Number(count.textContent) || 0) + overflow);
+  }
   let prev = visible[firstNew - 1];
   let day = new Date(prev.ts).toDateString();
 
@@ -743,6 +822,10 @@ function appendToFeed(newMsgs) {
   if (typing) typing.remove();
   holder.insertAdjacentHTML('beforeend', html);
   if (S.typingChat === S.active) holder.insertAdjacentHTML('beforeend', typingHtml());
+  if (toolsOpen) {
+    const el = holder.querySelector(`.msg[data-mid="${nonzeroEscape(toolsOpen)}"]`);
+    if (el && !el.querySelector(':scope > .bubble > .tools')) { el.classList.add('tools-open'); showTools(el); }
+  }
   return true;
 }
 
@@ -844,6 +927,16 @@ export async function openChat(id) {
     currentSubscription = null;
   }
 
+  /* Черновик предыдущего чата сохраняем до смены активного: иначе
+     быстрый переход терял набранный текст. */
+  const prevId = S.active;
+  if (prevId && prevId !== id && !S.editing) {
+    const prevText = $('#ta')?.value || '';
+    S.drafts[prevId] = prevText.trim() ? prevText : '';
+    if (prevText.trim()) idb.put('settings', { key: 'draft:' + prevId, value: prevText }).catch(() => {});
+    else idb.del('settings', 'draft:' + prevId).catch(() => {});
+  }
+
   S.active = id;
   S.reply = null; S.editing = null; S.reactOpen = null;
   showLocked = false;  toolsOpen = null;
@@ -895,11 +988,13 @@ export async function openChat(id) {
     const draft = await idb.get('settings', 'draft:' + id);
     const pin = await idb.get('settings', 'pin:' + id);
     chat.pin = pin?.value || null;
+    S.drafts[id] = draft?.value || '';
     const ta = $('#ta');
     if (ta) {
       ta.value = draft?.value || '';
       ta.dispatchEvent(new Event('input'));
     }
+    renderSidebar();
   } catch (e) { /* ignore */ }
   renderPin();
 
@@ -979,7 +1074,8 @@ export async function openChat(id) {
         if (S.active === id) {
           const near = isNearBottom();
           if (!near && msg.sender !== 'u_me') unseenCount++;
-          renderMessages();
+          const appended = appendToFeed([msg]);
+          if (!appended) renderMessages();
           scheduleTtlForChat(id);
           if (near) {
             scrollBottom(false);
@@ -1595,10 +1691,22 @@ export function renderMessages(opts = {}) {
   searchHits = q
     ? all.filter((m) => String(m.poll?.q || m.text || '').toLowerCase().includes(q)).map((m) => m.id)
     : [];
+  /* Новый запрос — начинаем с самого свежего совпадения. */
+  if (q !== lastSearchQuery) {
+    lastSearchQuery = q;
+    searchIndex = searchHits.length ? searchHits.length - 1 : 0;
+  }
   if (searchIndex >= searchHits.length) searchIndex = Math.max(0, searchHits.length - 1);
 
-  const limit = S.renderLimit?.[S.active] || PAGE_SIZE;
-  const visible = q || all.length <= limit ? all : all.slice(-limit);
+  let limit = S.renderLimit?.[S.active] || PAGE_SIZE;
+  /* Поиск не рендерит всю историю: показываем последние сообщения и
+     догружаем окно только если текущее совпадение оказалось выше. */
+  if (q && searchHits.length) {
+    const currentId = searchHits[Math.min(searchIndex, searchHits.length - 1)];
+    const idx = all.findIndex((m) => m.id === currentId);
+    if (idx >= 0 && all.length - idx > limit) limit = all.length - idx + 12;
+  }
+  const visible = all.length <= limit ? all : all.slice(-limit);
   const hiddenCount = all.length - visible.length;
 
   const countEl = $('#chatSearchCount');
@@ -1663,6 +1771,13 @@ export function renderMessages(opts = {}) {
 
   els.msgs.innerHTML = html;
 
+  /* на телефоне панель действий не должна пропадать после перерисовки */
+  if (toolsOpen) {
+    const el = els.msgs.querySelector(`.msg[data-mid="${nonzeroEscape(toolsOpen)}"]`);
+    if (el) { el.classList.add('tools-open'); showTools(el); }
+    else toolsOpen = null;
+  }
+
   if (opts.prepend) {
     els.msgs.scrollTop = beforeT + (els.msgs.scrollHeight - beforeH);
   } else if (stick || opts.forceBottom) {
@@ -1695,9 +1810,11 @@ function toggleSearch(show) {
   if (show) {
     setTimeout(() => { $('#chatSearchInput').focus(); $('#chatSearchInput').select(); }, 40);
   } else {
+    clearTimeout(searchInputTimer);
     searchQuery = '';
     searchHits = [];
     searchIndex = 0;
+    lastSearchQuery = '';
     $('#chatSearchInput').value = '';
     renderMessages();
   }
@@ -1988,14 +2105,13 @@ function msgHtml(m, first, hitIndex = -1) {
   const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
-  const tools = (m.deleted || m.decryptFailed) ? '' : toolsHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
   const gifts = (S.gifts || []).filter((g) => g.message_id === m.id);
   const giftHtml = gifts.length
     ? `<div class="gift-row">${gifts.map((g) => `<span class="gift-chip"><img class="gift-ic" src="assets/relics/relics-seal.png" alt=""> ${g.amount} Relics</span>`).join('')}</div>`
     : '';
   return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
-    <div class="bubble">${body}${giftHtml}${tools}${pick}</div>
+    <div class="bubble">${body}${giftHtml}${pick}</div>
   </div>`;
 }
 
@@ -2027,9 +2143,9 @@ function bubbleHtml(m, mine) {
     const src = safeMediaSrc(m.file?.src, 'image');
     const thumb = safeMediaSrc(m.file?.thumb, 'image');
     out += src
-      ? `<button class="msg-img"><img src="${esc(src)}" loading="lazy" decoding="async" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
+      ? `<button class="msg-img" type="button" aria-label="${esc(m.file?.name || t('msg.photo'))}"><img src="${esc(src)}" loading="lazy" decoding="async" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
       : (thumb
-        ? `<button class="msg-img"><img class="thumb" src="${esc(thumb)}" loading="lazy" decoding="async" alt=""></button>`
+        ? `<button class="msg-img" type="button" aria-label="${esc(m.file?.name || t('msg.photo'))}"><img class="thumb" src="${esc(thumb)}" loading="lazy" decoding="async" alt=""></button>`
         : (m.media
           ? (m.mediaError ? mediaErrorHtml() : `<div class="msg-loading">${icon('image', 18)} ${t('media.loading')}</div>`)
           : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`));
@@ -2296,21 +2412,52 @@ function metaHtml(m, mine) {
   return `<div class="msg-meta"><span>${fmtTime(m.ts)}</span>${edited}${ticksHtml(m, mine)}</div>`;
 }
 
+/* ── панель действий ─────────────────────────────────────────
+   Кнопки создаются только для сообщения под курсором/тапом.
+   Раньше 8 кнопок с SVG были в каждом сообщении — до 79% DOM
+   длинной ленты уходило на невидимые панели. */
+function showTools(el) {
+  if (!el) return;
+  const m = byId(el.dataset.mid);
+  if (!m || m.deleted || m.decryptFailed) return;
+  const bubble = el.querySelector(':scope > .bubble');
+  if (!bubble || bubble.querySelector(':scope > .tools')) return;
+  bubble.insertAdjacentHTML('beforeend', toolsHtml(m, m.sender === 'u_me'));
+}
+
+function closeTools() {
+  toolsOpen = null;
+  const holder = els.msgs;
+  if (!holder) return;
+  holder.querySelectorAll('.msg.tools-open').forEach((el) => el.classList.remove('tools-open'));
+  holder.querySelectorAll('.msg > .bubble > .tools').forEach((t) => t.remove());
+}
+
+function toggleTools(el, m) {
+  if (!el || !m) return;
+  const wasOpen = toolsOpen === m.id;
+  closeTools();
+  if (wasOpen) return;
+  toolsOpen = m.id;
+  el.classList.add('tools-open');
+  showTools(el);
+}
+
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
   const canForward = ['text', 'image', 'file', 'voice', 'video', 'videoNote', 'album'].includes(m.type);
   const canDelete = mine || S.me?.role === 'admin';
   const tools = [
-    `<button data-act="reply" title="${t('msg.reply')}">${icon('reply', 15)}</button>`,
-    `<button data-act="react" title="${t('msg.react')}">${icon('smile', 15)}</button>`,
-    canForward ? `<button data-act="forward" title="${t('msg.forward')}">${icon('forward', 15)}</button>` : '',
-    `<button data-act="pin" title="${t('msg.pin')}">${icon('pin', 15)}</button>`,
-    isText ? `<button data-act="copy" title="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
-    mine && m.status === 'read' ? `<button data-act="readby" title="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
-    mine && isText && m.cryptoVersion !== 2 ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
-    canDelete ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
-    !mine ? `<button data-act="gift" title="${t('gift.title')}">${icon('gift', 15)}</button>` : '',
-    !mine ? `<button data-act="report" title="${t('report.title')}">${icon('alert', 15)}</button>` : '',
+    `<button type="button" data-act="reply" title="${t('msg.reply')}" aria-label="${t('msg.reply')}">${icon('reply', 15)}</button>`,
+    `<button type="button" data-act="react" title="${t('msg.react')}" aria-label="${t('msg.react')}">${icon('smile', 15)}</button>`,
+    canForward ? `<button type="button" data-act="forward" title="${t('msg.forward')}" aria-label="${t('msg.forward')}">${icon('forward', 15)}</button>` : '',
+    `<button type="button" data-act="pin" title="${t('msg.pin')}" aria-label="${t('msg.pin')}">${icon('pin', 15)}</button>`,
+    isText ? `<button type="button" data-act="copy" title="${t('msg.copy')}" aria-label="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
+    mine && m.status === 'read' ? `<button type="button" data-act="readby" title="${t('msg.readBy')}" aria-label="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
+    mine && isText && m.cryptoVersion !== 2 ? `<button type="button" data-act="edit" title="${t('msg.edit')}" aria-label="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
+    canDelete ? `<button type="button" data-act="del" title="${t('msg.remove')}" aria-label="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
+    !mine ? `<button type="button" data-act="gift" title="${t('gift.title')}" aria-label="${t('gift.title')}">${icon('gift', 15)}</button>` : '',
+    !mine ? `<button type="button" data-act="report" title="${t('report.title')}" aria-label="${t('report.title')}">${icon('alert', 15)}</button>` : '',
   ].join('');
   return `<div class="tools">${tools}</div>`;
 }
@@ -2322,7 +2469,7 @@ function rxPickHtml() {
 /* ── реакции ───────────────────────────────────────────────── */
 function toggleReaction(m, emoji) {
   const mine = (m.reactions || []).some((r) => r.e === emoji && r.by.includes('u_me'));
-  S.reactOpen = null;
+  closeReact();
   sendReaction(m, emoji, !mine);
 }
 
@@ -2462,7 +2609,8 @@ export async function deliverMessage(chatId, msg) {
   if (S.active === chatId) {
     const near = isNearBottom();
     if (!near && msg.sender !== 'u_me') unseenCount++;
-    renderMessages();
+    const appended = appendToFeed([msg]);
+    if (!appended) renderMessages();
     if (near) scrollBottom();
     else updateToBottom();
     if (near) setReadAt(chatId);

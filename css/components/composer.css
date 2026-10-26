@@ -92,3 +92,13 @@
 .attach-menu .c-later{color:#22c55e;background:rgba(34,197,94,.15)}
 .sched-preview{padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
   font-size:var(--fs-sm);color:var(--tx-2);max-height:110px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+
+/* Список отложенных сообщений */
+.sched-list{display:grid;gap:8px;max-height:52vh;overflow:auto}
+.sched-empty{padding:24px 10px;text-align:center;color:var(--tx-3);font-size:var(--fs-sm)}
+.sched-item{display:grid;gap:7px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.sched-item .si-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--fs-xs);color:var(--tx-3)}
+.sched-item .si-chat{color:var(--tx-2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sched-item .si-text{font-size:var(--fs-sm);color:var(--tx);white-space:pre-wrap;word-break:break-word;max-height:76px;overflow:hidden}
+.sched-item .si-actions{display:flex;gap:6px;justify-content:flex-end}
+.sched-item .btn{padding:5px 10px;font-size:var(--fs-xs);min-height:0}

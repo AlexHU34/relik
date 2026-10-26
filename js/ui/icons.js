@@ -78,6 +78,14 @@ const P = {
 };
 
 /* icon('send', 18) → строка <svg> (текущий цвет наследуется) */
+/* Иконки — статичные строки: кэшируем, чтобы не собирать тысячи SVG заново
+   при каждой перерисовке ленты. */
+const ICON_CACHE = new Map();
 export function icon(name, s = 18) {
-  return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[name] || ''}</svg>`;
+  const key = name + ':' + s;
+  let html = ICON_CACHE.get(key);
+  if (html) return html;
+  html = `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[name] || ''}</svg>`;
+  if (ICON_CACHE.size < 400) ICON_CACHE.set(key, html);
+  return html;
 }

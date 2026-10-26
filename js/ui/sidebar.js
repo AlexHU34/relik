@@ -33,6 +33,10 @@ function chatRow(chat) {
   const muted = isMuted(chat.id);
   const flags = `${pinned ? `<span class="ci-flag pin" title="${t('side.pinned')}">${icon('pin', 11)}</span>` : ''}
     ${muted ? `<span class="ci-flag mute" title="${t('side.muted')}">${icon('bellOff', 11)}</span>` : ''}`;
+  const draft = String(S.drafts?.[chat.id] || '').replace(/\s+/g, ' ').trim();
+  const previewHtml = draft
+    ? `<span class="who">${t('side.draft')}:</span> ${esc(draft.length > 120 ? draft.slice(0, 120) + '…' : draft)}`
+    : preview(chat);
   return `<div class="chat-item${active}${pinned ? ' pinned' : ''}" data-cid="${esc(chat.id)}" role="button" tabindex="0"
       aria-label="${esc(chatTitle(chat))}">
     ${avatarHtml(u, { online })}
@@ -42,7 +46,7 @@ function chatRow(chat) {
         <span class="ci-time">${listTime(chat.last?.ts)}</span>
       </span>
       <span class="ci-bottom">
-        <span class="ci-preview">${preview(chat)}</span>
+        <span class="ci-preview${draft ? ' draft' : ''}">${previewHtml}</span>
       </span>
     </span>
     <span class="ci-side">
@@ -89,6 +93,7 @@ export function renderSidebar(force = false) {
     rows.map((c) => [
       c.id, c.kind, chatTitle(c), c.last?.ts || 0, c.last?.text || '', c.last?.type || '',
       c.unread || 0, c.username || '', isPinned(c.id) ? 1 : 0, isMuted(c.id) ? 1 : 0,
+      S.drafts?.[c.id] || '',
     ].join('~')).join('|'),
   ].join('#');
 
@@ -225,6 +230,7 @@ async function clearChatHistory(chat) {
   await idb.put('chats', chat);
   await idb.del('settings', 'pin:' + chat.id);
   await idb.del('settings', 'draft:' + chat.id);
+  if (S.drafts) S.drafts[chat.id] = '';
   setReadAt(chat.id);
   emit('chat:cleared', { id: chat.id });
   renderSidebar();
