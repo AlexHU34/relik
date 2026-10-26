@@ -303,3 +303,6 @@ html[data-device="phone"] .empty::before{width:320px;height:320px}
   background:var(--surface-2);color:var(--tx-3);font-size:10.5px;font-weight:600;white-space:nowrap}
 .folder-chip:hover{color:var(--tx);border-color:var(--line-2)}
 .folder-chip.on{color:var(--tx);background:var(--accent-soft);border-color:var(--accent-glow)}
+
+.auth-server{margin-top:6px;font-size:11.5px;color:var(--tx-3);text-align:center}
+.auth-server.bad{color:#e08a8d}

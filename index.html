@@ -221,6 +221,14 @@
                 <input class="input" id="authName" placeholder="" data-i18n-ph="auth.namePh">
               </div>
             </div>
+            <div class="field" id="usernameField" hidden>
+              <span data-i18n="auth.username">@username</span>
+              <div class="input-wrap">
+                <span class="in-ic" id="usernameIc"></span>
+                <input class="input" id="authUsername" placeholder="" data-i18n-ph="auth.usernamePh" autocomplete="off" spellcheck="false">
+              </div>
+              <span class="field-hint" data-i18n="auth.usernameHint">По нему вас найдут в поиске контактов</span>
+            </div>
             <div class="field">
               <span data-i18n="auth.email">Email</span>
               <div class="input-wrap">
@@ -244,6 +252,7 @@
               <a class="auth-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
             </div>
             <button class="btn btn-lg auth-cta" type="submit" id="authGo" data-i18n="auth.login">Войти</button>
+            <span class="auth-server" id="authServer" hidden></span>
             <button type="button" class="auth-forgot" id="forgotBtn" data-i18n="auth.forgot">Забыли пароль?</button>
           </form>
           <div class="auth-trust">

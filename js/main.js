@@ -18,7 +18,7 @@ import { applyTheme, currentTheme } from './ui/themes.js';
 import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
 import { initDevice } from './ui/device.js';
 import { sb } from './backend/supabaseClient.js';
-import { signUp, signIn, signOut, restoreSession, updateLastSeen, verifySignupCode, saveAvatar } from './backend/auth.js';
+import { signUp, signIn, signOut, restoreSession, updateLastSeen, verifySignupCode, saveAvatar, isValidUsername, isUsernameTaken, authHealth, authErrorMessage } from './backend/auth.js';
 import { retryPendingProfile } from './backend/auth.js';
 import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
 import { playMessage } from './ui/sounds.js';
@@ -108,6 +108,7 @@ function paintAuth() {
   $('#authGo').textContent = t(authMode === 'login' ? 'auth.login' : 'auth.create');
   $('#nameField').hidden = authMode === 'login';
   $('#consentField').hidden = authMode === 'login';
+  $('#usernameField').hidden = authMode === 'login';
   document.querySelectorAll('.auth-tab').forEach((b) => {
     b.classList.toggle('on', b.dataset.mode === authMode);
   });
@@ -213,6 +214,7 @@ function initAuth() {
   ic('#emailIc', 'mail');
   ic('#passIc', 'lock');
   ic('#nameIc', 'user');
+  ic('#usernameIc', 'user');
   ic('#trustIc', 'shield');
   ic('#bf1', 'shield');
   ic('#bf2', 'spark');
@@ -223,6 +225,9 @@ function initAuth() {
     const email = $('#authEmail').value.trim().toLowerCase();
     const pass = $('#authPass').value;
     const name = $('#authName').value.trim();
+    const username = authMode === 'signup'
+      ? $('#authUsername').value.trim().replace(/^@+/, '')
+      : '';
     const bad = (why) => {
       card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
       toast(why);
@@ -231,21 +236,34 @@ function initAuth() {
     if (pass.length < 6) return bad(t('auth.shortPass'));
     if (authMode === 'signup' && !name) return bad(t('auth.needName'));
     if (authMode === 'signup' && !$('#authConsent').checked) return bad(t('auth.needConsent'));
+    if (authMode === 'signup') {
+      if (!username) return bad(t('auth.needUsername'));
+      if (!isValidUsername(username)) return bad(t('auth.badUsername'));
+      try {
+        if (await isUsernameTaken(username)) return bad(t('auth.usernameTaken'));
+      } catch (e) { /* проверка не критична — конфликт поймаем на вставке */ }
+    }
 
     lastPass = pass;
 
     /* Регистрация: сначала спрашиваем код доступа */
     if (authMode === 'signup' && isRealBackend) {
-      pendingSignup = { email, pass, name };
+      pendingSignup = { email, pass, name, username };
       showVerify(null, 'invite');
       return;
     }
+
+    const go = $('#authGo');
+    if (go.disabled) return;
+    const label = go.textContent;
+    go.disabled = true;
+    go.textContent = t('auth.working');
 
     try {
       if (isRealBackend) {
         if (authMode === 'signup') {
           sessionStorage.setItem('relik.pendingName', name);
-          const res = await signUp(email, pass);
+          const res = await signUp(email, pass, name, username);
           if (res && res.pending) {
             showVerify(email);
             return;
@@ -274,14 +292,36 @@ function initAuth() {
 
       await enterApp(authMode === 'login' ? 'auth.welcomeLogin' : 'auth.welcomeSignup');
     } catch (err) {
-      const msg = err.message || '';
-      const offline = /failed to fetch|network|load failed|timeout|abort|offline/i.test(msg);
-      bad(offline ? t('net.unreachable') : (msg || t('auth.error')));
+      const friendly = authErrorMessage(err);
+      const offline = /fetch|network|timeout|abort|load failed|offline/i.test(String(err?.message || ''));
+      bad(offline ? t('net.unreachable') : friendly);
+      logEvent('auth_failed', { mode: authMode, code: err?.code || '', message: String(err?.message || '').slice(0, 120) });
+    } finally {
+      go.disabled = false;
+      go.textContent = t(authMode === 'login' ? 'auth.login' : 'auth.create');
     }
   });
 
   /* подтверждение email кодом */
   wireVerify();
+
+  /* статус сервера под кнопкой: видно, живой ли Supabase */
+  if (isRealBackend) {
+    const line = $('#authServer');
+    if (line) {
+      line.hidden = false;
+      line.textContent = t('auth.checking');
+      authHealth().then((h) => {
+        line.classList.toggle('bad', !h.ok);
+        line.textContent = h.ok
+          ? t('auth.serverOk').replace('{ms}', String(h.ms))
+          : t('auth.serverDown');
+      }).catch(() => {
+        line.classList.add('bad');
+        line.textContent = t('auth.serverDown');
+      });
+    }
+  }
 
   paintAuth();
 }
@@ -386,7 +426,8 @@ async function submitAccessCode() {
   try {
     $('#verifyGo').textContent = t('verify.creating');
     sessionStorage.setItem('relik.pendingName', p.name);
-    const res = await signUp(p.email, p.pass);
+    if (p.username) sessionStorage.setItem('relik.pendingUsername', p.username);
+    const res = await signUp(p.email, p.pass, p.name, p.username);
     if (res && res.pending) {
       showVerify(p.email, 'email');
       return;

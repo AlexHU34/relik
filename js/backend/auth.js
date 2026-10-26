@@ -24,6 +24,59 @@ function withTimeout(promise, ms = 15000, label = 'timeout') {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/* ── Надёжность авторизации ─────────────────────────────────
+   Сеть до Supabase бывает рваной: делаем 2–3 попытки с паузой,
+   но только для сетевых/5xx ошибок — пароль и «уже занято» не повторяем. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function isRetryable(err) {
+  const msg = String(err?.message || err || '');
+  const code = String(err?.code || err?.status || '');
+  return /fetch|network|timeout|abort|load failed|failed to fetch|503|502|504|429/i.test(msg)
+    || /^(429|5\d\d)$/.test(code);
+}
+
+async function withRetry(fn, tries = 3, delays = [400, 1200]) {
+  let last = null;
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      if (!isRetryable(err) || i === tries - 1) break;
+      await sleep(delays[Math.min(i, delays.length - 1)]);
+    }
+  }
+  throw last;
+}
+
+/* Понятный текст вместо технического. UI может показать как есть. */
+export function authErrorMessage(err) {
+  const msg = String(err?.message || err || '');
+  const code = String(err?.code || '');
+  if (/invalid login credentials|invalid_credentials/i.test(msg)) return 'Неверный email или пароль';
+  if (/email not confirmed|not confirmed/i.test(msg)) return 'Email не подтверждён — введите код из письма';
+  if (/user already registered|already been registered|23505/i.test(msg)) return 'Этот email уже зарегистрирован. Войдите.';
+  if (/password should be at least|weak.?password/i.test(msg)) return 'Пароль слишком короткий — минимум 6 символов';
+  if (/rate limit|too many|429/i.test(msg) || code === '429') return 'Слишком много попыток. Подождите минуту.';
+  if (/fetch|network|timeout|abort|load failed|offline/i.test(msg)) return 'Нет связи с сервером. Проверьте интернет и попробуйте снова.';
+  if (/signup.*disabled|signups not allowed/i.test(msg)) return 'Регистрация временно закрыта';
+  if (/username/i.test(msg) && /taken|unique|23505/i.test(msg + code)) return 'Этот @username уже занят';
+  return msg || 'Не удалось выполнить вход';
+}
+
+/* Быстрая проверка доступности Auth (для строки статуса на экране входа). */
+export async function authHealth() {
+  if (!sb) return { ok: false, ms: 0 };
+  const started = Date.now();
+  try {
+    const { error } = await withTimeout(sb.auth.getSession(), 6000, 'health');
+    return { ok: !error, ms: Date.now() - started };
+  } catch (e) {
+    return { ok: false, ms: Date.now() - started };
+  }
+}
+
 function avatarOf(profile, user) {
   return profile?.avatar || user?.user_metadata?.avatar || null;
 }
@@ -61,34 +114,49 @@ function pendingName(email) {
 }
 
 /* ── Регистрация: шаг 1 — создать пользователя в Auth ── */
-export async function signUp(email, password) {
+export async function signUp(email, password, name = '', username = '') {
   sessionStorage.setItem('relik.pendingPass', password);
-  const { data, error } = await withTimeout(sb.auth.signUp({ email, password }), 20000, 'signup-timeout');
+  if (name) sessionStorage.setItem('relik.pendingName', name);
+  if (username) sessionStorage.setItem('relik.pendingUsername', username);
+
+  const { data, error } = await withRetry(async () => {
+    const res = await withTimeout(sb.auth.signUp({
+      email,
+      password,
+      options: { data: { display_name: name || pendingName(email) } },
+    }), 20000, 'signup-timeout');
+    if (res.error) throw res.error;
+    return res;
+  });
   if (error) throw error;
 
   // Если подтверждение email включено — сессии ещё нет, нужен код
   if (!data.session) return { pending: true, email };
 
-  return await finalizeProfile(data.user, email, pendingName(email), password);
+  return await finalizeProfile(data.user, email, name || pendingName(email), password, username);
 }
 
 /* ── Регистрация: шаг 2 — проверить код из письма ── */
 export async function verifySignupCode(email, token, password) {
-  const { data, error } = await withTimeout(
-    sb.auth.verifyOtp({ email, token, type: 'signup' }),
-    20000,
-    'signup-timeout',
-  );
-  if (error) throw error;
+  const { data, error } = await withRetry(async () => {
+    const res = await withTimeout(
+      sb.auth.verifyOtp({ email, token, type: 'signup' }),
+      20000,
+      'signup-timeout',
+    );
+    if (res.error) throw res.error;
+    return res;
+  });
 
   const pass = password || sessionStorage.getItem('relik.pendingPass') || '';
   if (!pass) throw new Error('Перезапустите регистрацию: пароль не найден');
 
-  return await finalizeProfile(data.user, email, pendingName(email), pass);
+  const username = sessionStorage.getItem('relik.pendingUsername') || '';
+  return await finalizeProfile(data.user, email, pendingName(email), pass, username);
 }
 
 /* ── Создание E2E-ключей и профиля после успешной аутентификации ── */
-async function finalizeProfile(user, email, name, password) {
+async function finalizeProfile(user, email, name, password, username = '') {
   const keyPair = await keygen.generateKeyPair();
   const publicKeyJwk = await keygen.exportPublicKey(keyPair);
   const privateKeyJwk = await keygen.exportPrivateKey(keyPair);
@@ -97,45 +165,76 @@ async function finalizeProfile(user, email, name, password) {
     password
   );
 
+  const cleanUsername = String(username || '').trim().replace(/^@+/, '');
   const row = {
     id: user.id,
     display_name: name,
     avatar_hue: Math.floor(Math.random() * 360),
     public_key: publicKeyJwk,
     key_backup: JSON.stringify(encryptedBackup),
+    ...(cleanUsername && isValidUsername(cleanUsername) ? { username: cleanUsername } : {}),
   };
 
-  const { error: profileError } = await withTimeout(
-    sb.from('profiles').insert(row),
-    15000,
-    'profile-timeout',
-  ).catch((err) => ({ error: err }));
+  let saved = false;
+  let usernameTaken = false;
 
-  if (profileError) {
-    /* 23505 — профиль уже есть: обновляем ключи. */
+  for (let attempt = 0; attempt < 3 && !saved; attempt += 1) {
+    const { error: profileError } = await withTimeout(
+      sb.from('profiles').insert(row),
+      15000,
+      'profile-timeout',
+    ).catch((err) => ({ error: err }));
+
+    if (!profileError) { saved = true; break; }
+
     if (profileError.code === '23505') {
+      /* профиль уже есть — обновляем ключи; если конфликт по username, пробуем без него */
+      const patch = {
+        display_name: name,
+        public_key: publicKeyJwk,
+        key_backup: JSON.stringify(encryptedBackup),
+        ...(row.username ? { username: row.username } : {}),
+      };
       const { error: updErr } = await withTimeout(
-        sb.from('profiles').update({
-          display_name: name,
-          public_key: publicKeyJwk,
-          key_backup: JSON.stringify(encryptedBackup),
-        }).eq('id', user.id),
+        sb.from('profiles').update(patch).eq('id', user.id),
         15000,
         'profile-timeout',
       ).catch((err) => ({ error: err }));
-      if (updErr) await queuePendingProfile(row);
-    } else {
-      /* Не блокируем вход: сохраним профиль локально и досинхронизируем. */
-      console.warn('Profile insert deferred:', profileError.message || profileError);
-      await queuePendingProfile(row);
+
+      if (!updErr) { saved = true; break; }
+
+      if (/username/i.test(String(updErr.message || '')) && row.username) {
+        usernameTaken = true;
+        delete row.username;
+        await withTimeout(
+          sb.from('profiles').update({ display_name: name, public_key: publicKeyJwk, key_backup: JSON.stringify(encryptedBackup) }).eq('id', user.id),
+          15000, 'profile-timeout',
+        ).catch(() => {});
+        saved = true;
+        break;
+      }
+      if (!isRetryable(updErr)) break;
+    } else if (!isRetryable(profileError)) {
+      break;
     }
+
+    await sleep(500 * (attempt + 1));
+  }
+
+  if (!saved) {
+    /* Не блокируем вход: сохраним профиль локально и досинхронизируем. */
+    console.warn('Profile insert deferred');
+    await queuePendingProfile(row);
+  }
+  if (usernameTaken) {
+    try { sessionStorage.setItem('relik.usernameTaken', '1'); } catch (e) { /* ignore */ }
   }
 
   const me = {
     id: user.id,
     name,
     mail: email,
-    username: null,
+    username: row.username || null,
     role: 'user',
     publicKey: publicKeyJwk,
     privateKey: privateKeyJwk,
@@ -146,6 +245,7 @@ async function finalizeProfile(user, email, name, password) {
 
   sessionStorage.removeItem('relik.pendingPass');
   sessionStorage.removeItem('relik.pendingName');
+  sessionStorage.removeItem('relik.pendingUsername');
 
   return me;
 }
@@ -179,11 +279,15 @@ export async function retryPendingProfile() {
 
 /* ── Вход ── */
 export async function signIn(email, password) {
-  const { data, error } = await withTimeout(
-    sb.auth.signInWithPassword({ email, password }),
-    20000,
-    'signin-timeout',
-  );
+  const { data, error } = await withRetry(async () => {
+    const res = await withTimeout(
+      sb.auth.signInWithPassword({ email, password }),
+      20000,
+      'signin-timeout',
+    );
+    if (res.error) throw res.error;
+    return res;
+  });
   if (error) throw error;
 
   const { data: profile, error: profileError } = await withTimeout(
@@ -199,7 +303,7 @@ export async function signIn(email, password) {
   if (!profile) {
     const meta = data.user.user_metadata || {};
     const name = meta.display_name || meta.name || String(email).split('@')[0] || 'Relik user';
-    return await finalizeProfile(data.user, email, name, password);
+    return await finalizeProfile(data.user, email, name, password, meta.username || '');
   }
 
   // Дешифрование приватного ключа из бэкапа

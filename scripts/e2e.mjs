@@ -339,10 +339,71 @@ async function runLive() {
   }
 }
 
+async function runSignup() {
+  const ctx = await launch('signup', 9346);
+  const stamp = Date.now().toString(36);
+  const email = process.env.SIGNUP_EMAIL || `test.${stamp}@relik.test`;
+  const username = process.env.SIGNUP_USERNAME || `t${stamp}`.slice(0, 18);
+  const password = process.env.SIGNUP_PASS || 'Signup-Test-2026-x7Kq';
+  try {
+    await waitFor(ctx, `document.documentElement.dataset.boot === 'done'`, 30000);
+    record('экран входа загружен', true);
+
+    await ctx.evaluate(`document.querySelector('[data-mode="signup"]')?.click()`);
+    await sleep(400);
+
+    const filled = await ctx.evaluate(`(function(){
+      var n=document.getElementById('authName');
+      var u=document.getElementById('authUsername');
+      var e=document.getElementById('authEmail');
+      var p=document.getElementById('authPass');
+      var c=document.getElementById('authConsent');
+      if(!n||!u||!e||!p) return false;
+      n.value=${JSON.stringify('Signup ' + stamp)};
+      u.value=${JSON.stringify(username)};
+      e.value=${JSON.stringify(email)};
+      p.value=${JSON.stringify(password)};
+      if (c) c.checked = true;
+      document.getElementById('authForm').requestSubmit();
+      return true;
+    })()`);
+    record('форма регистрации заполнена', Boolean(filled), email);
+
+    const invite = await waitFor(ctx, `!document.getElementById('verifyOv').hidden`, 15000);
+    record('запрос инвайт-кода', Boolean(invite));
+
+    if (invite) {
+      await ctx.evaluate(`(function(){
+        var i=document.getElementById('verifyCode');
+        i.value='RELIK2013';
+        i.dispatchEvent(new Event('input'));
+        document.getElementById('verifyGo').click();
+      })()`);
+      const app = await waitFor(ctx, `!document.getElementById('appView').hidden`, 45000);
+      record('регистрация завершена', Boolean(app));
+
+      const me = await ctx.evaluate(`(async () => {
+        const m = await import('./js/ui/state.js');
+        return m.S.me ? JSON.stringify({ id: m.S.me.id, username: m.S.me.username, hasKey: !!m.S.me.publicKey }) : '';
+      })()`);
+      record('профиль и @username созданы', String(me).includes(username), String(me).slice(0, 120));
+      record('ключи шифрования созданы', String(me).includes('"hasKey":true'));
+
+      await ctx.send('Page.reload');
+      await sleep(3500);
+      const persists = await waitFor(ctx, `!document.getElementById('appView').hidden`, 25000);
+      record('сессия сохраняется после перезагрузки', Boolean(persists));
+    }
+  } finally {
+    ctx.close();
+  }
+}
+
 (async () => {
   console.log('Relik e2e · ' + BASE + (DEMO ? ' (демо)' : ''));
   try {
-    if (has('warmup')) {
+    if (has('signup')) await runSignup();
+    else if (has('warmup')) {
       const A = await launch('warm-a', 9344);
       const B = await launch('warm-b', 9345);
       try {
