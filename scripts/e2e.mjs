@@ -50,7 +50,7 @@ const env = {
 };
 const USERNAME_B = process.env.USERNAME_B || '';
 
-if (!DEMO && (!env.a.email || !env.a.pass || !env.b.email || !env.b.pass)) {
+if (!DEMO && !has('signup') && (!env.a.email || !env.a.pass || !env.b.email || !env.b.pass)) {
   console.error('Нужны EMAIL_A/PASS_A/EMAIL_B/PASS_B (или запусти с --demo).');
   process.exit(2);
 }
@@ -417,9 +417,11 @@ async function runSignup() {
       }
       await sleep(800);
       process.exit(0);
+    } else if (DEMO) {
+      await runDemo();
+    } else {
+      await runLive();
     }
-    if (DEMO) await runDemo();
-    else await runLive();
   } catch (err) {
     record('исключение', false, err?.message || String(err));
   }

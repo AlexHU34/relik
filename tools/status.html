@@ -184,6 +184,43 @@
       set('stun', 'warn', 'нет', 'используются внешние STUN');
     }
 
+    /* Сервер (VPS) — данные пишет сам сервис на VPS в Supabase */
+    if (cfg.url && !demo) {
+      try {
+        var sv = await timeFetch(cfg.url + '/rest/v1/service_status?select=*&id=eq.1', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+        });
+        var rowsSrv = await sv.res.json();
+        var s = Array.isArray(rowsSrv) ? rowsSrv[0] : null;
+        if (!s) {
+          set('vps', 'warn', '—', 'сервер ещё не присылал метрики');
+        } else {
+          var ageMin = Math.round((Date.now() - new Date(s.checked_at).getTime()) / 60000);
+          set('vps',
+            s.supabase_ok ? (ageMin > 10 ? 'warn' : 'ok') : 'bad',
+            ageMin + ' мин назад',
+            'Supabase ' + (s.supabase_ms == null ? '—' : s.supabase_ms + ' мс') +
+            ' · агент ' + (s.agent_version || '?') +
+            (s.queue_depth == null ? '' : ' · очередь ' + s.queue_depth));
+          set('vpsTurn', s.turn_ok ? 'ok' : 'bad', s.turn_ok ? 'работает' : 'не отвечает',
+            'coturn на сервере (порт 3478)');
+          var bh = s.backup_age_h;
+          set('vpsBackup',
+            bh == null ? 'warn' : (bh <= 30 ? 'ok' : 'bad'),
+            bh == null ? 'нет' : bh + ' ч',
+            bh == null ? 'бэкапов не найдено' : 'возраст последнего дампа');
+          set('vpsDisk',
+            s.disk_free_gb == null ? 'warn' : (s.disk_free_gb < 1 ? 'bad' : 'ok'),
+            s.disk_free_gb == null ? '—' : s.disk_free_gb + ' ГБ',
+            'свободно на сервере');
+        }
+      } catch (e) {
+        set('vps', 'warn', '—', 'метрики сервера недоступны');
+      }
+    } else {
+      set('vps', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
     /* Service worker */
     try {
       if ('serviceWorker' in navigator) {
@@ -242,6 +279,10 @@
   add('auth', 'Авторизация (Supabase Auth)', 'проверяем…');
   add('turn', 'TURN для звонков', 'проверяем…');
   add('stun', 'STUN', 'проверяем…');
+  add('vps', 'Сервер (VPS)', 'проверяем…');
+  add('vpsTurn', 'TURN на сервере', 'проверяем…');
+  add('vpsBackup', 'Бэкап БД', 'проверяем…');
+  add('vpsDisk', 'Диск сервера', 'проверяем…');
   add('sw', 'Service Worker и кэш', 'проверяем…');
   add('idb', 'Локальное хранилище', 'проверяем…');
   add('net', 'Сеть', 'проверяем…');

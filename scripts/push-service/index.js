@@ -8,6 +8,9 @@
 'use strict';
 
 const http = require('node:http');
+const net = require('node:net');
+const fs = require('node:fs');
+const path = require('node:path');
 const webpush = require('web-push');
 
 const {
@@ -36,7 +39,13 @@ async function sb(path, opts = {}) {
     },
   });
   if (!res.ok) throw new Error(`supabase ${res.status}: ${(await res.text()).slice(0, 160)}`);
-  return res.status === 204 ? null : res.json();
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return null;
+  }
 }
 
 async function processOne(job) {
@@ -116,6 +125,112 @@ async function tick() {
 
 setInterval(tick, Number(INTERVAL));
 tick();
+
+/* ── Состояние сервера в Supabase ───────────────────────────
+   Раз в минуту пишем агрегаты в service_status: приложение читает их
+   и показывает, жив ли VPS, TURN и когда был последний бэкап. */
+const STATUS_INTERVAL = 60_000;
+const BACKUP_DIR = '/var/backups/relik';
+
+function portOpen(host, port, timeout = 1500) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    const done = (ok) => { try { sock.destroy(); } catch (e) {} resolve(ok); };
+    sock.setTimeout(timeout);
+    sock.once('connect', () => done(true));
+    sock.once('timeout', () => done(false));
+    sock.once('error', () => done(false));
+  });
+}
+
+function backupAgeHours() {
+  try {
+    const files = fs.readdirSync(BACKUP_DIR).filter((f) => f.endsWith('.dump.gz'));
+    if (!files.length) return null;
+    let newest = 0;
+    for (const f of files) {
+      const st = fs.statSync(path.join(BACKUP_DIR, f));
+      newest = Math.max(newest, st.mtimeMs);
+    }
+    return Math.round(((Date.now() - newest) / 36e5) * 10) / 10;
+  } catch (e) {
+    return null;
+  }
+}
+
+function diskFreeGb() {
+  try {
+    const st = fs.statfsSync('/');
+    return Math.round((st.bavail * st.bsize) / 1e9 * 100) / 100;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeStatus() {
+  if (!ready) return;
+  let supabaseOk = false;
+  let supabaseMs = null;
+  try {
+    const t0 = Date.now();
+    await sb('/rest/v1/profiles?select=id&limit=1');
+    supabaseMs = Date.now() - t0;
+    supabaseOk = true;
+  } catch (e) {
+    supabaseOk = false;
+  }
+
+  let queueDepth = null;
+  try {
+    const rows = await sb('/rest/v1/push_queue?select=id');
+    queueDepth = Array.isArray(rows) ? rows.length : null;
+  } catch (e) { /* ignore */ }
+
+  const body = {
+    id: 1,
+    checked_at: new Date().toISOString(),
+    supabase_ok: supabaseOk,
+    supabase_ms: supabaseMs,
+    turn_ok: await portOpen('127.0.0.1', 3478),
+    disk_free_gb: diskFreeGb(),
+    backup_age_h: backupAgeHours(),
+    queue_depth: queueDepth,
+    push_ready: stats.errors === 0 || stats.sent > 0,
+    agent_version: '1.1.0',
+    note: stats.errors ? `errors: ${stats.errors}` : null,
+  };
+
+  try {
+    await sb('/rest/v1/service_status?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    console.warn('status write failed:', e.message);
+  }
+}
+
+setInterval(writeStatus, STATUS_INTERVAL);
+writeStatus();
+
+/* ── Ночное обслуживание: чистка по расписанию ─────────────── */
+let lastMaintenance = 0;
+async function maintenance() {
+  if (!ready) return;
+  if (Date.now() - lastMaintenance < 6 * 3600_000) return;
+  const hour = new Date().getHours();
+  if (hour !== 4) return;
+  lastMaintenance = Date.now();
+  try {
+    await sb('/rest/v1/rpc/relik_maintenance', { method: 'POST', body: '{}' });
+    console.log('maintenance ok');
+  } catch (e) {
+    console.warn('maintenance failed:', e.message);
+  }
+}
+setInterval(maintenance, 30 * 60_000);
+maintenance();
 
 http.createServer((req, res) => {
   if (req.url === '/healthz') {
