@@ -320,8 +320,9 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
   color:var(--tx2);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
 }
 .relic-chip:hover{background:var(--surface-3);color:var(--tx)}
-.relic-chip .rc-ic{color:#e0b23c;font-size:13px}
+.relic-chip .rc-ic{width:16px;height:16px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
 .relic-hero{display:grid;place-items:center;gap:2px;padding:14px 0 6px}
+.relic-scroll{width:132px;height:auto;filter:drop-shadow(0 10px 24px rgba(0,0,0,.45));margin-bottom:2px}
 .relic-big{font-size:40px;font-weight:800;letter-spacing:-.03em;
   background:linear-gradient(135deg,#f3d27a,#e0a23c);-webkit-background-clip:text;background-clip:text;color:transparent}
 .relic-cap{font-size:12px;color:var(--tx3)}
@@ -332,12 +333,11 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .relic-row .plus{color:var(--ok)}
 .relic-row .minus{color:#e08a8d}
 .gift-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
-.gift-grid button{
-  font:inherit;font-size:16px;font-weight:700;padding:14px 0;border-radius:14px;
-  border:1px solid rgba(224,162,60,.4);background:rgba(224,162,60,.12);color:#f0c060;cursor:pointer;
-}
-.gift-grid button:hover{background:rgba(224,162,60,.22);transform:translateY(-1px)}
+.gift-grid button{padding:0;border:0;background:none;cursor:pointer;border-radius:16px;transition:transform var(--t-fast),filter var(--t-fast)}
+.gift-grid button img{width:100%;height:auto;display:block;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35))}
+.gift-grid button:hover{transform:translateY(-2px) scale(1.02)}
 .gift-grid button:disabled{opacity:.45;cursor:default;transform:none}
-.gift-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;
+.gift-ic{width:12px;height:12px;display:block}
+.gift-chip{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;
   color:#f0c060;background:rgba(224,162,60,.14);border:1px solid rgba(224,162,60,.35);
   border-radius:var(--r-full);padding:2px 8px;margin-top:4px;animation:pop .2s var(--ease)}

@@ -1933,7 +1933,7 @@ function msgHtml(m, first, hitIndex = -1) {
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
   const gifts = (S.gifts || []).filter((g) => g.message_id === m.id);
   const giftHtml = gifts.length
-    ? `<div class="gift-row">${gifts.map((g) => `<span class="gift-chip">${icon('gift', 11)} ${g.amount} Relics</span>`).join('')}</div>`
+    ? `<div class="gift-row">${gifts.map((g) => `<span class="gift-chip"><img class="gift-ic" src="assets/relics/relics-seal.png" alt=""> ${g.amount} Relics</span>`).join('')}</div>`
     : '';
   return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
     <div class="bubble">${body}${giftHtml}${tools}${pick}</div>
