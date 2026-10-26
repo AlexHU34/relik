@@ -149,8 +149,8 @@ html[data-device="phone"] .auth-card{width:min(420px,100%);padding:20px;border:1
 html[data-device="phone"] .panel{padding:22px 16px 32px;align-content:start;gap:18px}
 
 /* Телефон: шапка, лента и композер не должны уезжать за край экрана */
-html[data-device="phone"] .chat-head{gap:4px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px}
-html[data-device="phone"] .chat-head .icon-btn{width:38px;height:38px;flex:none}
+html[data-device="phone"] .chat-head{gap:4px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:var(--bg)}
+html[data-device="phone"] .chat-head .icon-btn{width:40px;height:40px;flex:none}
 html[data-device="phone"] #shareBtn,
 html[data-device="phone"] #infoBtn{display:none!important}
 html[data-device="phone"] .chat-head .who{padding:2px 4px;gap:8px}
@@ -158,9 +158,9 @@ html[data-device="phone"] .chat-head .who .n{font-size:14px}
 html[data-device="phone"] .chat-head .who .s{font-size:11px}
 html[data-device="phone"] .msgs{padding:12px 10px 8px}
 html[data-device="phone"] .composer{padding:8px 10px calc(10px + env(safe-area-inset-bottom))}
-html[data-device="phone"] .composer-row{gap:2px;padding:6px 7px;border-radius:18px}
-html[data-device="phone"] .composer-row .icon-btn{width:36px;height:36px}
-html[data-device="phone"] .send-btn{width:38px;height:38px}
+html[data-device="phone"] .composer-row{gap:2px;padding:6px 7px;border-radius:18px;min-height:48px}
+html[data-device="phone"] .composer-row .icon-btn{width:40px;height:40px}
+html[data-device="phone"] .send-btn{width:42px;height:42px}
 html[data-device="phone"] .attach-menu{max-width:calc(100vw - 32px)}
 html[data-device="phone"] .empty::before{width:320px;height:320px}
 
@@ -277,7 +277,7 @@ html[data-device="phone"] .side-search .input{padding-right:12px}
 .chat-head{
   display:flex;align-items:center;gap:10px;
   padding:10px max(14px, calc((100% - 940px)/2));
-  border-bottom:1px solid var(--line);background:var(--chat-head-bg,rgba(17,21,28,.8));backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line);background:var(--surface);backdrop-filter:blur(14px);
   position:relative;z-index:5;
 }
 .chat-head .who{flex:1;min-width:0;display:flex;align-items:center;gap:11px;cursor:pointer;border-radius:12px;padding:4px 8px 4px 4px;text-align:left;transition:background var(--t-fast)}

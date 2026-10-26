@@ -73,6 +73,10 @@ a{color:var(--indigo);text-decoration:none}
 .btn:hover::before{translate:130% 0}
 .btn:hover{transform:translateY(-1px);filter:brightness(1.08)}
 .btn:active{transform:scale(.97)}
+.btn:disabled,.btn[disabled]{
+  opacity:.5;cursor:default;transform:none;filter:none;box-shadow:none;
+}
+.btn:disabled::before,.btn[disabled]::before{display:none}
 .btn-ghost{
   background:var(--surface-2);color:var(--tx);
   border:1px solid var(--line-2);box-shadow:none;

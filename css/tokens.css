@@ -20,7 +20,7 @@
   /* Текст */
   --tx:#e8eaf2;
   --tx-2:#9aa3b5;
-  --tx-3:#5f6879;
+  --tx-3:#7b8496;
 
   /* Бренд (с цвета логотипа: синий → индиго → фиолет) */
   --blue:#4e7fff;
@@ -50,7 +50,7 @@
 
   /* Типографика */
   --font:"Inter","SF Pro Display",system-ui,"Segoe UI",Roboto,sans-serif;
-  --fs-2xs:10.5px; --fs-xs:12px; --fs-sm:13px; --fs-md:14.5px;
+  --fs-2xs:11.5px; --fs-xs:12px; --fs-sm:13px; --fs-md:14.5px;
   --fs-lg:16.5px; --fs-xl:20px; --fs-2xl:26px; --fs-3xl:34px;
 
   /* Отступы */
