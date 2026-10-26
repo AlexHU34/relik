@@ -149,6 +149,21 @@ export default {
   'sec.4': 'PIN is a screen lock, not encryption.',
   'sec.5': 'The 12-word phrase and the key file give full access to history — treat them like a password.',
 
+  'decrypt.text': 'Could not decrypt {n} message(s) — the key may have changed',
+  'decrypt.fix': 'Check keys',
+
+  'key.promptTitle': 'Keep access to your chats',
+  'key.promptText': 'Create a key backup: 12 words or a file. Without it, a password reset locks history for good.',
+  'key.promptNow': 'Create 12 words',
+  'key.promptLater': 'Later',
+
+  'report.pick': 'Why are you reporting this message?',
+  'report.r.spam': 'Spam or ads',
+  'report.r.scam': 'Scam or fraud',
+  'report.r.threat': 'Threats or harassment',
+  'report.r.illegal': 'Illegal content',
+  'report.r.other': 'Other',
+
   'side.search': 'Search chats…',
   'side.newChat': 'New chat',
   'side.findPeople': 'Find people',
@@ -572,7 +587,7 @@ export default {
   'ttl.5s': '5 sec',
   'ttl.1m': '1 min',
   'ttl.1d': '1 day',
-  'ttl.hint': 'The countdown starts after reading. While the app is closed, the timer does not run.',
+  'ttl.hint': 'The countdown starts after reading. The server then wipes expired messages within a minute — even if the app is closed.',
   'ttl.saved': 'Message timer updated',
   'ttl.updated': 'Your contact changed the message timer',
   'settings.sounds': 'Sounds',

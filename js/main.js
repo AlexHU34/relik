@@ -10,7 +10,8 @@ import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime } from './ui/modals.js';
-import { setReencryptPassword, openRecoveryFlow } from './ui/keyRecovery.js';
+import { setReencryptPassword, openRecoveryFlow, maybePromptBackup } from './ui/keyRecovery.js';
+import { sweepExpired } from './backend/expiry.js';
 import { initPalette, openPalette } from './ui/palette.js';
 import { initRecovery } from './ui/recovery.js';
 import { ensurePersistentStorage, autoPruneMedia } from './db/mediaCache.js';
@@ -364,6 +365,8 @@ async function enterApp(welcomeKey) {
   if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
   retryPendingProfile().catch(() => {});
   processScheduled().catch(() => {});
+  sweepExpired(true).catch(() => {});
+  setTimeout(() => maybePromptBackup().catch(() => {}), 1800);
   syncPrefsFromCloud().catch(() => {});
 }
 
@@ -807,6 +810,7 @@ function initNetBar() {
     if (!offline) return;
     offline = false;
     showRestored();
+    sweepExpired().catch(() => {});
   });
   document.addEventListener('relik:lang', () => {
     if (offline) showOffline();
@@ -990,6 +994,8 @@ async function boot() {
           /* локального ключа нет (новое устройство / чистка браузера),
              но резервная копия фразой есть — предлагаем восстановить */
           setTimeout(() => openRecoveryFlow({ force: true }), 900);
+        } else if (!m.keyMissing && m.hasRecovery === false) {
+          setTimeout(() => maybePromptBackup().catch(() => {}), 2000);
         }
         if (fresh) {
           showApp();

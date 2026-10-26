@@ -27,6 +27,8 @@ import { sb } from '../backend/supabaseClient.js';
 import { logEvent } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
+import { registerExpiry, clearExpiry } from '../backend/expiry.js';
+import { openRecoveryFlow } from './keyRecovery.js';
 
 const PAGE_SIZE = 240;
 
@@ -196,6 +198,17 @@ export function initChatView() {
     if (id) jumpTo(id);
   });
   $('#pinClose').addEventListener('click', () => unpin());
+
+  /* диагностика расшифровки */
+  const decIc = $('#decryptIc');
+  if (decIc) decIc.innerHTML = icon('alert', 16);
+  $('#decryptFix')?.addEventListener('click', () => { openRecoveryFlow(); });
+  $('#decryptClose')?.addEventListener('click', () => {
+    const bar = $('#decryptBar');
+    if (!bar) return;
+    bar.dataset.hiddenFor = S.active || '';
+    bar.hidden = true;
+  });
 
   /* пересылка: выбор нескольких чатов */
   $('#fwdList').addEventListener('click', (e) => {
@@ -1338,6 +1351,7 @@ function scheduleTtlForChat(chatId) {
     }
 
     const left = started + ttl - now;
+    registerExpiry(m.id, chatId, started + ttl);
     if (left <= 0) { expireTtlMessage(chatId, m); continue; }
     clearTtlTimer(m.id);
     ttlTimers.set(m.id, setTimeout(() => expireTtlMessage(chatId, m), Math.min(left, 2147483647)));
@@ -1395,6 +1409,7 @@ async function changeChatTtl(chat, seconds) {
   setChatTtl(chat.id, sec);
   paintTtl(chat);
   scheduleTtlForChat(chat.id);
+  if (!sec) clearExpiry(chat.id).catch(() => {});
 
   if (SUPABASE.url && SUPABASE.anonKey) {
     const event = {
@@ -1416,16 +1431,49 @@ async function changeChatTtl(chat, seconds) {
 }
 
 /* ── жалоба на сообщение ───────────────────────────────────── */
+const REPORT_REASONS = [
+  { code: 'spam', key: 'report.r.spam' },
+  { code: 'scam', key: 'report.r.scam' },
+  { code: 'threat', key: 'report.r.threat' },
+  { code: 'illegal', key: 'report.r.illegal' },
+  { code: 'other', key: 'report.r.other' },
+];
+
+function pickReportReason() {
+  return new Promise((resolve) => {
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <header class="m-head">
+          <h3>${esc(t('report.title'))}</h3>
+          <button class="icon-btn" data-close type="button" aria-label="${esc(t('common.close'))}"></button>
+        </header>
+        <div class="m-body">
+          <p class="field-hint">${esc(t('report.pick'))}</p>
+          <div class="report-reasons">
+            ${REPORT_REASONS.map((r) => `<button class="contact" type="button" data-reason="${r.code}">
+              <span class="info"><span class="n">${esc(t(r.key))}</span></span>
+            </button>`).join('')}
+          </div>
+          <p class="field-hint">${esc(t('report.text'))}</p>
+        </div>
+      </div>`;
+    const done = (value) => { ov.remove(); resolve(value); };
+    ov.addEventListener('click', (e) => {
+      if (e.target.closest('[data-close]') || e.target === ov) return done(null);
+      const b = e.target.closest('[data-reason]');
+      if (b) done(b.dataset.reason);
+    });
+    document.body.appendChild(ov);
+  });
+}
+
 async function reportMessage(m) {
   const chat = chatById(S.active);
   if (!chat || !m) return;
-  const ok = await confirmAction({
-    title: t('report.title'),
-    text: t('report.text'),
-    ok: t('report.ok'),
-    iconName: 'alert',
-  });
-  if (!ok) return;
+  const reason = await pickReportReason();
+  if (!reason) return;
   try {
     const { error } = await sb.from('reports').insert({
       chat_id: chat.id,
@@ -1433,7 +1481,7 @@ async function reportMessage(m) {
       reporter_id: S.me.id,
       sender_id: m.sender === 'u_me' ? S.me.id : m.sender,
       message_ts: new Date(m.ts).toISOString(),
-      reason: 'user_report',
+      reason: 'user_report:' + reason,
     });
     if (error) throw error;
     toast(t('report.sent'), { type: 'success' });
@@ -1674,6 +1722,7 @@ export function renderMessages(opts = {}) {
   if (S.typingChat === S.active && !q) html += typingHtml();
 
   els.msgs.innerHTML = html;
+  paintDecryptBar();
 
   /* на телефоне панель действий не должна пропадать после перерисовки */
   if (toolsOpen) {
@@ -2025,6 +2074,18 @@ function updateToBottom() {
   els.toBottom.innerHTML = icon('arrowDown', 18) +
     (unseenCount ? `<span class="tb-count">${unseenCount > 9 ? '9+' : unseenCount}</span>` : '');
   if (near && S.active && document.visibilityState !== 'hidden') sendReadUpto(S.active);
+}
+
+function paintDecryptBar() {
+  const bar = $('#decryptBar');
+  if (!bar) return;
+  const id = S.active;
+  const n = id ? (S.messages[id] || []).filter((m) => m.decryptFailed && !m.deleted && !m.hidden).length : 0;
+  if (!n) { bar.hidden = true; return; }
+  if (bar.dataset.hiddenFor === id) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const text = $('#decryptText');
+  if (text) text.textContent = t('decrypt.text').replace('{n}', String(n));
 }
 
 /* ── разметка сообщения ────────────────────────────────────── */

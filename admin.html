@@ -397,7 +397,7 @@
   }
 
   async function loadUsers() {
-    var r = await sb.from('profiles').select('id, display_name, username, role, last_seen').order('display_name').limit(300);
+    var r = await sb.from('profiles').select('id, display_name, username, role, last_seen, created_at').order('display_name').limit(300);
     cache.users = r.data || [];
     var b = await sb.from('bans').select('user_id, until, reason, created_at');
     cache.bans = b.data || [];
@@ -436,11 +436,29 @@
     var open = cache.reports.filter(function (r) { return r.status === 'open'; }).length;
     var banned = cache.bans.filter(activeBan).length;
     var errs = cache.events.filter(function (e) { return /error|fail|reject/i.test(e.kind); }).length;
+    var day = Date.now() - 864e5;
+    var week = Date.now() - 7 * 864e5;
+    var newWeek = cache.users.filter(function (u) { return u.created_at && new Date(u.created_at).getTime() > week; }).length;
+    var repDay = cache.reports.filter(function (r) { return r.created_at && new Date(r.created_at).getTime() > day; }).length;
     $('stats').innerHTML =
       '<div><b>' + open + '</b><span>открытых жалоб</span></div>' +
+      '<div><b>' + repDay + '</b><span>жалоб за 24 ч</span></div>' +
       '<div><b>' + cache.users.length + '</b><span>пользователей</span></div>' +
+      '<div><b>' + newWeek + '</b><span>новых за 7 дней</span></div>' +
       '<div><b>' + banned + '</b><span>забанено</span></div>' +
       '<div><b>' + errs + '</b><span>ошибок в событиях</span></div>';
+  }
+
+  var REASON_LABELS = {
+    'user_report:spam': 'спам / реклама',
+    'user_report:scam': 'мошенничество',
+    'user_report:threat': 'угрозы / травля',
+    'user_report:illegal': 'незаконный контент',
+    'user_report:other': 'другое',
+    'user_report': 'без категории',
+  };
+  function reasonLabel(code) {
+    return REASON_LABELS[code] || code || '—';
   }
 
   function paintReports() {
@@ -451,7 +469,8 @@
       var st = r.status === 'open' ? 'bad' : (r.status === 'resolved' ? 'ok' : '');
       return '<div class="card"><div class="row">' +
         '<div class="grow">' +
-          '<div class="nm">Жалоба на ' + esc(userName(r.sender_id)) + ' <span class="badge ' + st + '">' + esc(r.status) + '</span></div>' +
+          '<div class="nm">Жалоба на ' + esc(userName(r.sender_id)) + ' <span class="badge ' + st + '">' + esc(r.status) + '</span>' +
+            ' <span class="badge">' + esc(reasonLabel(r.reason)) + '</span></div>' +
           '<div class="sub">от ' + esc(userName(r.reporter_id)) + ' · ' + dt(r.created_at) + '</div>' +
           '<div class="sub">сообщение: ' + esc(r.message_id ? r.message_id.slice(0, 8) + '…' : 'удалено') +
           (r.message_ts ? ' · ' + dt(r.message_ts) : '') + ' · чат ' + esc(r.chat_id ? r.chat_id.slice(0, 8) + '…' : '—') + '</div>' +

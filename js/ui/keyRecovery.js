@@ -185,6 +185,37 @@ async function downloadKeyFile() {
   toast(done ? t('key.fileSaved') : t('key.saveFail'), { type: done ? 'success' : 'error' });
 }
 
+/* ── мягкое напоминание при первом входе ─────────────────── */
+
+let promptShown = false;
+
+export async function maybePromptBackup() {
+  if (promptShown || !S.me?.id || !S.me?.privateKey) return;
+  try {
+    if (localStorage.getItem('relik.backupPrompt.' + S.me.id) === 'off') return;
+  } catch (e) { /* приватный режим */ }
+  const blob = await getRecoveryBlob().catch(() => null);
+  if (blob) { promptShown = true; return; }
+  promptShown = true;
+
+  const ov = open('backupPromptOv', t('key.promptTitle'), `
+    <p class="field-hint">${esc(t('key.promptText'))}</p>
+    <div class="key-actions">
+      <button class="btn" id="bpNow" type="button">${esc(t('key.promptNow'))}</button>
+      <button class="btn btn-ghost" id="bpLater" type="button">${esc(t('key.promptLater'))}</button>
+    </div>
+  `);
+
+  ov.querySelector('#bpNow').addEventListener('click', () => {
+    close('backupPromptOv');
+    openKeyPanel().then(() => makePhrase()).catch(() => {});
+  });
+  ov.querySelector('#bpLater').addEventListener('click', () => {
+    try { localStorage.setItem('relik.backupPrompt.' + S.me.id, 'off'); } catch (e) { /* ignore */ }
+    close('backupPromptOv');
+  });
+}
+
 /* ── восстановление доступа ──────────────────────────────── */
 
 export function openRecoveryFlow({ force = false, password = '' } = {}) {
