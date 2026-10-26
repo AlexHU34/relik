@@ -331,6 +331,21 @@ async function runLive() {
         record('B отправил ответ', Boolean(onB));
         const gotBack = await waitFor(A, `document.body.innerText.includes(${JSON.stringify(back)})`, 45000);
         record('A получил ответ', Boolean(gotBack));
+
+        /* валюта: подарок 1 Relic за ответ B */
+        const gifting = await A.evaluate(`(async () => {
+          const w = await import('./js/backend/wallet.js');
+          const st = await import('./js/ui/state.js');
+          const chatId = st.S.active;
+          const list = st.S.messages[chatId] || [];
+          const incoming = list.filter((m) => m.sender !== 'u_me');
+          const target = incoming[incoming.length - 1];
+          if (!target) return 'no-incoming';
+          const before = st.S.relics;
+          const g = await w.sendGift(chatId, target.id, target.sender, 1);
+          return JSON.stringify({ before, after: st.S.relics, amount: g && g.amount });
+        })()`);
+        record('подарок Relics', /"amount":1/.test(String(gifting)), String(gifting).slice(0, 90));
       }
     }
   } finally {

@@ -26,6 +26,8 @@ import { confirmAction } from './dialog.js';
 import { sb } from '../backend/supabaseClient.js';
 import { logEvent } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
+import { giftsForChat, subscribeGifts, sendGift } from '../backend/wallet.js';
+import { paintRelics } from './modals.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 
 const PAGE_SIZE = 240;
@@ -38,6 +40,7 @@ let searchIndex = 0;
 let unseenCount = 0;
 let forwardMsg = null;
 let forwardTargets = new Set();
+let giftSub = null;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
@@ -174,6 +177,12 @@ export function initChatView() {
     paintForwardCount();
   });
   $('#fwdGo').addEventListener('click', () => forwardToMany());
+
+  /* подарок Relics: выбор суммы */
+  $('#giftGrid')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-gift]');
+    if (b) sendGiftFromModal(Number(b.dataset.gift));
+  });
 
   /* свайп вправо по чату = «назад» (как в Telegram) */
   const pane = $('#chatPane');
@@ -420,6 +429,7 @@ function onMsgClick(e) {
     }
     else if (act === 'forward') { openForward(m); closeReact(); }
     else if (act === 'report') { reportMessage(m); closeReact(); }
+    else if (act === 'gift') { openGift(m); closeReact(); }
     else if (act === 'readby') { openReadInfo(m); closeReact(); }
     else if (act === 'del') {
       openMenu([
@@ -1023,6 +1033,20 @@ export async function openChat(id) {
       },
     }, chat.kind, chat.publicKey);
 
+    /* подарки чата: подгружаем и слушаем новые */
+    S.gifts = [];
+    if (giftSub) { try { giftSub.unsubscribe(); } catch (e) { /* ignore */ } giftSub = null; }
+    giftsForChat(id).then((list) => {
+      if (S.active !== id) return;
+      S.gifts = list;
+      renderMessages();
+    }).catch(() => {});
+    giftSub = subscribeGifts(id, (g) => {
+      if (S.active !== id) return;
+      S.gifts = [...(S.gifts || []), g];
+      renderMessages();
+    });
+
     /* Realtime может отвалиться (сеть, VPN, RLS) — опрос добирает пропущенное */
     startActiveSync(id, chat);
   }
@@ -1371,6 +1395,44 @@ async function openChatMedia() {
     if (!it) return;
     openLightbox(it.src, it.name || 'relik-media');
   };
+}
+
+/* ── подарок Relics за сообщение ──────────────────────────── */
+let giftTarget = null;
+
+function openGift(m) {
+  const chat = chatById(S.active);
+  if (!chat || !m || m.sender === 'u_me') return;
+  giftTarget = { chat, message: m, to: m.sender };
+  const hint = $('#giftTo');
+  if (hint) hint.textContent = t('gift.toNamed').replace('{name}', user(m.sender).name || '');
+  const bal = $('#giftBalance');
+  if (bal) bal.textContent = t('gift.balance').replace('{n}', String(S.relics ?? 0));
+  paintRelics();
+  $('#giftOv').hidden = false;
+}
+
+async function sendGiftFromModal(amount) {
+  const gt = giftTarget;
+  if (!gt) return;
+  const grid = $('#giftGrid');
+  grid?.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  try {
+    const g = await sendGift(gt.chat.id, gt.message.id, gt.to, amount);
+    if (g) {
+      S.gifts = [...(S.gifts || []), g];
+      if (S.active === gt.chat.id) renderMessages();
+    }
+    toast(t('gift.sent').replace('{n}', String(amount)));
+    $('#giftOv').hidden = true;
+    paintRelics();
+  } catch (err) {
+    const msg = String(err?.message || '');
+    toast(/not_enough_relics/.test(msg) ? t('gift.notEnough') : t('gift.failed'), { type: 'error' });
+  } finally {
+    grid?.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+    paintRelics();
+  }
 }
 
 /* ── профиль собеседника / группы ── */
@@ -1869,8 +1931,12 @@ function msgHtml(m, first, hitIndex = -1) {
   const body = bubbleHtml(m, mine);
   const tools = (m.deleted || m.decryptFailed) ? '' : toolsHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
+  const gifts = (S.gifts || []).filter((g) => g.message_id === m.id);
+  const giftHtml = gifts.length
+    ? `<div class="gift-row">${gifts.map((g) => `<span class="gift-chip">${icon('gift', 11)} ${g.amount} Relics</span>`).join('')}</div>`
+    : '';
   return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
-    <div class="bubble">${body}${tools}${pick}</div>
+    <div class="bubble">${body}${giftHtml}${tools}${pick}</div>
   </div>`;
 }
 
@@ -2184,6 +2250,7 @@ function toolsHtml(m, mine) {
     mine && m.status === 'read' ? `<button data-act="readby" title="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
     mine && isText && m.cryptoVersion !== 2 ? `<button data-act="edit" title="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
     canDelete ? `<button data-act="del" title="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
+    !mine ? `<button data-act="gift" title="${t('gift.title')}">${icon('gift', 15)}</button>` : '',
     !mine ? `<button data-act="report" title="${t('report.title')}">${icon('alert', 15)}</button>` : '',
   ].join('');
   return `<div class="tools">${tools}</div>`;

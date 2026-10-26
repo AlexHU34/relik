@@ -12,6 +12,16 @@
   <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Supabase: убираем лишний TLS-хендшейк перед первым запросом -->
+  <link rel="preconnect" href="https://sumaysqzahgesifdevxu.supabase.co" crossorigin>
+  <link rel="dns-prefetch" href="https://sumaysqzahgesifdevxu.supabase.co">
+  <!-- Критичные модули грузим параллельно, чтобы не ждать цепочку импортов -->
+  <link rel="modulepreload" href="js/main.js">
+  <link rel="modulepreload" href="js/config.js">
+  <link rel="modulepreload" href="js/ui/state.js">
+  <link rel="modulepreload" href="js/ui/chatView.js">
+  <link rel="modulepreload" href="js/backend/messages.js">
+  <link rel="modulepreload" href="js/backend/auth.js">
   <!-- Шрифт не блокирует первую отрисовку: если Google Fonts недоступен, страница всё равно покажется -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
@@ -310,6 +320,9 @@
           </span>
         </button>
         <button class="icon-btn" id="settingsBtn" title=""></button>
+        <button class="relic-chip" id="relicChip" type="button" title="Relics">
+          <span class="rc-ic">◈</span><span id="relicBalance">—</span>
+        </button>
         <button class="icon-btn" id="logoutBtn" title=""></button>
       </div>
     </aside>
@@ -589,6 +602,46 @@
         <input class="input" id="gsSearch" placeholder="" data-i18n-ph="gs.ph" autocomplete="off">
         <span class="nc-hint" data-i18n="gs.hint">Ищет по сообщениям, уже сохранённым на этом устройстве</span>
         <div id="gsList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ RELICS ══════════ -->
+  <div class="overlay" id="relicsOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="relics.title">Relics</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="relic-hero">
+          <span class="relic-big" id="relicBig">0</span>
+          <span class="relic-cap" data-i18n="relics.balance">ваш баланс</span>
+        </div>
+        <p class="field-hint" data-i18n="relics.about">Relics — внутренние подарки. Ими нельзя оплатить что-то вне Relik, их нельзя купить или обменять на деньги.</p>
+        <button class="btn" id="relicBonus" type="button" data-i18n="relics.bonus">Получить 5 Relics</button>
+        <span class="field-hint" id="relicBonusHint" data-i18n="relics.bonusHint">Доступно раз в 20 часов</span>
+        <div class="relic-history" id="relicHistory"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ПОДАРОК ══════════ -->
+  <div class="overlay" id="giftOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="gift.title">Подарить Relics</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <p class="field-hint" id="giftTo" data-i18n="gift.to">Подарок уйдёт автору сообщения</p>
+        <div class="gift-grid" id="giftGrid">
+          <button type="button" data-gift="1">1</button>
+          <button type="button" data-gift="5">5</button>
+          <button type="button" data-gift="10">10</button>
+          <button type="button" data-gift="25">25</button>
+        </div>
+        <span class="field-hint" id="giftBalance"></span>
       </div>
     </div>
   </div>

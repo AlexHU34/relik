@@ -9,7 +9,7 @@ import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
-import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime } from './ui/modals.js';
+import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, initRelics } from './ui/modals.js';
 import { seedDemoRequests } from './backend/contacts.js';
 import { initTelemetry, logEvent } from './backend/telemetry.js';
 import { loadBlocks } from './backend/blocks.js';
@@ -329,6 +329,7 @@ function initAuth() {
 /* ── запуск приложения после входа/регистрации ── */
 async function enterApp(welcomeKey) {
   showApp();
+  initRelics().catch(() => {});
   armPin();
   if (isRealBackend) {
     reloadChats().then(() => retryOutbox()).catch((err) => console.error('Load chats error:', err));

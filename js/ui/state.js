@@ -21,6 +21,8 @@ export const S = {
   contacts: [],      // принятые контакты [{userId, reqId}]
   blocked: [],       // кого заблокировал я
   blockedBy: [],     // кто заблокировал меня
+  relics: null,      // баланс внутренней валюты
+  gifts: [],         // подарки активного чата
 };
 
 export const bus = new EventTarget();

@@ -11,6 +11,7 @@ import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUserna
 import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } from '../backend/chats.js';
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
+import { ensureWallet, claimDailyBonus } from '../backend/wallet.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -116,6 +117,24 @@ export function initModals() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-search-messages]')) {
       openGlobalSearch($('#searchInput')?.value || '');
+    }
+  });
+
+  /* ── Relics ── */
+  $('#relicChip')?.addEventListener('click', openRelics);
+  $('#relicBonus')?.addEventListener('click', async () => {
+    const btn = $('#relicBonus');
+    btn.disabled = true;
+    try {
+      const w = await claimDailyBonus();
+      if (w) S.relics = w.balance;
+      paintRelics();
+      toast(t('relics.bonusGot'));
+      if (!$('#relicsOv').hidden) openRelics();
+    } catch (err) {
+      toast(/bonus_too_early/.test(String(err?.message)) ? t('relics.bonusEarly') : t('relics.bonusFail'), { type: 'error' });
+    } finally {
+      btn.disabled = false;
     }
   });
   document.addEventListener('relik:lang', () => {
@@ -986,6 +1005,58 @@ async function paintAdminUsers() {
 /* ── Поиск по всей переписке ─────────────────────────────────
    Работает по локальному кэшу расшифрованных сообщений (IndexedDB).
    Серверный поиск невозможен: на сервере только шифротекст. */
+/* ── Relics: баланс и ежедневный бонус ───────────────────── */
+export function paintRelics() {
+const chip = $('#relicBalance');
+const big = $('#relicBig');
+const n = S.relics;
+const text = n == null ? '—' : String(n);
+if (chip) chip.textContent = text;
+if (big) big.textContent = text;
+const grid = $('#giftGrid');
+if (grid) {
+  grid.querySelectorAll('button[data-gift]').forEach((b) => {
+    b.disabled = n != null && Number(b.dataset.gift) > n;
+  });
+}
+}
+
+export async function initRelics() {
+if (!(SUPABASE.url && SUPABASE.anonKey) || !S.me) return;
+const w = await ensureWallet();
+if (w) S.relics = w.balance;
+paintRelics();
+}
+
+async function openRelics() {
+$('#relicsOv').hidden = false;
+paintRelics();
+const hint = $('#relicBonusHint');
+if (hint) hint.textContent = t('relics.bonusHint');
+try {
+  const { data } = await sb
+    .from('wallet_tx')
+    .select('delta, reason, created_at')
+    .order('created_at', { ascending: false })
+    .limit(12);
+  const box = $('#relicHistory');
+  if (box) {
+    const rows = (data || []).map((tx) => {
+      const plus = Number(tx.delta) > 0;
+      const label = t('relics.reason.' + tx.reason) || tx.reason;
+      const when = new Date(tx.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      return `<div class="relic-row"><span>${esc(label)} · ${esc(when)}</span>
+        <b class="${plus ? 'plus' : 'minus'}">${plus ? '+' : ''}${Number(tx.delta)}</b></div>`;
+    }).join('');
+    box.innerHTML = rows || `<div class="nc-hint">${t('relics.empty')}</div>`;
+  }
+} catch (e) {
+  const box = $('#relicHistory');
+  if (box) box.innerHTML = `<div class="nc-hint">${t('relics.empty')}</div>`;
+}
+}
+
+
 export function openGlobalSearch(initial = '') {
   const ov = $('#gsOv');
   if (!ov) return;
