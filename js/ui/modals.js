@@ -1252,11 +1252,13 @@ export async function openNftItem(itemId) {
   const d = it.drop || {};
   const ownerName = it.ownerId === S.me?.id ? t('nft.you') : (S.users.find((u) => u.id === it.ownerId)?.name || '—');
   const rows = (it.history || []).map((h) => {
-    const from = h.from_user ? (S.users.find((u) => u.id === h.from_user)?.name || '—') : '—';
-    const to = S.users.find((u) => u.id === h.to_user)?.name || '—';
+    const nameOf = (id) => (!id ? '—' : (id === S.me?.id ? t('nft.you') : (S.users.find((u) => u.id === id)?.name || '—')));
     const kind = h.kind === 'buy' ? t('nft.kindBuy') : t('nft.kindGift');
     const when = new Date(h.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    return `<div class="nft-hist-row"><span>${esc(kind)}: ${esc(from)} → ${esc(to)}</span><span>${esc(when)}</span></div>`;
+    const line = h.kind === 'buy'
+      ? `${kind}: ${nameOf(h.to_user)}`
+      : `${kind}: ${nameOf(h.from_user)} → ${nameOf(h.to_user)}`;
+    return `<div class="nft-hist-row"><span>${esc(line)}</span><span>${esc(when)}</span></div>`;
   }).join('');
 
   body.innerHTML = `
