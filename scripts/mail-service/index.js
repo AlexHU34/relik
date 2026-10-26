@@ -36,6 +36,7 @@ const {
   MAIL_FROM = 'Relik <relik.support@yandex.ru>',
   MAIL_REPLY_TO = '',
   SUPABASE_URL = '',
+  APP_URL = 'https://alexhu34.github.io/relik/',
   SEND_EMAIL_HOOK_SECRET = '',
   DRY_RUN = '',
   MAX_BODY_BYTES = '20000',
@@ -287,7 +288,9 @@ function verifyUrl(emailData, tokenHash) {
     const url = new URL(`${base}/auth/v1/verify`);
     url.searchParams.set('token', tokenHash);
     url.searchParams.set('type', emailData.email_action_type || 'signup');
-    const redirect = emailData.redirect_to || emailData.site_url || '';
+    /* Всегда ведём в приложение, а не в корень GitHub Pages.
+       redirect_to из Supabase может быть корнем сайта — игнорируем его. */
+    const redirect = String(APP_URL || emailData.redirect_to || emailData.site_url || '').trim();
     if (redirect) url.searchParams.set('redirect_to', redirect);
     return url.toString();
   } catch (e) {
@@ -498,7 +501,11 @@ function buildJobs(payload) {
     to: isValidEmail(email) ? email : newEmail,
     action,
     token: NOTIFICATIONS.has(action) ? '' : token,
-    link: NOTIFICATIONS.has(action) ? '' : verifyUrl(emailData, tokenHash),
+    /* Для signup/reauth достаточно кода: не даём ссылку, которая может
+       привести в корень GitHub Pages. Ссылки оставляем для recovery/magiclink. */
+    link: (NOTIFICATIONS.has(action) || action === 'signup' || action === 'reauthentication')
+      ? ''
+      : verifyUrl(emailData, tokenHash),
   }];
 }
 

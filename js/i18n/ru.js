@@ -33,7 +33,7 @@ export default {
   'update.reload': 'Обновить',
   'verify.title': 'Подтверждение email',
   'verify.sub': 'Мы отправили код на вашу почту. Введите его ниже.',
-  'verify.ph': '000-000',
+  'verify.ph': '0000-0000',
   'verify.confirm': 'Подтвердить',
   'verify.resend': 'Отправить код ещё раз',
   'verify.sent': 'Новый код отправлен',

@@ -33,7 +33,7 @@ export default {
   'update.reload': 'Update',
   'verify.title': 'Email verification',
   'verify.sub': 'We sent a code to your email. Enter it below.',
-  'verify.ph': '000-000',
+  'verify.ph': '0000-0000',
   'verify.confirm': 'Verify',
   'verify.resend': 'Resend code',
   'verify.sent': 'A new code has been sent',

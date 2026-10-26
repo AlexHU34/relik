@@ -8,6 +8,7 @@ const secretB64 = crypto.randomBytes(32).toString('base64');
 process.env.SEND_EMAIL_HOOK_SECRET = 'v1,whsec_' + secretB64;
 process.env.MAIL_FROM = 'Relik <relik.support@yandex.ru>';
 process.env.SUPABASE_URL = 'https://example.supabase.co';
+process.env.APP_URL = 'https://alexhu34.github.io/relik/';
 process.env.DRY_RUN = '1';
 process.env.MAIL_PROVIDER = 'brevo';
 
@@ -72,7 +73,22 @@ test('buildJobs signup produces one code email', () => {
   assert.equal(jobs[0].to, 'user@example.com');
   assert.equal(jobs[0].action, 'signup');
   assert.equal(jobs[0].token, '123456');
-  assert.match(jobs[0].link, /token=hash/);
+  assert.equal(jobs[0].link, '');
+});
+
+test('recovery link points to the /relik/ app, not the site root', () => {
+  const jobs = mail.buildJobs({
+    user: { email: 'user@example.com' },
+    email_data: {
+      token: '123456',
+      token_hash: 'hash',
+      email_action_type: 'recovery',
+      redirect_to: 'https://alexhu34.github.io/',
+    },
+  });
+  assert.equal(jobs.length, 1);
+  assert.match(jobs[0].link, /auth\/v1\/verify/);
+  assert.match(jobs[0].link, /redirect_to=https%3A%2F%2Falexhu34.github.io%2Frelik%2F/);
 });
 
 test('buildJobs email_change produces two codes and maps hashes correctly', () => {
