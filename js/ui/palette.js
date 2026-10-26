@@ -8,7 +8,7 @@ import { t } from '../i18n/i18n.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { isPinned, isMuted, togglePinned, toggleMuted } from './prefs.js';
 import { toast } from './toast.js';
-import { openNewChat, openGroupCreator, openSettings, openGlobalSearch } from './modals.js';
+import { openNewChat, openGroupCreator, openSettings, openGlobalSearch, openNft } from './modals.js';
 import { renderSidebar } from './sidebar.js';
 import { hideUser } from '../backend/blocks.js';
 import { lockNow, hasPin } from './pin.js';
@@ -101,6 +101,7 @@ function actionList(termRaw = '') {
         setTimeout(() => $('#storageField')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
       },
     },
+    { id: 'nft', icon: 'gift', label: t('nft.title'), run: () => openNft() },
     {
       id: 'export',
       icon: 'dl',
@@ -462,9 +463,11 @@ export function initPalette() {
   }
   const searchOpen = $('#searchOpenPalette');
   if (searchOpen) {
-    searchOpen.title = t('palette.searchAll');
-    searchOpen.setAttribute('aria-label', t('palette.searchAll'));
+    searchOpen.title = t('palette.title');
+    searchOpen.setAttribute('aria-label', t('palette.title'));
   }
+  const dialog = $('.palette');
+  if (dialog) dialog.setAttribute('aria-label', t('palette.title'));
   document.addEventListener('click', (e) => {
     if (!e.target.closest('[data-open-palette]')) return;
     e.preventDefault();
@@ -502,9 +505,11 @@ export function initPalette() {
   document.addEventListener('relik:lang', () => {
     const so = $('#searchOpenPalette');
     if (so) {
-      so.title = t('palette.searchAll');
-      so.setAttribute('aria-label', t('palette.searchAll'));
+      so.title = t('palette.title');
+      so.setAttribute('aria-label', t('palette.title'));
     }
+    const dialog = $('.palette');
+    if (dialog) dialog.setAttribute('aria-label', t('palette.title'));
     if (!isOpen) return;
     const h = $('#paletteHint');
     if (h) h.innerHTML = `${icon('keyboard', 13)}<span>${esc(t('palette.footer'))}</span>`;

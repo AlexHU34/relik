@@ -215,8 +215,13 @@ grant execute on function public.nft_showcase_set(uuid, int) to authenticated;
 -- ── стартовые выпуски (арт уже лежит в assets/relics) ──────
 insert into public.nft_drops (slug, name, art, rarity, total, price)
 values
-  ('scroll-wanderer', 'Свиток странника', 'assets/relics/relics-flat.png', 'common', 500, 10),
-  ('scroll-keeper',   'Печать хранителя', 'assets/relics/relics-scroll.png', 'rare', 100, 50),
+  ('scroll-wanderer', 'Свиток странника', 'assets/relics/relics-scroll.png', 'common', 500, 10),
+  ('scroll-keeper',   'Печать хранителя', 'assets/relics/relics-flat.png', 'rare', 100, 50),
   ('scroll-moon',     'Лунный свиток',    'assets/relics/relics-glass.png', 'epic', 10, 250),
   ('scroll-origin',   'Первый свиток',    'assets/relics/relics-icon.png', 'legendary', 1, 2000)
-on conflict (slug) do nothing;
+on conflict (slug) do update set
+  name = excluded.name,
+  art = excluded.art,
+  rarity = excluded.rarity,
+  total = excluded.total,
+  price = excluded.price;

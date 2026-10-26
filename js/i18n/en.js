@@ -600,6 +600,7 @@ export default {
   'call.screenNoAudio': 'System audio was not shared — tick “Share audio” when picking a screen',
 
   /* Command palette */
+  'palette.title': 'Command palette',
   'palette.ph': 'Chat, action or message…',
   'palette.recent': 'Recent chats',
   'palette.chatsFound': 'Chats',

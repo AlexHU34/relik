@@ -71,7 +71,7 @@ export function initModals() {
       closeOv($('#groupOv')); closeOv($('#readOv'));
       closeOv($('#peopleOv')); closeOv($('#reqOv')); closeOv($('#gsOv'));
       closeOv($('#relicsOv')); closeOv($('#giftOv'));
-      closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#fwdOv')); closeOv($('#circleOv'));
+      closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#fwdOv'));
     }
   });
   document.addEventListener('keydown', (e) => {

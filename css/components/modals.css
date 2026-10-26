@@ -317,7 +317,7 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .relic-chip{
   display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;
   border-radius:var(--r-full);border:1px solid var(--line-2);background:var(--surface-2);
-  color:var(--tx2);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
+  color:var(--tx-2);font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;
 }
 .relic-chip:hover{background:var(--surface-3);color:var(--tx)}
 .relic-chip .rc-ic{width:16px;height:16px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
@@ -325,9 +325,9 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .relic-scroll{width:132px;height:auto;filter:drop-shadow(0 10px 24px rgba(0,0,0,.45));margin-bottom:2px}
 .relic-big{font-size:40px;font-weight:800;letter-spacing:-.03em;
   background:linear-gradient(135deg,#f3d27a,#e0a23c);-webkit-background-clip:text;background-clip:text;color:transparent}
-.relic-cap{font-size:12px;color:var(--tx3)}
+.relic-cap{font-size:12px;color:var(--tx-3)}
 .relic-history{display:grid;gap:6px;margin-top:12px}
-.relic-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--tx2);
+.relic-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--tx-2);
   border-top:1px solid var(--line);padding-top:6px}
 .relic-row b{color:var(--tx)}
 .relic-row .plus{color:var(--ok)}
@@ -456,15 +456,15 @@ html[data-device="phone"] .recover-bar .rb-btn{flex:1}
 /* Коллекция (NFT за Relics) */
 .nft-modal{max-width:720px}
 .nft-tabs{display:flex;gap:6px;margin-bottom:10px}
-.nft-tab{font:inherit;font-size:13px;color:var(--tx2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:7px 13px;cursor:pointer}
+.nft-tab{font:inherit;font-size:13px;color:var(--tx-2);background:transparent;border:1px solid var(--line-2);border-radius:10px;padding:7px 13px;cursor:pointer}
 .nft-tab.on{color:var(--tx);background:var(--surface-3);border-color:rgba(91,108,249,.45)}
-.nft-balance{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--tx3);margin-bottom:12px}
+.nft-balance{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--tx-3);margin-bottom:12px}
 .nft-balance img{width:16px;height:16px}
 .nft-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .nft-card{background:var(--surface-2);border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;gap:6px;text-align:center}
 .nft-art{width:100%;height:118px;object-fit:contain;filter:drop-shadow(0 8px 18px rgba(0,0,0,.45))}
 .nft-name{font-size:12.5px;font-weight:600;line-height:1.3}
-.nft-sub{font-size:11px;color:var(--tx3)}
+.nft-sub{font-size:11px;color:var(--tx-3)}
 .nft-rarity{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:99px;justify-self:center}
 .nft-rarity.common{color:#9fb0c9;background:rgba(159,176,201,.14)}
 .nft-rarity.rare{color:#7fb2ff;background:rgba(127,178,255,.15)}
