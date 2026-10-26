@@ -70,6 +70,11 @@ const P = {
   record: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/>',
+  chevronRight: '<path d="m9 6 6 6-6 6"/>',
+  message: '<path d="M21 15a3 3 0 0 1-3 3H9l-5 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3Z"/><path d="M8 9h8M8 13h5"/>',
+  keyboard: '<rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
+  hardDrive: '<path d="M3 13h18"/><path d="M5.5 5h13l2.5 8H3l2.5-8Z"/><path d="M7 17h.01M11 17h.01"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
 };
 
 /* icon('send', 18) → строка <svg> (текущий цвет наследуется) */

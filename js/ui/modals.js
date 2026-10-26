@@ -1,6 +1,6 @@
 /* Relik — модальные окна: настройки, новый чат, создание группы, лайтбокс */
 import { S, user, emit, chatById, chatTitle } from './state.js';
-import { $, esc, avatarHtml, adminBadge, fmtTime } from './utils.js';
+import { $, esc, avatarHtml, adminBadge, fmtTime, fmtSize } from './utils.js';
 import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -13,6 +13,7 @@ import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } f
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
 import { ensureWallet, claimDailyBonus } from '../backend/wallet.js';
+import { listDrops, myItems, buyItem, transferItem } from '../backend/nft.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -26,6 +27,7 @@ import { exportChats } from './export.js';
 import { hasPin, enablePin, disablePin, changePin, lockNow } from './pin.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 import { storageAvailable, clearMediaObjectUrls } from '../backend/storage.js';
+import { mediaStats, storageEstimate, persistedStorage, ensurePersistentStorage, clearMediaCache, MEDIA_MAX_BYTES } from '../db/mediaCache.js';
 
 let selectedGroupMembers = new Set();
 
@@ -67,7 +69,9 @@ export function initModals() {
       closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
       closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv'));
       closeOv($('#groupOv')); closeOv($('#readOv'));
-      closeOv($('#peopleOv')); closeOv($('#reqOv'));
+      closeOv($('#peopleOv')); closeOv($('#reqOv')); closeOv($('#gsOv'));
+      closeOv($('#relicsOv')); closeOv($('#giftOv'));
+      closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#fwdOv')); closeOv($('#circleOv'));
     }
   });
   document.addEventListener('keydown', (e) => {
@@ -120,8 +124,32 @@ export function initModals() {
       openGlobalSearch($('#searchInput')?.value || '');
     }
   });
+  /* Ctrl/Cmd+Shift+F — сквозной поиск, Ctrl/Cmd+F остаётся за чатом */
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+    if (String(e.key).toLowerCase() !== 'f' || !S.me) return;
+    if ($('#paletteOv') && !$('#paletteOv').hidden) return;
+    e.preventDefault();
+    openGlobalSearch($('#searchInput')?.value || '');
+  });
 
-  /* ── Relics ── */
+  /* ── хранилище ── */
+  $('#storageClearBtn')?.addEventListener('click', clearStorageCache);
+  $('#storagePersistBtn')?.addEventListener('click', askPersistentStorage);
+
+  /* ── Коллекция ── */
+  $('#relicNft')?.addEventListener('click', openNft);
+  $('#nftOv')?.addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-nft-tab]');
+    if (tab) { setNftTab(tab.dataset.nftTab); return; }
+    const buy = e.target.closest('[data-nft-buy]');
+    if (buy) { nftBuy(buy.dataset.nftBuy).then(() => nftTab && setNftTab(nftTab)); return; }
+    const send = e.target.closest('[data-nft-send]');
+    if (send) {
+      const sel = $('#nftMine')?.querySelector(`select[data-nft-to="${send.dataset.nftSend}"]`);
+      nftSend(send.dataset.nftSend, sel);
+    }
+  });
   $('#relicChip')?.addEventListener('click', openRelics);
   $('#relicBonus')?.addEventListener('click', async () => {
     const btn = $('#relicBonus');
@@ -386,6 +414,7 @@ export function initModals() {
     paintFonts();
     paintLangSeg();
     paintPinSettings();
+    if (!$('#settingsOv').hidden) paintStorage();
   });
 }
 
@@ -477,6 +506,7 @@ export function openSettings() {
   if (allBtn) allBtn.hidden = !(SUPABASE.url && SUPABASE.anonKey);
   paintAvatar();
   paintMigrationStatus();
+  paintStorage();
   const body = $('#settingsOv .m-body');
   if (body) body.scrollTop = 0;
   $('#settingsOv').hidden = false;
@@ -497,6 +527,95 @@ async function paintMigrationStatus() {
   } catch (e) {
     el.textContent = t('settings.migrError');
   }
+}
+
+/* ── Хранилище: занятое место, защита от очистки, медиа-кэш ── */
+let storagePaintToken = 0;
+
+async function paintStorage() {
+  const field = $('#storageField');
+  if (!field) return;
+  const token = ++storagePaintToken;
+  const stateEl = $('#storageState');
+  if (stateEl) {
+    stateEl.textContent = t('people.loading');
+    stateEl.className = 'storage-state';
+  }
+  const [stats, est, persisted] = await Promise.all([
+    mediaStats().catch(() => ({ count: 0, bytes: 0 })),
+    storageEstimate().catch(() => ({ usage: 0, quota: 0 })),
+    persistedStorage().catch(() => false),
+  ]);
+  if (token !== storagePaintToken) return;
+
+  const quota = est.quota || 0;
+  const used = est.usage || 0;
+  const pct = quota
+    ? Math.min(100, Math.round((used / quota) * 100))
+    : Math.min(100, Math.round((stats.bytes / MEDIA_MAX_BYTES) * 100));
+
+  const fill = $('#storageBarFill');
+  if (fill) {
+    fill.style.width = `${Math.max(stats.count || used ? 2 : 0, pct)}%`;
+    fill.classList.toggle('warn', pct >= 80);
+  }
+  const pctEl = $('#storagePct');
+  if (pctEl) {
+    pctEl.textContent = !quota && !stats.count
+      ? '—'
+      : (pct === 0 && (used > 0 || stats.bytes > 0) ? '<1%' : `${pct}%`);
+  }
+
+  if (stateEl) {
+    stateEl.textContent = t(persisted ? 'storage.persisted' : 'storage.eviction');
+    stateEl.className = 'storage-state ' + (persisted ? 'ok' : 'warn');
+  }
+  const meta = $('#storageMeta');
+  if (meta) {
+    meta.textContent = quota
+      ? t('storage.meta')
+        .replace('{n}', String(stats.count))
+        .replace('{media}', fmtSize(stats.bytes))
+        .replace('{used}', fmtSize(used))
+        .replace('{quota}', fmtSize(quota))
+      : t('storage.metaUnknown')
+        .replace('{n}', String(stats.count))
+        .replace('{media}', fmtSize(stats.bytes));
+  }
+
+  const persistBtn = $('#storagePersistBtn');
+  if (persistBtn) persistBtn.hidden = !!persisted || !navigator.storage?.persist;
+}
+
+async function askPersistentStorage() {
+  const btn = $('#storagePersistBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const ok = await ensurePersistentStorage();
+    toast(t(ok ? 'storage.persistedToast' : 'storage.persistDenied'), { type: ok ? 'success' : 'warn' });
+  } finally {
+    if (btn) btn.disabled = false;
+    paintStorage();
+  }
+}
+
+async function clearStorageCache() {
+  const stats = await mediaStats().catch(() => ({ count: 0, bytes: 0 }));
+  if (!stats.count) {
+    toast(t('storage.empty'));
+    return;
+  }
+  const ok = await confirmAction({
+    title: t('storage.clear'),
+    text: t('storage.clearText'),
+    ok: t('storage.clearOk'),
+    danger: true,
+    iconName: 'hardDrive',
+  });
+  if (!ok) return;
+  await clearMediaCache();
+  toast(t('storage.cleared'), { type: 'success' });
+  paintStorage();
 }
 
 function paintPinSettings() {
@@ -1058,9 +1177,112 @@ try {
 }
 
 
+/* ── Коллекция: магазин за Relics и «Мои» ─────────────────── */
+let nftTab = 'shop';
+
+function nftCard(d, mode) {
+  const left = d.left == null ? '' : `<span class="nft-sub">${t('nft.left').replace('{n}', String(d.left))}</span>`;
+  const price = d.price == null ? '' : `<span class="nft-sub">${d.price} Relics</span>`;
+  const action = mode === 'shop'
+    ? `<button class="nft-btn" type="button" data-nft-buy="${esc(d.id)}" ${d.left === 0 ? 'disabled' : ''}>${d.left === 0 ? esc(t('nft.soldOut')) : esc(t('nft.buy'))}</button>`
+    : `<div class="nft-row">
+         <select data-nft-to="${esc(d.id)}"><option value="">${esc(t('nft.pick'))}</option></select>
+         <button class="nft-btn" type="button" data-nft-send="${esc(d.id)}">${esc(t('nft.transfer'))}</button>
+       </div>`;
+  return `<div class="nft-card">
+    <img class="nft-art" src="${esc(d.art)}" alt="" loading="lazy" decoding="async">
+    <span class="nft-name">${esc(d.name)}</span>
+    <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
+    ${d.serial ? `<span class="nft-sub">№${esc(String(d.serial))}</span>` : left}
+    ${mode === 'shop' ? price : ''}
+    ${action}
+  </div>`;
+}
+
+export async function openNft() {
+  if (!$('#nftOv')) return;
+  $('#nftOv').hidden = false;
+  $('#nftBalance').textContent = S.relics == null ? '—' : String(S.relics);
+  setNftTab(nftTab);
+  await refreshNft();
+}
+
+function setNftTab(tab) {
+  nftTab = tab === 'mine' ? 'mine' : 'shop';
+  document.querySelectorAll('#nftOv .nft-tab').forEach((b) => {
+    b.classList.toggle('on', b.dataset.nftTab === nftTab);
+  });
+  $('#nftShop').hidden = nftTab !== 'shop';
+  $('#nftMine').hidden = nftTab !== 'mine';
+}
+
+async function refreshNft() {
+  $('#nftBalance').textContent = S.relics == null ? '—' : String(S.relics);
+  try {
+    const drops = await listDrops();
+    $('#nftShop').innerHTML = drops.length
+      ? drops.map((d) => nftCard(d, 'shop')).join('')
+      : `<div class="nc-hint">${t('nft.empty')}</div>`;
+  } catch (e) {
+    $('#nftShop').innerHTML = `<div class="nc-hint">${t('nft.fail')}</div>`;
+  }
+
+  try {
+    const items = await myItems();
+    $('#nftMine').innerHTML = items.length
+      ? items.map((it) => nftCard({ ...it.drop, id: it.id, serial: it.serial }, 'mine')).join('')
+      : `<div class="nc-hint">${t('nft.emptyMine')}</div>`;
+    fillNftRecipients();
+  } catch (e) {
+    $('#nftMine').innerHTML = `<div class="nc-hint">${t('nft.emptyMine')}</div>`;
+  }
+}
+
+function fillNftRecipients() {
+  const ids = [...new Set((S.contacts || []).map((c) => c.userId))].filter((id) => id && id !== S.me?.id);
+  const people = ids.map((id) => S.users.find((u) => u.id === id) || { id, name: '…' });
+  document.querySelectorAll('#nftMine select[data-nft-to]').forEach((sel) => {
+    sel.innerHTML = `<option value="">${esc(t('nft.pick'))}</option>` +
+      people.map((p) => `<option value="${esc(p.id)}">${esc(p.name || '')}</option>`).join('');
+    if (!people.length) {
+      sel.innerHTML = `<option value="">${esc(t('nft.noContacts'))}</option>`;
+      sel.disabled = true;
+    }
+  });
+}
+
+async function nftBuy(dropId) {
+  try {
+    await buyItem(dropId);
+    paintRelics();
+    toast(t('nft.bought'));
+    await refreshNft();
+  } catch (err) {
+    const msg = String(err?.message || '');
+    toast(/not_enough_relics/.test(msg) ? t('nft.notEnough')
+      : /sold_out/.test(msg) ? t('nft.soldOut')
+        : t('nft.fail'), { type: 'error' });
+  }
+}
+
+async function nftSend(itemId, sel) {
+  const to = sel?.value;
+  if (!to) { toast(t('nft.pick')); return; }
+  try {
+    await transferItem(itemId, to);
+    toast(t('nft.transferred'));
+    await refreshNft();
+  } catch (err) {
+    const msg = String(err?.message || '');
+    toast(/cooldown/.test(msg) ? t('nft.cooldown') : t('nft.fail'), { type: 'error' });
+  }
+}
+
+
 export function openGlobalSearch(initial = '') {
   const ov = $('#gsOv');
   if (!ov) return;
+  gsCache = null;
   $('#gsSearch').value = initial;
   ov.hidden = false;
   paintGlobalSearch();
@@ -1068,6 +1290,26 @@ export function openGlobalSearch(initial = '') {
 }
 
 const gsDebounced = debounce(paintGlobalSearch, 220);
+
+/* Индекс строится один раз на открытие модалки и живёт 20 секунд:
+   раньше каждый символ заново читал все сообщения из IndexedDB. */
+let gsCache = null;
+
+async function gsIndex() {
+  if (gsCache && Date.now() - gsCache.at < 20000) return gsCache.items;
+  let all = [];
+  try {
+    all = await idb.getAll('messages');
+  } catch (e) {
+    all = [];
+  }
+  const items = all
+    .filter((m) => !m.hidden && !m.localDeleted && m.text)
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+    .map((m) => ({ m, text: String(m.text), low: String(m.text).toLowerCase() }));
+  gsCache = { at: Date.now(), items };
+  return items;
+}
 
 async function paintGlobalSearch() {
   const wrap = $('#gsList');
@@ -1077,19 +1319,12 @@ async function paintGlobalSearch() {
     wrap.innerHTML = `<div class="nc-hint">${t('gs.typeMore')}</div>`;
     return;
   }
-  wrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+  if (!wrap.querySelector('.contact')) wrap.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
 
-  let all = [];
-  try {
-    all = await idb.getAll('messages');
-  } catch (e) {
-    all = [];
-  }
+  const index = await gsIndex();
+  if ($('#gsOv').hidden || $('#gsSearch').value.trim().toLowerCase() !== q) return;
 
-  const hits = all
-    .filter((m) => !m.hidden && !m.localDeleted && m.text && String(m.text).toLowerCase().includes(q))
-    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
-    .slice(0, 60);
+  const hits = index.filter((x) => x.low.includes(q)).slice(0, 60).map((x) => x.m);
 
   if (!hits.length) {
     wrap.innerHTML = `<div class="nc-hint">${t('gs.empty')}</div>`;
@@ -1113,11 +1348,29 @@ async function paintGlobalSearch() {
   }).join('');
 }
 
+function flashSearchHit(msgId) {
+  try {
+    const safe = String(msgId).replace(/["\\]/g, '');
+    const el = document.querySelector(`.msg[data-mid="${safe}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('flash');
+    setTimeout(() => el.classList.remove('flash'), 1500);
+  } catch (e) { /* ignore */ }
+}
+
 async function gsPick(e) {
   const b = e.target.closest('[data-gs-chat]');
   if (!b) return;
+  const chatId = b.dataset.gsChat;
+  const msgId = b.dataset.gsId;
   $('#gsOv').hidden = true;
-  location.hash = `#/chat/${b.dataset.gsChat}`;
+  if (location.hash === `#/chat/${chatId}`) {
+    flashSearchHit(msgId);
+  } else {
+    location.hash = `#/chat/${chatId}`;
+    setTimeout(() => flashSearchHit(msgId), 700);
+  }
 }
 
 /* ── НОВЫЙ ЧАТ: только принятые контакты ── */
@@ -1498,7 +1751,7 @@ export function startContactRealtime() {
 }
 
 /* ── создание группы ── */
-function openGroupCreator() {
+export function openGroupCreator() {
   $('#ncOv').hidden = true;
   selectedGroupMembers.clear();
   $('#gcTitle').value = '';

@@ -82,6 +82,7 @@ import * as v2 from '../js/crypto/v2/protocol.js';
 import { encodeMedia, decodeSpecial } from '../js/backend/messages.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from '../js/ui/richText.js';
 import { idb } from '../js/db/idb.js';
+import { prunePlan } from '../js/db/mediaCache.js';
 
 const listEl = document.getElementById('list');
 const sumEl = document.getElementById('summary');
@@ -394,6 +395,20 @@ async function run() {
     await idb.del('settings', key);
     if (rec?.value?.n !== 42) throw new Error('read mismatch');
     return 'relik-db';
+  });
+
+  await test('Кэш медиа: LRU-план очистки', async () => {
+    const recs = [
+      { path: 'a', at: 1, blob: { size: 10 } },
+      { path: 'b', at: 2, blob: { size: 10 } },
+      { path: 'c', at: 3, blob: { size: 10 } },
+    ];
+    const byCount = prunePlan(recs, { maxItems: 2, maxBytes: 1e9 });
+    if (byCount.drop.length !== 1 || byCount.drop[0].path !== 'a') throw new Error('LRU order');
+    if (byCount.count !== 2 || byCount.bytes !== 20) throw new Error('count/bytes');
+    const byBytes = prunePlan(recs, { maxItems: 99, maxBytes: 15 });
+    if (byBytes.drop.length !== 2 || byBytes.bytes !== 10) throw new Error('byte limit');
+    return 'LRU';
   });
 
   const failed = results.filter((r) => !r.ok).length;

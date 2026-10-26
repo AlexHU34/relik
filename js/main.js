@@ -10,6 +10,9 @@ import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, initRelics } from './ui/modals.js';
+import { initPalette } from './ui/palette.js';
+import { initRecovery } from './ui/recovery.js';
+import { ensurePersistentStorage, autoPruneMedia } from './db/mediaCache.js';
 import { seedDemoRequests } from './backend/contacts.js';
 import { initTelemetry, logEvent } from './backend/telemetry.js';
 import { loadBlocks } from './backend/blocks.js';
@@ -816,6 +819,21 @@ function initServiceWorker() {
   }).catch(() => {});
 }
 
+/* ── Обслуживание хранилища в фоне (не тормозит запуск) ───── */
+function scheduleStorageUpkeep() {
+  const run = () => {
+    ensurePersistentStorage().catch(() => {});
+    autoPruneMedia().then((res) => {
+      if (res && res.removed) console.info(`Media cache: removed ${res.removed} file(s)`);
+    }).catch(() => {});
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(run, { timeout: 8000 });
+  } else {
+    setTimeout(run, 2500);
+  }
+}
+
 /* ── запуск ── */
 async function boot() {
   initTelemetry();
@@ -837,12 +855,15 @@ async function boot() {
   /* сеть и обновления */
   initNetBar();
   initServiceWorker();
+  scheduleStorageUpkeep();
 
   /* Весь UI собираем сразу, не дожидаясь сети */
   initSidebar();
   initChatView();
   initComposer();
   initModals();
+  initPalette();
+  initRecovery();
   initRouter();
   initAuth();
   initPin();

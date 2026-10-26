@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.12.1';
+const VER = 'relik-v1.13.0';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
@@ -12,14 +12,25 @@ const ASSETS = [
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
   './js/ui/themes.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
   './js/ui/prefs.js', './js/ui/menu.js', './js/ui/dialog.js', './js/ui/richText.js', './js/ui/install.js', './js/ui/export.js', './js/ui/pin.js',
-  './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/contacts.js', './js/backend/blocks.js', './js/backend/telemetry.js', './js/backend/push.js', './js/backend/wallet.js',
+  './js/ui/palette.js', './js/ui/recovery.js', './js/db/mediaCache.js',
+  './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/contacts.js', './js/backend/blocks.js', './js/backend/telemetry.js', './js/backend/push.js', './js/backend/wallet.js', './js/backend/nft.js',
   './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js', './js/crypto/fingerprint.js', './js/crypto/v2/protocol.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png',
   './assets/relics/relics-scroll.png', './assets/relics/relics-seal.png', './assets/relics/relics-1-128.png', './assets/relics/relics-5-128.png', './assets/relics/relics-10-128.png', './assets/relics/relics-25-128.png',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VER).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(VER)
+      .then((c) => Promise.allSettled(ASSETS.map(async (url) => {
+        /* cache: no-cache — иначе GitHub Pages (max-age=600) может отдать
+           в новый кэш старую версию файла. Один отсутствующий файл не
+           должен ломать установку SW. */
+        const res = await fetch(new Request(url, { cache: 'no-cache' }));
+        if (res && res.ok) await c.put(url, res);
+      })))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('message', (e) => {
@@ -69,22 +80,64 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/* Стратегии:
+   - навигация и version.json — network-first (свежий HTML после деплоя);
+   - статика — stale-while-revalidate (мгновенно из кэша + тихое обновление).
+   При смене VER старый кэш удаляется целиком, поэтому «залипших» файлов нет. */
+const isHTML = (req, url) => req.mode === 'navigate' || /\/(index|legal|welcome)\.html$/.test(url.pathname) || url.pathname.endsWith('/');
+
+/* Навигация не должна ждать мёртвую сеть дольше 5 секунд */
+async function fetchWithTimeout(request, ms = 5000) {
+  if (typeof AbortController === 'undefined') return fetch(request);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(new Request(request, { cache: 'no-store', signal: ctrl.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function networkFirst(event, url) {
+  try {
+    const res = await fetchWithTimeout(event.request);
+    /* ответ-заглушка при офлайне не должен подменять страницу */
+    if (!res || res.type === 'error' || res.status === 0) throw new Error('network');
+    if (res.ok) {
+      const copy = res.clone();
+      caches.open(VER).then((c) => c.put(event.request, copy)).catch(() => {});
+    }
+    return res;
+  } catch (err) {
+    const hit = await caches.match(event.request, { ignoreSearch: true });
+    if (hit) return hit;
+    return (await caches.match('./index.html')) || Response.error();
+  }
+}
+
+async function staleWhileRevalidate(event) {
+  const cache = await caches.open(VER);
+  const hit = await cache.match(event.request);
+  const network = fetch(new Request(event.request, { cache: 'no-cache' }))
+    .then((res) => {
+      if (res && res.ok) cache.put(event.request, res.clone()).catch(() => {});
+      return res;
+    })
+    .catch(() => null);
+  /* ВАЖНО: ждём сеть, если кэша нет; иначе отдаём кэш без ожидания. */
+  return hit || (await network) || Response.error();
+}
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  /* network-first + принудительная ревалидация HTTP-кеша:
-     после деплоя свежий код подхватывается сразу, а не через 10 минут */
-  const req = new Request(e.request, { cache: 'no-cache' });
-  e.respondWith(
-    fetch(req)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(VER).then((c) => c.put(e.request, copy));
-        return res;
-      })
-      .catch(() =>
-        caches.match(e.request).then((hit) =>
-          hit || caches.match('./index.html'))
-      )
-  );
+  if (url.pathname.endsWith('/version.json')) {
+    e.respondWith(networkFirst(e, url));
+    return;
+  }
+  if (isHTML(e.request, url)) {
+    e.respondWith(networkFirst(e, url));
+    return;
+  }
+  e.respondWith(staleWhileRevalidate(e));
 });

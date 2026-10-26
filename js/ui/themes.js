@@ -62,6 +62,24 @@ const THEME_DEFS = [
     },
   },
   {
+    id: 'nord', name: 'Nord',
+    t: {
+      bg: '#0e141b', surface: '#131a23', surface2: '#18212c', surface3: '#1e2835', raise: '#25313f',
+      line: '#243040', line2: '#314155', tx: '#e5ecf5', tx2: '#94a3b8', tx3: '#64748b',
+      a1: '#88c0d0', a2: '#81a1c1', a3: '#b48ead',
+      mine: '#1b2a3a', mineLine: '#2b4055', theirs: '#141c26', theirsLine: '#243142',
+    },
+  },
+  {
+    id: 'grape', name: 'Grape',
+    t: {
+      bg: '#100a18', surface: '#171021', surface2: '#1e142b', surface3: '#261937', raise: '#332046',
+      line: '#332044', line2: '#472d5c', tx: '#f0e9f8', tx2: '#b9a6cc', tx3: '#8b78a3',
+      a1: '#c084fc', a2: '#a855f7', a3: '#6366f1',
+      mine: '#2a183e', mineLine: '#3f2459', theirs: '#1a1126', theirsLine: '#332044',
+    },
+  },
+  {
     id: 'mono', name: 'Mono',
     t: {
       bg: '#0b0b0d', surface: '#111114', surface2: '#16161a', surface3: '#1c1c21', raise: '#24242b',

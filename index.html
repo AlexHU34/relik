@@ -301,7 +301,10 @@
       </div>
       <div class="side-search">
         <input class="input" id="searchInput" placeholder="" data-i18n-ph="side.search">
-        <span class="search-ic" id="searchIc"></span>
+        <button class="search-ic-btn" type="button" id="searchOpenPalette" data-open-palette aria-label="">
+          <span class="search-ic" id="searchIc"></span>
+        </button>
+        <button class="search-kbd" type="button" id="paletteBtn" data-open-palette title="Ctrl K">Ctrl K</button>
       </div>
       <div class="folder-row" id="folderRow">
         <button class="folder-chip" type="button" data-folder="all" data-i18n="folder.all">Все</button>
@@ -538,6 +541,22 @@
           <button class="btn btn-ghost" type="button" id="pinLockBtn" hidden data-i18n="settings.pinLockNow">Заблокировать сейчас</button>
           <span class="field-hint" data-i18n="settings.pinHint">Код хранится только на этом устройстве и не заменяет пароль.</span>
         </div>
+        <div class="field" id="storageField">
+          <span data-i18n="storage.title">Хранилище</span>
+          <div class="storage-card">
+            <div class="storage-top">
+              <span class="storage-state" id="storageState"></span>
+              <b id="storagePct">—</b>
+            </div>
+            <div class="storage-bar"><i id="storageBarFill"></i></div>
+            <span class="storage-meta" id="storageMeta"></span>
+          </div>
+          <div class="export-row">
+            <button class="btn btn-ghost" type="button" id="storagePersistBtn" hidden data-i18n="storage.persist">Защитить данные от очистки</button>
+            <button class="btn btn-ghost" type="button" id="storageClearBtn" data-i18n="storage.clear">Очистить медиа-кэш</button>
+          </div>
+          <span class="field-hint" data-i18n="storage.hint">Кэш ускоряет открытие фото и файлов. Ключи и сообщения не затрагиваются.</span>
+        </div>
         <div class="field">
           <span data-i18n="settings.data">Данные</span>
           <button class="btn btn-ghost btn-danger-soft" type="button" id="clearLocalBtn">
@@ -623,6 +642,7 @@
         <p class="field-hint" data-i18n="relics.about">Relics — внутренние подарки. Ими нельзя оплатить что-то вне Relik, их нельзя купить или обменять на деньги.</p>
         <button class="btn" id="relicBonus" type="button" data-i18n="relics.bonus">Получить 5 Relics</button>
         <span class="field-hint" id="relicBonusHint" data-i18n="relics.bonusHint">Доступно раз в 20 часов</span>
+        <button class="btn btn-ghost" id="relicNft" type="button" data-i18n="nft.open">Коллекция</button>
         <div class="relic-history" id="relicHistory"></div>
       </div>
     </div>
@@ -644,6 +664,25 @@
           <button type="button" data-gift="25"><img src="assets/relics/relics-25-128.png" alt="25"></button>
         </div>
         <span class="field-hint" id="giftBalance"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ КОЛЛЕКЦИЯ ══════════ -->
+  <div class="overlay" id="nftOv" hidden>
+    <div class="modal nft-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="nft.title">Коллекция</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="nft-tabs">
+          <button class="nft-tab on" type="button" data-nft-tab="shop" data-i18n="nft.shop">Магазин</button>
+          <button class="nft-tab" type="button" data-nft-tab="mine" data-i18n="nft.mine">Мои</button>
+        </div>
+        <div class="nft-balance"><img src="assets/relics/relics-seal.png" alt=""><span id="nftBalance">—</span> Relics</div>
+        <div id="nftShop" class="nft-grid"></div>
+        <div id="nftMine" class="nft-grid" hidden></div>
       </div>
     </div>
   </div>
@@ -1016,6 +1055,33 @@
       <button type="button" class="pin-forgot" id="pinForgot" data-i18n="pin.forgot">Забыли PIN?</button>
       <button type="button" class="pin-forgot" id="pinCancel" hidden data-i18n="common.cancel">Отмена</button>
     </div>
+  </div>
+
+  <!-- ══════════ КОМАНДНАЯ ПАЛИТРА ══════════ -->
+  <div class="overlay palette-ov" id="paletteOv" hidden>
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Relik">
+      <div class="pal-head">
+        <span class="pal-ic-lead" id="paletteIc"></span>
+        <input id="paletteInput" class="pal-input" type="text" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="true" aria-controls="paletteList"
+               placeholder="" data-i18n-ph="palette.ph">
+        <kbd class="pal-esc">Esc</kbd>
+      </div>
+      <div class="pal-list" id="paletteList" role="listbox"></div>
+      <div class="pal-foot" id="paletteHint"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ ВОССТАНОВЛЕНИЕ ПОСЛЕ ОШИБКИ ══════════ -->
+  <div class="recover-bar" id="recoverBar" hidden role="alert">
+    <span class="rb-ic" id="rbIc"></span>
+    <div class="rb-main">
+      <b id="rbTitle"></b>
+      <span id="rbText"></span>
+    </div>
+    <button class="btn btn-ghost rb-btn" type="button" id="rbReload" data-i18n="recovery.reload">Перезагрузить</button>
+    <a class="btn btn-ghost rb-btn" id="rbCheck" href="tools/health.html" target="_blank" rel="noopener" data-i18n="recovery.check">Проверить</a>
+    <button class="icon-btn" type="button" id="rbX"></button>
   </div>
 
   <div id="toasts" role="status" aria-live="polite"></div>

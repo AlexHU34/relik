@@ -149,7 +149,7 @@ export function initChatView() {
   }, true));
 
   document.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'f') return;
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || String(e.key).toLowerCase() !== 'f') return;
     if (!S.active) return;
     if (document.querySelector('.overlay:not([hidden]), .lightbox:not([hidden]), .call-overlay:not([hidden])')) return;
     e.preventDefault();
@@ -2008,7 +2008,7 @@ function bubbleHtml(m, mine) {
         const thumb = safeMediaSrc(it?.thumb, 'image');
         const img = src || thumb;
         return img
-          ? `<button type="button" class="album-item" data-album-idx="${i}"><img src="${esc(img)}" loading="lazy" alt="">${!src ? '<span class="album-load">•</span>' : ''}</button>`
+          ? `<button type="button" class="album-item" data-album-idx="${i}"><img src="${esc(img)}" loading="lazy" decoding="async" alt="">${!src ? '<span class="album-load">•</span>' : ''}</button>`
           : `<span class="album-item pending${it?.error ? ' failed' : ''}">${icon('image', 18)}</span>`;
       }).join('')}</div>`;
     }

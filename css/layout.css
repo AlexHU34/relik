@@ -187,9 +187,25 @@ html[data-device="phone"] .empty::before{width:320px;height:320px}
 }
 .icon-btn.has-requests{color:var(--accent)}
 .side-search{padding:4px 14px 12px;position:relative}
-.side-search .input{padding:9px 12px 9px 38px;font-size:var(--fs-sm)}
-.side-search .search-ic{position:absolute;left:26px;top:50%;translate:0 -50%;color:var(--tx-3);pointer-events:none}
+.side-search .input{padding:9px 54px 9px 38px;font-size:var(--fs-sm)}
+.side-search .search-ic-btn{
+  position:absolute;left:23px;top:50%;translate:0 -50%;
+  width:26px;height:26px;border-radius:8px;display:grid;place-items:center;
+  color:var(--tx-3);transition:color var(--t-fast),background var(--t-fast);
+}
+.side-search .search-ic-btn:hover{color:var(--tx);background:var(--surface-3)}
 .side-search .search-ic .ic{display:block}
+.side-search .search-kbd{
+  position:absolute;right:22px;top:50%;translate:0 -50%;
+  font:inherit;font-size:10px;font-weight:600;line-height:1;color:var(--tx-3);
+  background:var(--surface-3);border:1px solid var(--line-2);border-radius:6px;
+  padding:3px 6px;transition:color var(--t-fast),opacity var(--t-fast);
+}
+.side-search .search-kbd:hover{color:var(--tx)}
+.side-search:focus-within .search-kbd,
+.side-search .input:not(:placeholder-shown) ~ .search-kbd{opacity:0;pointer-events:none}
+html[data-device="phone"] .side-search .search-kbd{display:none}
+html[data-device="phone"] .side-search .input{padding-right:12px}
 
 .side-list{overflow-y:auto;min-height:0;padding:2px 8px 10px;display:grid;gap:2px;align-content:start}
 .chat-item{

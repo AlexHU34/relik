@@ -329,15 +329,6 @@ export function initSidebar() {
     S.folder = btn.dataset.folder || 'all';
     renderSidebar();
   });
-
-  /* Ctrl/Cmd+K — быстрый поиск */
-  document.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'k') return;
-    if (!S.me) return;
-    e.preventDefault();
-    if (location.hash !== '#/app') location.hash = '#/app';
-    setTimeout(() => $('#searchInput')?.focus(), 60);
-  });
 }
 
 /* Обновить время/порядок в списке (тик 30 сек) */
