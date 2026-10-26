@@ -82,21 +82,11 @@ export async function disablePush() {
   } catch (e) { /* игнорируем */ }
 }
 
-/* Сообщить сервису на VPS, что в чате новое сообщение.
-   Текст не передаётся: сервис шлёт беззвучное «Новое сообщение». */
+/* Сообщить сервису о новом сообщении: кладём задачу в очередь Supabase.
+   Сервис на VPS сам её заберёт — входящий HTTPS не нужен. */
 export async function notifyPush(chat) {
-  if (!PUSH?.endpoint || !chat || !real()) return;
+  if (!chat || !real()) return;
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session?.access_token) return;
-    await fetch(PUSH.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + session.access_token,
-      },
-      body: JSON.stringify({ chatId: chat.id, kind: chat.kind }),
-      keepalive: true,
-    });
+    await sb.from('push_queue').insert({ chat_id: chat.id, from_user: S.me.id });
   } catch (e) { /* push — не критичный путь */ }
 }

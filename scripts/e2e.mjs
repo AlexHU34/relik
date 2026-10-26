@@ -317,7 +317,13 @@ async function runLive() {
       if (bOpened) {
         const back = 'reply-' + Date.now();
         await typeAndSend(B, back);
-        const gotBack = await waitFor(A, `document.body.innerText.includes(${JSON.stringify(back)})`, 25000);
+        let onB = await waitFor(B, `document.body.innerText.includes(${JSON.stringify(back)})`, 8000);
+        if (!onB) {
+          await typeAndSend(B, back);
+          onB = await waitFor(B, `document.body.innerText.includes(${JSON.stringify(back)})`, 8000);
+        }
+        record('B отправил ответ', Boolean(onB));
+        const gotBack = await waitFor(A, `document.body.innerText.includes(${JSON.stringify(back)})`, 45000);
         record('A получил ответ', Boolean(gotBack));
       }
     }

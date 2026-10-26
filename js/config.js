@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.11.2',
+  version: '1.11.3',
   phase: 'E2E Encrypted Messenger',
 };
 
@@ -41,8 +41,8 @@ export const RELAY = {
   credential: 'NxMgeplZdnCJKJoO',
 };
 
-/* Web Push. publicKey — VAPID (публичная часть), endpoint — сервис на VPS,
-   который рассылает уведомления. Текст сообщений туда не передаётся. */
+/* Web Push. publicKey — VAPID (публичная часть). Рассылку делает сервис на VPS:
+   он опрашивает push_queue, входящий HTTPS не нужен. */
 export const PUSH = {
   publicKey: 'BAucjRGMVNU1VBbKEdrqYdC5ABadajTP8bmZLq0IDrhAMx4J3XlBNCXz-dekTKlpqQ3QTafDZbn4-Cr5tyX6JvY',
   endpoint: '',
