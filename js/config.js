@@ -2,8 +2,8 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.16.8',
-  phase: 'E2E Encrypted Messenger',
+  version: '1.17.0',
+  phase: 'Приватный мессенджер',
 };
 
 const REAL_SUPABASE = {

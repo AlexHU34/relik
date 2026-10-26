@@ -1,0 +1,22 @@
+{
+  "name": "relik-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Relik — Android-оболочка (Capacitor). Релиз в сторах запланирован на 2027.",
+  "scripts": {
+    "sync:web": "powershell -ExecutionPolicy Bypass -File ./sync-web.ps1",
+    "add:android": "npx cap add android",
+    "sync": "npm run sync:web && npx cap sync android",
+    "open": "npx cap open android",
+    "build:debug": "npm run sync && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/push-notifications": "^6.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

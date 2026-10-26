@@ -10,6 +10,7 @@ import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime } from './ui/modals.js';
+import { setReencryptPassword, openRecoveryFlow } from './ui/keyRecovery.js';
 import { initPalette, openPalette } from './ui/palette.js';
 import { initRecovery } from './ui/recovery.js';
 import { ensurePersistentStorage, autoPruneMedia } from './db/mediaCache.js';
@@ -276,6 +277,7 @@ function initAuth() {
         } else {
           try {
             S.me = await signIn(email, pass);
+            setReencryptPassword(pass);
           } catch (err) {
             if (/confirm|not confirmed/i.test(err.message || '')) {
               showVerify(email);
@@ -295,6 +297,9 @@ function initAuth() {
       }
 
       await enterApp(authMode === 'login' ? 'auth.welcomeLogin' : 'auth.welcomeSignup');
+      if (S.me?.keyError) {
+        setTimeout(() => openRecoveryFlow({ force: true, password: pass }), 600);
+      }
     } catch (err) {
       const friendly = authErrorMessage(err);
       const offline = /fetch|network|timeout|abort|load failed|offline/i.test(String(err?.message || ''));
@@ -981,6 +986,11 @@ async function boot() {
           saveAvatar(cachedAvatar).catch((err) => console.warn('Avatar sync failed:', err));
         }
         idb.put('settings', { key: 'me', value: S.me }).catch(() => {});
+        if (m.keyMissing && m.hasRecovery) {
+          /* локального ключа нет (новое устройство / чистка браузера),
+             но резервная копия фразой есть — предлагаем восстановить */
+          setTimeout(() => openRecoveryFlow({ force: true }), 900);
+        }
         if (fresh) {
           showApp();
           armPin();

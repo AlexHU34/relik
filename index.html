@@ -465,6 +465,23 @@
           <span class="field-hint" data-i18n="settings.usernameHint">Латиница, цифры и _, 3–32 символа</span>
         </div>
         <button class="btn btn-ghost" id="saveProfile" data-i18n="settings.save">Сохранить</button>
+        <div class="field" id="keyField">
+          <span data-i18n="key.title">Ключи и восстановление</span>
+          <div class="avatar-row">
+            <button class="btn btn-ghost" id="keyPanelBtn" type="button" data-i18n="key.open">Резервная копия</button>
+          </div>
+          <span class="field-hint" id="keyStatus"></span>
+        </div>
+        <div class="field" id="secField">
+          <span data-i18n="sec.title">Что защищено, а что нет</span>
+          <ul class="sec-list">
+            <li data-i18n="sec.1">Текст сообщений и медиа шифруются на устройстве — сервер видит только шифротекст.</li>
+            <li data-i18n="sec.2">Метаданные видны: кто, кому, когда и размер сообщения.</li>
+            <li data-i18n="sec.3">Нет прямой секретности: если ключ украден, старая переписка читается.</li>
+            <li data-i18n="sec.4">PIN — это блокировка экрана, а не шифрование.</li>
+            <li data-i18n="sec.5">Фраза из 12 слов и файл ключа дают полный доступ к истории — храните их как пароль.</li>
+          </ul>
+        </div>
         <div class="field">
           <span data-i18n="settings.theme">Тема</span>
           <div class="theme-grid" id="themeGrid"></div>

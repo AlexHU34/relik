@@ -82,6 +82,8 @@
 
     <div class="stat" id="stats"></div>
 
+    <div id="gate" hidden></div>
+
     <div class="tabs" id="tabs">
       <button class="tab on" data-tab="reports">Жалобы</button>
       <button class="tab" data-tab="users">Пользователи</button>
@@ -146,7 +148,239 @@
     $('loginView').hidden = true;
     $('panel').hidden = false;
     $('who').textContent = me.display_name + (me.username ? ' · @' + me.username : '');
-    await refreshAll();
+    await gate();
+  }
+
+  /* ── Второй фактор панели: пароль + TOTP ──────────────────
+     Первый фактор — обычный вход Supabase. Здесь проверяем
+     пароль панели (PBKDF2) и 6-значный код (TOTP, окно ±30 с).
+     Секрет и хэш лежат в public.admin_access под RLS (только admin). */
+
+  var gateState = { mode: 'unlock', secret: '', row: null, unlocked: false };
+
+  function unb64(s) {
+    return Uint8Array.from(atob(String(s || '')), function (c) { return c.charCodeAt(0); });
+  }
+  function b64(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i += 1) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+  function randomBytes(n) {
+    var a = new Uint8Array(n);
+    crypto.getRandomValues(a);
+    return a;
+  }
+  var B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  function base32Encode(bytes) {
+    var bits = 0, value = 0, out = '';
+    for (var i = 0; i < bytes.length; i += 1) {
+      value = (value << 8) | bytes[i];
+      bits += 8;
+      while (bits >= 5) {
+        out += B32[(value >>> (bits - 5)) & 31];
+        bits -= 5;
+      }
+    }
+    if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+    return out;
+  }
+  function base32Decode(str) {
+    var clean = String(str || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+    var bits = 0, value = 0;
+    var out = [];
+    for (var i = 0; i < clean.length; i += 1) {
+      var idx = B32.indexOf(clean[i]);
+      if (idx < 0) continue;
+      value = (value << 5) | idx;
+      bits += 5;
+      if (bits >= 8) {
+        out.push((value >>> (bits - 8)) & 255);
+        bits -= 8;
+      }
+    }
+    return new Uint8Array(out);
+  }
+
+  async function pbkdf2(password, saltBytes, iter) {
+    var base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+    var bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: saltBytes, iterations: iter, hash: 'SHA-256' }, base, 256,
+    );
+    return new Uint8Array(bits);
+  }
+
+  async function totp(secretB32, at) {
+    var counter = Math.floor((at || Date.now()) / 30000);
+    var buf = new ArrayBuffer(8);
+    var dv = new DataView(buf);
+    dv.setUint32(0, Math.floor(counter / 4294967296));
+    dv.setUint32(4, counter >>> 0);
+    var key = await crypto.subtle.importKey('raw', base32Decode(secretB32), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    var sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new Uint8Array(buf)));
+    var off = sig[sig.length - 1] & 15;
+    var code = ((sig[off] & 127) << 24 | sig[off + 1] << 16 | sig[off + 2] << 8 | sig[off + 3]) % 1000000;
+    return String(code).padStart(6, '0');
+  }
+
+  async function totpValid(secretB32, code) {
+    var c = String(code || '').replace(/\D/g, '');
+    if (c.length !== 6) return false;
+    var now = Date.now();
+    for (var d = -1; d <= 1; d += 1) {
+      if (await totp(secretB32, now + d * 30000) === c) return true;
+    }
+    return false;
+  }
+
+  function setLocked(locked) {
+    $('stats').hidden = locked;
+    $('tabs').hidden = locked;
+    ['reports', 'users', 'events', 'log'].forEach(function (t) {
+      var el = $('tab-' + t);
+      if (el) el.hidden = locked || !el.dataset.active;
+    });
+    $('gate').hidden = !locked;
+    gateState.unlocked = !locked;
+  }
+
+  function gateErr(msg) { $('gateErr').textContent = msg || ''; }
+
+  async function loadAccessRow() {
+    var r = await sb.from('admin_access')
+      .select('user_id, pass_salt, pass_hash, iter, totp_secret, totp_enabled, failed_count, locked_until')
+      .eq('user_id', me.id).maybeSingle();
+    if (r.error) {
+      if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return { missingTable: true };
+      throw r.error;
+    }
+    return r.data || null;
+  }
+
+  function gateShell(inner) {
+    $('gate').innerHTML = '<div class="card" style="max-width:440px;margin:20px auto">' + inner + '</div>';
+  }
+
+  function renderGate() {
+    setLocked(true);
+    if (gateState.mode === 'enroll') return renderEnroll();
+
+    gateShell(
+      '<div class="nm">Второй фактор</div>' +
+      '<div class="sub" style="margin-bottom:10px">Пароль панели и код из приложения-аутентификатора.</div>' +
+      '<div style="display:grid;gap:8px">' +
+        '<input id="gatePass" type="password" placeholder="Пароль панели" autocomplete="current-password">' +
+        '<input id="gateCode" inputmode="numeric" maxlength="6" placeholder="6 цифр" autocomplete="one-time-code">' +
+        '<button class="primary" id="gateGo">Разблокировать</button>' +
+      '</div>' +
+      '<div class="err" id="gateErr"></div>' +
+      '<div class="sub">Забыли пароль панели? Удалите строку из <code>admin_access</code> в SQL Editor — панель предложит настроить 2FA заново.</div>'
+    );
+    $('gateGo').addEventListener('click', unlock);
+    $('gateCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') unlock(); });
+    $('gatePass').focus();
+  }
+
+  function renderEnroll() {
+    if (!gateState.secret) gateState.secret = base32Encode(randomBytes(20));
+    var uri = 'otpauth://totp/Relik%20moderation:' + encodeURIComponent(me.username || me.id)
+      + '?secret=' + gateState.secret + '&issuer=Relik&period=30&digits=6';
+    gateShell(
+      '<div class="nm">Настройка 2FA</div>' +
+      '<div class="sub" style="margin-bottom:10px">Второй фактор ещё не настроен. Придумайте пароль панели и добавьте секрет в аутентификатор (Google Authenticator, Aegis, 1Password).</div>' +
+      '<div style="display:grid;gap:8px">' +
+        '<input id="gatePass" type="password" placeholder="Новый пароль панели (мин. 10 символов)" autocomplete="new-password">' +
+        '<input id="gatePass2" type="password" placeholder="Повторите пароль" autocomplete="new-password">' +
+        '<div class="card" style="background:#0f121a"><div class="sub">Секрет для аутентификатора</div>' +
+          '<div style="font-family:ui-monospace,Consolas,monospace;font-size:13px;word-break:break-all;margin-top:4px">' + gateState.secret + '</div>' +
+          '<div class="sub" style="margin-top:6px;word-break:break-all">' + uri + '</div></div>' +
+        '<input id="gateCode" inputmode="numeric" maxlength="6" placeholder="Код из приложения" autocomplete="one-time-code">' +
+        '<button class="primary" id="gateGo">Включить 2FA и войти</button>' +
+      '</div>' +
+      '<div class="err" id="gateErr"></div>'
+    );
+    $('gateGo').addEventListener('click', enroll);
+  }
+
+  async function unlock() {
+    gateErr('');
+    var row = gateState.row;
+    if (!row) { try { row = await loadAccessRow(); } catch (e) { gateErr(e.message); return; } }
+    if (!row || row.missingTable) {
+      gateErr('Нет таблицы admin_access. Выполните supabase/admin_access.sql.');
+      return;
+    }
+    if (row.locked_until && new Date(row.locked_until) > new Date()) {
+      gateErr('Панель заблокирована до ' + dt(row.locked_until));
+      return;
+    }
+    var pass = $('gatePass').value;
+    var code = $('gateCode').value;
+    if (!pass || !code) { gateErr('Введите пароль и код'); return; }
+    var hash = await pbkdf2(pass, unb64(row.pass_salt), row.iter || 310000);
+    var okPass = b64(hash) === row.pass_hash;
+    var okCode = row.totp_enabled && await totpValid(row.totp_secret, code);
+    if (!okPass || !okCode) {
+      var fails = (row.failed_count || 0) + 1;
+      var lock = fails >= 5 ? new Date(Date.now() + 10 * 60000).toISOString() : null;
+      await sb.from('admin_access').update({ failed_count: fails, locked_until: lock }).eq('user_id', me.id);
+      gateErr(okPass ? 'Неверный код' : 'Неверный пароль панели');
+      if (lock) gateErr('Слишком много попыток. Панель заблокирована на 10 минут.');
+      return;
+    }
+    await sb.from('admin_access').update({ failed_count: 0, locked_until: null, updated_at: new Date().toISOString() }).eq('user_id', me.id);
+    unlocked();
+  }
+
+  async function enroll() {
+    gateErr('');
+    var p1 = $('gatePass').value;
+    var p2 = $('gatePass2').value;
+    var code = $('gateCode').value;
+    if (p1.length < 10) { gateErr('Пароль панели — минимум 10 символов'); return; }
+    if (p1 !== p2) { gateErr('Пароли не совпадают'); return; }
+    if (!(await totpValid(gateState.secret, code))) { gateErr('Неверный код из приложения'); return; }
+    var salt = randomBytes(16);
+    var hash = await pbkdf2(p1, salt, 310000);
+    var r = await sb.from('admin_access').insert({
+      user_id: me.id,
+      pass_salt: b64(salt),
+      pass_hash: b64(hash),
+      iter: 310000,
+      totp_secret: gateState.secret,
+      totp_enabled: true,
+    });
+    if (r.error) { gateErr(r.error.message); return; }
+    await writeLog('panel_enroll', me.id, {});
+    unlocked();
+  }
+
+  async function gate() {
+    var row = null;
+    try { row = await loadAccessRow(); } catch (e) { gateErr(e.message); }
+    if (row && row.missingTable) {
+      setLocked(true);
+      gateShell('<div class="nm">Панель без 2FA</div><div class="sub">Таблица admin_access не найдена — выполните <code>supabase/admin_access.sql</code>.</div>' +
+        '<div class="err">Пока таблицы нет, панель не открывается: это защита от входа по одному паролю.</div>');
+      return;
+    }
+    gateState.row = row;
+    if (!row) { gateState.mode = 'enroll'; setLocked(true); renderEnroll(); return; }
+    gateState.mode = 'unlock';
+    renderGate();
+  }
+
+  function unlocked() {
+    setLocked(false);
+    $('gate').hidden = true;
+    $('gate').innerHTML = '';
+    var active = document.querySelector('.tab.on');
+    var t = active ? active.dataset.tab : 'reports';
+    ['reports', 'users', 'events', 'log'].forEach(function (x) {
+      var el = $('tab-' + x);
+      if (el) { el.hidden = x !== t; el.dataset.active = x === t ? '1' : ''; }
+    });
+    refreshAll();
   }
 
   async function refreshAll() {
@@ -323,6 +557,7 @@
     $('logout').addEventListener('click', async function () { await sb.auth.signOut(); location.reload(); });
 
     $('tabs').addEventListener('click', function (e) {
+      if (!gateState.unlocked) return;
       var b = e.target.closest('[data-tab]');
       if (!b) return;
       [].forEach.call(document.querySelectorAll('.tab'), function (t) { t.classList.toggle('on', t === b); });

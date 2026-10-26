@@ -12,6 +12,7 @@ import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUserna
 import { searchUsers, createDmChat, profilesByIds } from '../backend/chats.js';
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
+import { openKeyPanel, refreshKeyStatus } from './keyRecovery.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -288,6 +289,7 @@ export function initModals() {
   });
   $('#avatarBtn').addEventListener('click', () => $('#avatarInput').click());
   $('#avatarInput').addEventListener('change', handleAvatar);
+  $('#keyPanelBtn')?.addEventListener('click', openKeyPanel);
 
   /* ── удаление аккаунта ── */
   $('#deleteAccountBtn')?.addEventListener('click', async () => {
@@ -534,6 +536,7 @@ export function openSettings() {
   paintAvatar();
   paintMigrationStatus();
   paintStorage();
+  refreshKeyStatus();
   const body = $('#settingsOv .m-body');
   if (body) body.scrollTop = 0;
   $('#settingsOv').hidden = false;

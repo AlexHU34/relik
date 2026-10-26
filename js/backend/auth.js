@@ -308,13 +308,17 @@ export async function signIn(email, password) {
 
   // Дешифрование приватного ключа из бэкапа
   let privateKeyJwk = null;
+  let keyError = false;
   try {
     const keyBackup = typeof profile.key_backup === 'string'
       ? JSON.parse(profile.key_backup)
       : profile.key_backup;
     privateKeyJwk = await backup.decryptPrivateKeyWithPassword(keyBackup, password);
   } catch (err) {
-    console.error('Key backup decrypt error:', err);
+    /* Не глотаем молча: после сброса пароля бэкап зашифрован старым,
+       и без фразы/файла переписку не открыть. UI покажет диалог. */
+    keyError = true;
+    console.warn('Key backup decrypt failed:', err?.message || err);
   }
 
   const privateKeyStr = jwkToString(privateKeyJwk);
@@ -329,6 +333,8 @@ export async function signIn(email, password) {
     role: profile.role || 'user',
     publicKey: profile.public_key,
     privateKey: privateKeyStr,
+    keyError,
+    hasRecovery: !!profile.key_recovery,
   };
 
   await idb.put('settings', { key: 'me', value: me });
@@ -474,6 +480,8 @@ export async function restoreSession() {
     role: profile.role || 'user',
     publicKey: profile.public_key,
     privateKey: privateKey || null,
+    keyMissing: !privateKey,
+    hasRecovery: !!profile.key_recovery,
   };
 }
 

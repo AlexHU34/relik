@@ -412,3 +412,19 @@ html[data-device="phone"] .recover-bar .rb-main{flex-basis:100%}
 html[data-device="phone"] .recover-bar .rb-btn{flex:1}
 
 
+
+/* Ключи и восстановление доступа */
+.key-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.key-tabs{display:flex;gap:6px;margin:8px 0 10px}
+.key-tab{font:inherit;font-size:12.5px;color:var(--tx-2);background:transparent;border:1px solid var(--line-2);border-radius:9px;padding:6px 12px;cursor:pointer}
+.key-tab.on{color:var(--tx);background:var(--surface-3);border-color:rgba(91,108,249,.5)}
+.key-phrase{min-height:76px;resize:vertical;font-size:13px;line-height:1.5;letter-spacing:.01em}
+.key-words{display:grid;grid-template-columns:repeat(auto-fill,minmax(126px,1fr));gap:6px;margin:10px 0}
+.key-word{display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:var(--tx)}
+.key-word b{font-size:10px;color:var(--tx-3);font-weight:700;letter-spacing:.02em}
+.key-check{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.45;color:var(--tx-2);margin-top:8px}
+.key-check input{margin-top:2px}
+html[data-device="phone"] .key-words{grid-template-columns:repeat(2,1fr)}
+
+.sec-list{margin:4px 0 0;padding-left:18px;display:grid;gap:4px;font-size:12px;line-height:1.45;color:var(--tx-2)}
+.sec-list li::marker{color:var(--accent)}
