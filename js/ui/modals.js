@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
 import { APP, SUPABASE } from '../config.js';
+import { sb } from '../backend/supabaseClient.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
 import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll, deleteAccount } from '../backend/auth.js';
