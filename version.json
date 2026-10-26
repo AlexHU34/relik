@@ -1,5 +1,5 @@
 {
-  "version": "1.11.3",
+  "version": "1.11.4",
   "released": "2026-10-26",
   "notes": "Сквозной поиск, пересылка в несколько чатов, галерея медиа, защита от флуда.",
   "download": "https://github.com/AlexHU34/relik/releases",

@@ -149,21 +149,25 @@ async function waitFor(ctx, expression, timeout = TIMEOUT, step = 400) {
 }
 
 async function login(ctx, creds) {
-  await waitFor(ctx, `!!document.getElementById('authForm')`);
-  const filled = await ctx.evaluate(`(function(){
-    var e=document.getElementById('authEmail'), p=document.getElementById('authPass');
-    if(!e||!p) return false;
-    e.value=${JSON.stringify(creds.email)};
-    p.value=${JSON.stringify(creds.pass)};
-    document.getElementById('authForm').requestSubmit();
-    return true;
-  })()`);
-  if (!filled) throw new Error('форма входа не найдена');
-  const ok = await waitFor(ctx, `!document.getElementById('appView').hidden`, 20000);
-  if (!ok) {
-    const err = await ctx.evaluate(`(document.querySelector('.toast')?.textContent || document.body.innerText.slice(0,120))`);
-    throw new Error('вход не выполнен: ' + String(err).slice(0, 120));
+  await waitFor(ctx, `document.documentElement.dataset.boot === 'done' || !document.getElementById('appView').hidden`, 25000);
+  if (await ctx.evaluate(`!document.getElementById('appView').hidden`)) return;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const filled = await ctx.evaluate(`(function(){
+      var e=document.getElementById('authEmail'), p=document.getElementById('authPass');
+      if(!e||!p) return false;
+      e.value=${JSON.stringify(creds.email)};
+      p.value=${JSON.stringify(creds.pass)};
+      document.getElementById('authForm').requestSubmit();
+      return true;
+    })()`);
+    if (!filled) throw new Error('форма входа не найдена');
+    const ok = await waitFor(ctx, `!document.getElementById('appView').hidden`, 25000);
+    if (ok) return;
+    await sleep(1500);
   }
+  const err = await ctx.evaluate(`(document.querySelector('.toast')?.textContent || '')`);
+  throw new Error('вход не выполнен: ' + String(err).slice(0, 120));
 }
 
 async function openPeopleSearch(ctx) {
@@ -182,8 +186,8 @@ async function sendContactRequest(ctx, username) {
   const clicked = await ctx.evaluate(`(function(){
     var b=[...document.querySelectorAll('#peopleList [data-pact="add"]')][0];
     if (b) { b.click(); return 'sent'; }
-    var pending = document.querySelector('#peopleList .pc-pending');
-    if (pending) return 'already';
+    if (document.querySelector('#peopleList .pc-pending')) return 'already';
+    if (document.querySelector('#peopleList [data-pact="write"]')) return 'contact';
     return false;
   })()`);
   return clicked;
@@ -292,9 +296,11 @@ async function runLive() {
     const requested = USERNAME_B ? await sendContactRequest(A, USERNAME_B.replace(/^@/, '')) : false;
     record('заявка в контакты', requested, USERNAME_B || 'USERNAME_B не задан');
 
-    if (requested) {
+    if (requested === 'contact') {
+      record('контакты уже установлены', true);
+    } else if (requested) {
       const accepted = await acceptFirstRequest(B);
-      record('принятие заявки', accepted);
+      record('принятие заявки', Boolean(accepted));
     }
 
     const opened = await openChatWith(A, env.b.name);

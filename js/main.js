@@ -687,6 +687,7 @@ const withTimeout = (p, ms) => Promise.race([
 
 /* Заглушка загрузки из index.html убирается, как только что-то показано */
 function bootDone() {
+  document.documentElement.dataset.boot = 'done';
   try { if (window.relikBoot) window.relikBoot.done(); } catch (e) { /* ignore */ }
 }
 
