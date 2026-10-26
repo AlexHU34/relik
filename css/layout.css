@@ -32,7 +32,7 @@
   50%{transform:translate3d(2%,1.5%,0) scale(1.06)}
   100%{transform:translate3d(-1%,2%,0) scale(1.03)}
 }
-.brand-inner{position:relative;display:grid;align-content:center;gap:24px;height:100%}
+.brand-inner{position:relative;display:flex;flex-direction:column;gap:24px;height:100%}
 .brand-mark{display:flex;align-items:center;gap:12px}
 .brand-mark img{width:46px;height:46px;border-radius:14px;box-shadow:0 14px 36px -10px var(--accent-glow)}
 .brand-mark span{font-weight:800;font-size:21px;letter-spacing:-.02em}
@@ -48,7 +48,7 @@
 }
 .brand-feats b{display:block;font-size:13.5px;margin-bottom:1px}
 .brand-feats span{font-size:12.5px;color:var(--tx-3);line-height:1.5}
-.brand-foot{font-size:10.5px;color:var(--tx-3);letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+.brand-foot{font-size:10.5px;color:var(--tx-3);letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-top:auto}
 .panel{display:grid;place-items:center;padding:clamp(24px,3vw,44px);background:var(--surface)}
 .auth-mobile-brand{display:none;align-items:center;gap:11px;width:min(420px,100%);margin:4px auto 0}
 .auth-mobile-brand img{width:40px;height:40px;border-radius:12px;box-shadow:0 10px 26px -10px var(--accent-glow)}
