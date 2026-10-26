@@ -92,6 +92,15 @@ curl -s http://127.0.0.1:8100/healthz
 # {"ok":true,"ready":true,"provider":"smtp",...}
 ```
 
+Если не хотите редактировать env вручную, запустите интерактивный мастер:
+
+```bash
+sudo bash /opt/relik-mail/setup.sh
+```
+
+Он спросит адрес, пароль приложения и секрет Supabase (ввод скрыт),
+запишет env, перезапустит сервис и проверит `ready:true`.
+
 Если `ready:false` — не хватает SMTP/Brevo, отправителя или секрета.
 `journalctl -u relik-mail -n 50 --no-pager` покажет причину.
 

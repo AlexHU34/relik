@@ -50,6 +50,7 @@ install -d -m 755 "$APP_DIR"
 install -m 644 "$DIR/index.js" "$APP_DIR/index.js"
 install -m 644 "$DIR/package.json" "$APP_DIR/package.json"
 install -m 755 "$DIR/test-hook.mjs" "$APP_DIR/test-hook.mjs"
+install -m 755 "$DIR/setup.sh" "$APP_DIR/setup.sh"
 if [ -f "$DIR/test/mail.test.js" ]; then
   install -d -m 755 "$APP_DIR/test"
   install -m 644 "$DIR/test/mail.test.js" "$APP_DIR/test/mail.test.js"
