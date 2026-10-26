@@ -1,37 +1,38 @@
-# Relik push service
+# Relik push & status service
 
-Отправляет браузерные уведомления, когда приложение закрыто.
-Клиент присылает `POST /notify` после успешной отправки сообщения; текст
-сообщения на сервер **не передаётся** — уведомление беззвучное («Новое сообщение»).
+Один сервис на VPS делает три вещи:
 
-## Что нужно
+1. **Рассылает push** — забирает задачи из `public.push_queue` в Supabase
+   и отправляет беззвучные уведомления участникам чата.
+2. **Пишет состояние сервера** в `public.service_status` раз в минуту:
+   доступность Supabase и задержка, работает ли TURN, свободное место,
+   возраст последнего бэкапа, глубина очереди.
+3. **Обслуживает базу ночью** — чистит старые события, мёртвые подписки
+   и зависшие задачи (RPC `relik_maintenance`).
 
-1. **service_role ключ Supabase** (Dashboard → Project Settings → API → `service_role`).
-   Он секретный: только на сервере, в `/etc/relik-push.env`, никогда в клиенте.
-2. Node.js 18+ на VPS.
-3. Домен для HTTPS: используется `nip.io`, он сам резолвится в ваш IP
-   (например `62-113-99-46.nip.io`).
+Входящий HTTPS **не нужен**: сервис сам ходит в Supabase по service-ключу.
+Слушает только `127.0.0.1:8099` для `/healthz`.
 
-## Установка на VPS
+## Установка
 
 ```bash
-apt update && apt install -y nodejs npm caddy
+apt update && apt install -y nodejs npm
 mkdir -p /opt/relik-push && cd /opt/relik-push
-# скопируйте сюда package.json и index.js из scripts/push-service
+# скопировать сюда index.js и package.json
 npm config set registry https://registry.npmmirror.com
 npm install --omit=dev
 ```
 
-`/etc/relik-push.env` (root:root, 600):
+`/etc/relik-push.env` (chmod 600):
 
 ```ini
 SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_ANON_KEY=<anon>
-SUPABASE_SERVICE_KEY=<service_role>
-VAPID_PUBLIC=<публичный ключ>
-VAPID_PRIVATE=<приватный ключ>
+SUPABASE_SERVICE_KEY=<service_role / sb_secret_...>
+VAPID_PUBLIC=<публичный VAPID>
+VAPID_PRIVATE=<приватный VAPID>
 VAPID_SUBJECT=mailto:you@example.com
 PORT=8099
+INTERVAL=3000
 ```
 
 `/etc/systemd/system/relik-push.service`:
@@ -57,40 +58,33 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-systemctl daemon-reload
-systemctl enable --now relik-push
+systemctl daemon-reload && systemctl enable --now relik-push
 curl -s localhost:8099/healthz
 ```
 
-`/etc/caddy/Caddyfile`:
+## SQL
 
-```
-62-113-99-46.nip.io {
-    reverse_proxy 127.0.0.1:8099
-}
-```
+Перед запуском должны быть выполнены:
 
-```bash
-ufw allow 80/tcp
-ufw allow 443/tcp
-systemctl reload caddy
-curl -s https://62-113-99-46.nip.io/healthz
-```
-
-После этого в `js/config.js`:
-
-```js
-export const PUSH = {
-  publicKey: '...',
-  endpoint: 'https://62-113-99-46.nip.io/notify',
-};
-```
+- `supabase/v2_features.sql` — таблица `push_subs`, `client_events`, модерация;
+- `supabase/push_queue.sql` — очередь задач;
+- `supabase/service_status.sql` — метрики сервера и `relik_maintenance()`.
 
 ## Проверка
 
-1. В приложении: Настройки → «Push при закрытом приложении» → включить, разрешить уведомления.
-2. Закрыть вкладку/приложение.
-3. Отправить сообщение со второго аккаунта.
-4. Должно прийти уведомление; клик открывает нужный чат.
+```bash
+curl -s localhost:8099/healthz
+# {"ok":true,"ready":true,"processed":N,"sent":M,"errors":0}
 
-Если не приходит: `journalctl -u relik-push -n 50 --no-pager` и `curl -s localhost:8099/healthz`.
+# метрики в базе
+curl -s "<SUPABASE_URL>/rest/v1/service_status?select=*" \
+  -H "apikey: <anon>"
+```
+
+В приложении: `tools/status.html` → блок «Сервер (VPS)».
+
+## Что важно
+
+- `service_role` ключ даёт полный доступ к базе. Только в env-файле, права 600.
+- Наружу открыты лишь 22 (SSH) и 3478 (TURN); 80/443 не нужны.
+- Перевыпускайте ключ раз в 2–3 месяца.

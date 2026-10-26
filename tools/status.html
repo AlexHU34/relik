@@ -163,8 +163,10 @@
     /* Auth */
     if (cfg.url && !demo) {
       try {
-        var a = await timeFetch(cfg.url + '/auth/v1/health', { headers: { apikey: cfg.anon } });
-        set('auth', a.res.ok ? 'ok' : 'warn', ms(a.ms), 'HTTP ' + a.res.status);
+        var a = await timeFetch(cfg.url + '/auth/v1/settings', { headers: { apikey: cfg.anon } });
+        var slow = a.ms > 3000;
+        set('auth', a.res.ok ? (slow ? 'warn' : 'ok') : 'warn', ms(a.ms),
+          'HTTP ' + a.res.status + (slow ? ' · медленный ответ' : ''));
       } catch (e) {
         set('auth', 'bad', '—', 'auth недоступен');
       }
