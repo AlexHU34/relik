@@ -13,7 +13,7 @@ import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } f
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
 import { ensureWallet, claimDailyBonus } from '../backend/wallet.js';
-import { listDrops, myItems, buyItem, transferItem, setShowcase, shareItem } from '../backend/nft.js';
+import { listDrops, myItems, buyItem, transferItem, setShowcase, shareItem, itemDetail } from '../backend/nft.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
