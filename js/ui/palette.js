@@ -8,7 +8,7 @@ import { t } from '../i18n/i18n.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { isPinned, isMuted, togglePinned, toggleMuted } from './prefs.js';
 import { toast } from './toast.js';
-import { openNewChat, openGroupCreator, openSettings, openGlobalSearch, openNft } from './modals.js';
+import { openNewChat, openGroupCreator, openSettings, openGlobalSearch } from './modals.js';
 import { renderSidebar } from './sidebar.js';
 import { hideUser } from '../backend/blocks.js';
 import { lockNow, hasPin } from './pin.js';
@@ -101,7 +101,6 @@ function actionList(termRaw = '') {
         setTimeout(() => $('#storageField')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 120);
       },
     },
-    { id: 'nft', icon: 'gift', label: t('nft.title'), run: () => openNft() },
     {
       id: 'export',
       icon: 'dl',

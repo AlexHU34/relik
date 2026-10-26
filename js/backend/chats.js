@@ -397,23 +397,4 @@ export async function joinConversation(chatId) {
   }
 }
 
-/* ── Админ: список профилей и выдача роли ── */
-export async function listProfiles() {
-  const withRole = await hasRoleColumn();
-  const cols = `id, display_name, username, avatar_hue${withRole ? ', role' : ''}`;
-  const { data, error } = await sb
-    .from('profiles')
-    .select(cols)
-    .order('display_name')
-    .limit(200);
-  if (error) throw error;
-  return data;
-}
 
-export async function setUserRole(userId, role) {
-  const { error } = await sb
-    .from('profiles')
-    .update({ role })
-    .eq('id', userId);
-  if (error) throw error;
-}

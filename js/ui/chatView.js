@@ -1,6 +1,6 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
 import { S, user, chatTitle, chatById, bus } from './state.js';
-import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, adminBadge, snippet, safeImgSrc } from './utils.js';
+import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, snippet, safeImgSrc } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -26,9 +26,6 @@ import { confirmAction } from './dialog.js';
 import { sb } from '../backend/supabaseClient.js';
 import { logEvent } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
-import { giftsForChat, subscribeGifts, sendGift } from '../backend/wallet.js';
-import { showcaseOf, sharesForChat, subscribeShares } from '../backend/nft.js';
-import { paintRelics } from './modals.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 
 const PAGE_SIZE = 240;
@@ -43,8 +40,6 @@ let lastSearchQuery = '';
 let unseenCount = 0;
 let forwardMsgs = [];
 let forwardTargets = new Set();
-let giftSub = null;
-let shareSub = null;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
@@ -214,11 +209,6 @@ export function initChatView() {
   });
   $('#fwdGo').addEventListener('click', () => forwardToMany());
 
-  /* подарок Relics: выбор суммы */
-  $('#giftGrid')?.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-gift]');
-    if (b) sendGiftFromModal(Number(b.dataset.gift));
-  });
 
   /* свайп вправо по чату = «назад» (как в Telegram) */
   const pane = $('#chatPane');
@@ -493,7 +483,6 @@ function onMsgClick(e) {
     }
     else if (act === 'forward') { openForward(m); closeReact(); }
     else if (act === 'report') { reportMessage(m); closeReact(); }
-    else if (act === 'gift') { openGift(m); closeReact(); }
     else if (act === 'readby') { openReadInfo(m); closeReact(); }
     else if (act === 'del') {
       openMenu([
@@ -705,7 +694,7 @@ function openReadInfo(m) {
     ? list.map((u) => `<div class="member-row">
         ${avatarHtml(u, { sm: true, online: u.seen === 'online' })}
         <span class="info">
-          <span class="n">${esc(u.name)}${adminBadge(u)}</span>
+          <span class="n">${esc(u.name)}</span>
           <span class="s">${u.username ? '@' + esc(u.username) : t('msg.read')}</span>
         </span>
         <span class="read-mark">${icon('check2', 16)}</span>
@@ -1153,36 +1142,6 @@ export async function openChat(id) {
       },
     }, chat.kind, chat.publicKey);
 
-    /* предметы, отправленные в этот чат */
-    S.shares = [];
-    if (shareSub) { try { shareSub.unsubscribe(); } catch (e) { /* ignore */ } shareSub = null; }
-    sharesForChat(id).then((list) => {
-      if (S.active !== id) return;
-      S.shares = list;
-      renderMessages();
-    }).catch(() => {});
-    shareSub = subscribeShares(id, () => {
-      sharesForChat(id).then((list) => {
-        if (S.active !== id) return;
-        S.shares = list;
-        renderMessages();
-      }).catch(() => {});
-    });
-
-    /* подарки чата: подгружаем и слушаем новые */
-    S.gifts = [];
-    if (giftSub) { try { giftSub.unsubscribe(); } catch (e) { /* ignore */ } giftSub = null; }
-    giftsForChat(id).then((list) => {
-      if (S.active !== id) return;
-      S.gifts = list;
-      renderMessages();
-    }).catch(() => {});
-    giftSub = subscribeGifts(id, (g) => {
-      if (S.active !== id) return;
-      S.gifts = [...(S.gifts || []), g];
-      renderMessages();
-    });
-
     /* Realtime может отвалиться (сеть, VPN, RLS) — опрос добирает пропущенное */
     startActiveSync(id, chat);
   }
@@ -1535,82 +1494,6 @@ async function openChatMedia() {
   };
 }
 
-/* ── подарок Relics за сообщение ──────────────────────────── */
-let giftTarget = null;
-
-function openGift(m) {
-  const chat = chatById(S.active);
-  if (!chat || !m || m.sender === 'u_me') return;
-  giftTarget = { chat, message: m, to: m.sender };
-  const hint = $('#giftTo');
-  if (hint) hint.textContent = t('gift.toNamed').replace('{name}', user(m.sender).name || '');
-  const bal = $('#giftBalance');
-  if (bal) bal.textContent = t('gift.balance').replace('{n}', String(S.relics ?? 0));
-  paintRelics();
-  $('#giftOv').hidden = false;
-}
-
-async function sendGiftFromModal(amount) {
-  const gt = giftTarget;
-  if (!gt) return;
-  const grid = $('#giftGrid');
-  grid?.querySelectorAll('button').forEach((b) => { b.disabled = true; });
-  try {
-    const g = await sendGift(gt.chat.id, gt.message.id, gt.to, amount);
-    if (g) {
-      S.gifts = [...(S.gifts || []), g];
-      if (S.active === gt.chat.id) renderMessages();
-    }
-    toast(t('gift.sent').replace('{n}', String(amount)));
-    $('#giftOv').hidden = true;
-    paintRelics();
-  } catch (err) {
-    const msg = String(err?.message || '');
-    toast(/not_enough_relics/.test(msg) ? t('gift.notEnough') : t('gift.failed'), { type: 'error' });
-  } finally {
-    grid?.querySelectorAll('button').forEach((b) => { b.disabled = false; });
-    paintRelics();
-  }
-}
-
-/* ── витрина предметов в профиле ──────────────────────────── */
-async function paintProfileShowcase(userId) {
-  const box = $('#profileShowcase');
-  if (!box) return;
-  box.innerHTML = '';
-  if (!userId) return;
-  try {
-    const rows = await showcaseOf(userId);
-    const bySlot = {};
-    for (const r of rows) bySlot[r.slot] = r;
-    box.innerHTML = [1, 2, 3].map((slot) => {
-      const r = bySlot[slot];
-      const art = r?.nft_items?.nft_drops?.art;
-      return art
-        ? `<img src="${esc(safeImgSrc(art) || 'assets/relics/relics-scroll.png')}" alt="" title="${esc(r.nft_items.nft_drops.name || '')}">`
-        : '<span class="empty">·</span>';
-    }).join('');
-  } catch (e) {
-    box.innerHTML = '';
-  }
-}
-
-/* ── карточки предметов, отправленных в чат ────────────────── */
-function sharesHtml() {
-  const list = S.shares || [];
-  if (!list.length) return '';
-  return list.map((s) => {
-    const it = s.nft_items || {};
-    const d = it.nft_drops || {};
-    const who = user(s.from_user)?.name || '';
-    return `<div class="nft-share">
-      <img src="${esc(safeImgSrc(d.art) || 'assets/relics/relics-scroll.png')}" alt="">
-      <div class="t"><b>${esc(d.name || '')} ${it.serial ? '№' + esc(String(it.serial)) : ''}</b>
-      <span>${esc(t('nft.sharedBy').replace('{name}', who))}</span></div>
-    </div>`;
-  }).join('');
-}
-
 /* ── профиль собеседника / группы ── */
 function openChatProfile() {
   const chat = chatById(S.active);
@@ -1622,7 +1505,7 @@ function openChatProfile() {
     : { name: chat.title || '…', hue: chat.hue ?? 5 };
 
   $('#profileHero').innerHTML = avatarHtml(u, { lg: true });
-  $('#profileName').innerHTML = esc(u.name) + adminBadge(isDm ? u : null);
+  $('#profileName').innerHTML = esc(u.name);
   $('#profileUsername').textContent = isDm && u.username ? '@' + u.username : '';
   $('#profileStatus').textContent = isDm
     ? (u.seen === 'online' ? t('chat.online') : t('chat.' + u.seen))
@@ -1667,7 +1550,6 @@ function openChatProfile() {
   }
   renderProfileFingerprint(chat).catch(() => {});
   paintTtl(chat);
-  paintProfileShowcase(isDm ? chat.userId : S.me?.id);
   const mediaBtn = $('#profileMedia');
   if (mediaBtn) mediaBtn.onclick = () => openChatMedia();
   $('#profileOv').hidden = false;
@@ -1685,7 +1567,7 @@ function renderHeader() {
     ? (S.users.find((x) => x.id === chat.userId) || { name: chat.title || '…', hue: chat.hue ?? 0, seen: 'offline' })
     : null;
   $('#chatWhoAvatar').innerHTML = avatarHtml(u || { name: chat.title, hue: chat.hue ?? 5 }, { online: u?.seen === 'online' });
-  $('#chatWhoName').innerHTML = esc(chatTitle(chat)) + adminBadge(isDm ? u : null);
+  $('#chatWhoName').innerHTML = esc(chatTitle(chat));
   const st = $('#chatWhoStatus');
   st.classList.remove('online');
   if (isDm) {
@@ -1790,7 +1672,6 @@ export function renderMessages(opts = {}) {
     prev = m;
   }
   if (S.typingChat === S.active && !q) html += typingHtml();
-  if (!q) html += sharesHtml();
 
   els.msgs.innerHTML = html;
 
@@ -2156,12 +2037,8 @@ function msgHtml(m, first, hitIndex = -1) {
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
-  const gifts = (S.gifts || []).filter((g) => g.message_id === m.id);
-  const giftHtml = gifts.length
-    ? `<div class="gift-row">${gifts.map((g) => `<span class="gift-chip"><img class="gift-ic" src="assets/relics/relics-seal.png" alt=""> ${g.amount} Relics</span>`).join('')}</div>`
-    : '';
   return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
-    <div class="bubble">${body}${giftHtml}${pick}</div>
+    <div class="bubble">${body}${pick}</div>
   </div>`;
 }
 
@@ -2302,7 +2179,7 @@ function pollHtml(m) {
   const hint = closed
     ? t('poll.closed')
     : (mine.length ? t('poll.yourVote') : (m.poll?.multi ? t('poll.hintMulti') : t('poll.hint')));
-  const canClose = !closed && (m.sender === 'u_me' || S.me?.role === 'admin');
+  const canClose = !closed && m.sender === 'u_me';
 
   return `<div class="poll${closed ? ' poll-ended' : ''}">
     <div class="poll-head">${icon('poll', 16)}<span>${esc(m.poll?.q || m.text || '')}</span></div>
@@ -2628,7 +2505,7 @@ function forwardSelected() {
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
   const canForward = ['text', 'image', 'file', 'voice', 'video', 'videoNote', 'album'].includes(m.type);
-  const canDelete = mine || S.me?.role === 'admin';
+  const canDelete = mine;
   const tools = [
     `<button type="button" data-act="reply" title="${t('msg.reply')}" aria-label="${t('msg.reply')}">${icon('reply', 15)}</button>`,
     `<button type="button" data-act="react" title="${t('msg.react')}" aria-label="${t('msg.react')}">${icon('smile', 15)}</button>`,
@@ -2639,7 +2516,6 @@ function toolsHtml(m, mine) {
     mine && m.status === 'read' ? `<button type="button" data-act="readby" title="${t('msg.readBy')}" aria-label="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
     mine && isText && m.cryptoVersion !== 2 ? `<button type="button" data-act="edit" title="${t('msg.edit')}" aria-label="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
     canDelete ? `<button type="button" data-act="del" title="${t('msg.remove')}" aria-label="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
-    !mine ? `<button type="button" data-act="gift" title="${t('gift.title')}" aria-label="${t('gift.title')}">${icon('gift', 15)}</button>` : '',
     !mine ? `<button type="button" data-act="report" title="${t('report.title')}" aria-label="${t('report.title')}">${icon('alert', 15)}</button>` : '',
   ].join('');
   return `<div class="tools">${tools}</div>`;

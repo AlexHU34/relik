@@ -1,6 +1,6 @@
 /* Relik — сайдбар: список чатов, поиск, закрепление, мьют, контекстное меню */
 import { S, emit, chatTitle } from './state.js';
-import { $, esc, fmtTime, fmtDay, avatarHtml, adminBadge, preview } from './utils.js';
+import { $, esc, fmtTime, fmtDay, avatarHtml, preview } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';
@@ -130,7 +130,7 @@ export function renderSidebar(force = false) {
 function paintMeChip() {
   const av = $('#meAvatar');
   if (av) av.innerHTML = avatarHtml(S.me || { name: '?', hue: 0 });
-  if ($('#meName')) $('#meName').innerHTML = esc(S.me?.name || '') + adminBadge(S.me);
+  if ($('#meName')) $('#meName').innerHTML = esc(S.me?.name || '');
   if ($('#meMail')) $('#meMail').textContent = S.me?.username ? '@' + S.me.username : (S.me?.mail || '');
 }
 

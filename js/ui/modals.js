@@ -1,6 +1,6 @@
 /* Relik — модальные окна: настройки, новый чат, создание группы, лайтбокс */
 import { S, user, emit, chatById, chatTitle } from './state.js';
-import { $, esc, avatarHtml, adminBadge, fmtTime, fmtSize, safeImgSrc } from './utils.js';
+import { $, esc, avatarHtml, fmtTime, fmtSize, safeImgSrc } from './utils.js';
 import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -9,11 +9,9 @@ import { sb } from '../backend/supabaseClient.js';
 import { toast } from './toast.js';
 import { renderSidebar, loadChats } from './sidebar.js';
 import { updateProfile, saveAvatar, normalizeUsername, isValidUsername, isUsernameTaken, hasUsernameColumn, signOutAll, deleteAccount } from '../backend/auth.js';
-import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } from '../backend/chats.js';
+import { searchUsers, createDmChat, profilesByIds } from '../backend/chats.js';
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
-import { ensureWallet, claimDailyBonus } from '../backend/wallet.js';
-import { listDrops, myItems, buyItem, transferItem, setShowcase, shareItem, itemDetail } from '../backend/nft.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -41,7 +39,6 @@ function debounce(fn, ms = 260) {
 
 const paintContactsDebounced = debounce(paintContacts);
 const paintGroupContactsDebounced = debounce(paintGroupContacts);
-const paintAdminUsersDebounced = debounce(paintAdminUsers);
 const paintGroupAddDebounced = debounce(paintGroupAddList);
 const paintPeopleDebounced = debounce(paintPeople);
 
@@ -124,10 +121,9 @@ export function initModals() {
     if (!$('#lightbox').hidden) closeLightbox();
     else {
       closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
-      closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv'));
+      closeOv($('#pollOv')); closeOv($('#profileOv'));
       closeOv($('#groupOv')); closeOv($('#readOv'));
       closeOv($('#peopleOv')); closeOv($('#reqOv')); closeOv($('#gsOv'));
-      closeOv($('#relicsOv')); closeOv($('#giftOv')); closeOv($('#nftOv'));
       closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#schedListOv')); closeOv($('#fwdOv'));
     }
   });
@@ -194,52 +190,6 @@ export function initModals() {
   $('#storageClearBtn')?.addEventListener('click', clearStorageCache);
   $('#storagePersistBtn')?.addEventListener('click', askPersistentStorage);
 
-  /* ── Коллекция ── */
-  $('#relicNft')?.addEventListener('click', openNft);
-  $('#nftOv')?.addEventListener('click', (e) => {
-    const tab = e.target.closest('[data-nft-tab]');
-    if (tab) { setNftTab(tab.dataset.nftTab); return; }
-    const open = e.target.closest('[data-nft-open]');
-    if (open) { openNftItem(open.dataset.nftOpen); return; }
-    const buy = e.target.closest('[data-nft-buy]');
-    if (buy) { nftBuy(buy.dataset.nftBuy).then(() => nftTab && setNftTab(nftTab)); return; }
-    const send = e.target.closest('[data-nft-send]');
-    if (send) {
-      const sel = $('#nftMine')?.querySelector(`select[data-nft-to="${send.dataset.nftSend}"]`);
-      nftSend(send.dataset.nftSend, sel);
-      return;
-    }
-    const slot = e.target.closest('[data-nft-slot]');
-    if (slot) {
-      setShowcase(slot.dataset.nftItem, Number(slot.dataset.nftSlot))
-        .then(() => toast(t('nft.showcaseSet')))
-        .catch(() => toast(t('nft.fail'), { type: 'error' }));
-      return;
-    }
-    const share = e.target.closest('[data-nft-share]');
-    if (share) {
-      if (!S.active) { toast(t('nft.noChat')); return; }
-      shareItem(share.dataset.nftShare, S.active)
-        .then(() => toast(t('nft.shared')))
-        .catch(() => toast(t('nft.fail'), { type: 'error' }));
-    }
-  });
-  $('#relicChip')?.addEventListener('click', openRelics);
-  $('#relicBonus')?.addEventListener('click', async () => {
-    const btn = $('#relicBonus');
-    btn.disabled = true;
-    try {
-      const w = await claimDailyBonus();
-      if (w) S.relics = w.balance;
-      paintRelics();
-      toast(t('relics.bonusGot'));
-      if (!$('#relicsOv').hidden) openRelics();
-    } catch (err) {
-      toast(/bonus_too_early/.test(String(err?.message)) ? t('relics.bonusEarly') : t('relics.bonusFail'), { type: 'error' });
-    } finally {
-      btn.disabled = false;
-    }
-  });
   document.addEventListener('relik:lang', () => {
     if (!$('#peopleOv').hidden) paintPeople();
     if (!$('#reqOv').hidden) paintRequests();
@@ -338,8 +288,6 @@ export function initModals() {
   });
   $('#avatarBtn').addEventListener('click', () => $('#avatarInput').click());
   $('#avatarInput').addEventListener('change', handleAvatar);
-  $('#adminUsersBtn').addEventListener('click', openAdminUsers);
-  $('#adminSearch').addEventListener('input', paintAdminUsersDebounced);
 
   /* ── удаление аккаунта ── */
   $('#deleteAccountBtn')?.addEventListener('click', async () => {
@@ -581,7 +529,6 @@ export function openSettings() {
   $('#enterSendToggle').checked = prefs.enterToSend !== false;
   $('#motionToggle').checked = prefs.motion !== false;
   $('#hideOnlineToggle').checked = prefs.hideOnline === true;
-  $('#adminField').hidden = S.me?.role !== 'admin';
   const allBtn = $('#logoutAllBtn');
   if (allBtn) allBtn.hidden = !(SUPABASE.url && SUPABASE.anonKey);
   paintAvatar();
@@ -969,7 +916,6 @@ async function paintGroupE2eStatus(chat) {
 
 function canManageGroup(chat) {
   if (!chat) return false;
-  if (S.me?.role === 'admin') return true;
   if (!chat.createdBy) return true;
   return chat.createdBy === S.me?.id;
 }
@@ -990,7 +936,7 @@ function paintGroupMemberList() {
     return `<div class="member-row">
       ${avatarHtml(u, { sm: true, online: u.seen === 'online' })}
       <span class="info">
-        <span class="n">${esc(u.name)}${me ? ` <em class="member-you">${t('group.you')}</em>` : ''}${adminBadge(u)}</span>
+        <span class="n">${esc(u.name)}${me ? ` <em class="member-you">${t('group.you')}</em>` : ''}</span>
         <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + (u.seen || 'offline'))}</span>
       </span>
       ${manage && !me ? `<button class="icon-btn member-rm" type="button" data-rm-member="${esc(uid)}"
@@ -1065,7 +1011,7 @@ async function paintGroupAddList() {
   wrap.innerHTML = users.slice(0, 40).map((u) => `
     <button class="contact" type="button" data-add-member="${esc(u.id)}">
       ${avatarHtml(u)}
-      <span class="info"><span class="n">${esc(u.name)}${adminBadge(u)}</span>
+      <span class="info"><span class="n">${esc(u.name)}</span>
       <span class="s">${u.username ? '@' + esc(u.username) : ''}</span></span>
       <span class="member-add">${icon('plus', 16)}</span>
     </button>`).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
@@ -1147,278 +1093,6 @@ async function leaveCurrentGroup() {
   renderSidebar();
   toast(t('side.left'), { type: 'success' });
 }
-
-/* ── АДМИН: список пользователей ── */
-async function openAdminUsers() {
-  $('#adminSearch').value = '';
-  $('#adminOv').hidden = false;
-  await paintAdminUsers();
-}
-
-async function paintAdminUsers() {
-  const wrap = $('#adminList');
-  wrap.innerHTML = `<div class="nc-hint">…</div>`;
-
-  try {
-    const q = $('#adminSearch').value.trim().replace(/^@+/, '').toLowerCase();
-    const list = (await listProfiles()).filter((p) => {
-      if (!q) return true;
-      return String(p.display_name || '').toLowerCase().includes(q) ||
-        String(p.username || '').toLowerCase().includes(q);
-    });
-    wrap.innerHTML = list.map((p) => {
-      const role = p.role || 'user';
-      const isMe = p.id === S.me?.id;
-      const next = role === 'admin' ? 'user' : 'admin';
-      const label = role === 'admin' ? t('admin.unmake') : t('admin.make');
-      return `<div class="admin-user">
-        ${avatarHtml({ name: p.display_name, hue: p.avatar_hue })}
-        <span class="info">
-          <span class="n">${esc(p.display_name)}${adminBadge(p)}${isMe ? ` <span class="field-hint">(${t('admin.you')})</span>` : ''}</span>
-          <span class="u">${p.username ? '@' + esc(p.username) : '—'}</span>
-        </span>
-        ${isMe ? '' : `<button class="btn btn-ghost" type="button" data-role-uid="${esc(p.id)}" data-role="${next}">${label}</button>`}
-      </div>`;
-    }).join('') || `<div class="nc-hint">${t('admin.empty')}</div>`;
-
-    wrap.querySelectorAll('[data-role-uid]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await setUserRole(btn.dataset.roleUid, btn.dataset.role);
-          const u = S.users.find((x) => x.id === btn.dataset.roleUid);
-          if (u) u.role = btn.dataset.role;
-          toast(t('settings.saved'));
-          await paintAdminUsers();
-        } catch (err) {
-          console.error('Set role error:', err);
-          toast(t('admin.error'));
-          btn.disabled = false;
-        }
-      });
-    });
-  } catch (err) {
-    console.error('Admin list error:', err);
-    wrap.innerHTML = `<div class="nc-hint">${esc(err.message || t('toast.error'))}</div>`;
-  }
-}
-
-/* ── Поиск по всей переписке ─────────────────────────────────
-   Работает по локальному кэшу расшифрованных сообщений (IndexedDB).
-   Серверный поиск невозможен: на сервере только шифротекст. */
-/* ── Relics: баланс и ежедневный бонус ───────────────────── */
-export function paintRelics() {
-const chip = $('#relicBalance');
-const big = $('#relicBig');
-const n = S.relics;
-const text = n == null ? '—' : String(n);
-if (chip) chip.textContent = text;
-if (big) big.textContent = text;
-const grid = $('#giftGrid');
-if (grid) {
-  grid.querySelectorAll('button[data-gift]').forEach((b) => {
-    b.disabled = n != null && Number(b.dataset.gift) > n;
-  });
-}
-}
-
-export async function initRelics() {
-if (!(SUPABASE.url && SUPABASE.anonKey) || !S.me) return;
-const w = await ensureWallet();
-if (w) S.relics = w.balance;
-paintRelics();
-}
-
-async function openRelics() {
-$('#relicsOv').hidden = false;
-paintRelics();
-const hint = $('#relicBonusHint');
-if (hint) hint.textContent = t('relics.bonusHint');
-try {
-  const { data } = await sb
-    .from('wallet_tx')
-    .select('delta, reason, created_at')
-    .order('created_at', { ascending: false })
-    .limit(12);
-  const box = $('#relicHistory');
-  if (box) {
-    const rows = (data || []).map((tx) => {
-      const plus = Number(tx.delta) > 0;
-      const label = t('relics.reason.' + tx.reason) || tx.reason;
-      const when = new Date(tx.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      return `<div class="relic-row"><span>${esc(label)} · ${esc(when)}</span>
-        <b class="${plus ? 'plus' : 'minus'}">${plus ? '+' : ''}${Number(tx.delta)}</b></div>`;
-    }).join('');
-    box.innerHTML = rows || `<div class="nc-hint">${t('relics.empty')}</div>`;
-  }
-} catch (e) {
-  const box = $('#relicHistory');
-  if (box) box.innerHTML = `<div class="nc-hint">${t('relics.empty')}</div>`;
-}
-}
-
-
-/* ── Коллекция: магазин за Relics и «Мои» ─────────────────── */
-let nftTab = 'shop';
-
-function nftCard(d, mode) {
-  const left = d.left == null ? '' : `<span class="nft-sub">${t('nft.left').replace('{n}', String(d.left))}</span>`;
-  const price = d.price == null ? '' : `<span class="nft-sub">${d.price} Relics</span>`;
-  const action = mode === 'shop'
-    ? `<button class="nft-btn" type="button" data-nft-buy="${esc(d.id)}" ${d.left === 0 ? 'disabled' : ''}>${d.left === 0 ? esc(t('nft.soldOut')) : esc(t('nft.buy'))}</button>`
-    : `<div class="nft-row">
-         <select data-nft-to="${esc(d.id)}"><option value="">${esc(t('nft.pick'))}</option></select>
-         <button class="nft-btn" type="button" data-nft-send="${esc(d.id)}">${esc(t('nft.transfer'))}</button>
-       </div>
-       <div class="nft-slots">
-         <span class="nft-sub">${esc(t('nft.showcase'))}</span>
-         ${[1, 2, 3].map((n) => `<button type="button" data-nft-slot="${n}" data-nft-item="${esc(d.id)}">${n}</button>`).join('')}
-       </div>
-       <button class="nft-btn" type="button" data-nft-share="${esc(d.id)}">${esc(t('nft.share'))}</button>`;
-  return `<div class="nft-card">
-    <img class="nft-art" src="${esc(safeImgSrc(d.art) || 'assets/relics/relics-scroll.png')}" alt="" loading="lazy" decoding="async" ${mode === 'mine' ? `data-nft-open="${esc(d.id)}" style="cursor:zoom-in"` : ''}>
-    <span class="nft-name">${esc(d.name)}</span>
-    <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
-    ${d.season ? `<span class="nft-season">${esc(d.season)}</span>` : ''}
-    ${d.serial ? `<span class="nft-sub">№${esc(String(d.serial))}</span>` : left}
-    ${mode === 'shop' ? price : ''}
-    ${action}
-  </div>`;
-}
-
-/* вспышка при покупке */
-function relicBurst() {
-  try {
-    const anchor = $('#nftBalance') || $('#relicBalance');
-    const r = anchor ? anchor.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
-    const el = document.createElement('div');
-    el.className = 'relic-burst';
-    el.style.left = (r.left + r.width / 2) + 'px';
-    el.style.top = (r.top + r.height / 2) + 'px';
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 700);
-  } catch (e) { /* ignore */ }
-}
-
-/* карточка предмета с историей */
-export async function openNftItem(itemId) {
-  if (!itemId) return;
-  const body = $('#nftItemBody');
-  if (!body) return;
-  body.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
-  $('#nftItemOv').hidden = false;
-
-  const it = await itemDetail(itemId);
-  if (!it) {
-    body.innerHTML = `<div class="nc-hint">${t('nft.fail')}</div>`;
-    return;
-  }
-  const d = it.drop || {};
-  const ownerName = it.ownerId === S.me?.id ? t('nft.you') : (S.users.find((u) => u.id === it.ownerId)?.name || '—');
-  const rows = (it.history || []).map((h) => {
-    const nameOf = (id) => (!id ? '—' : (id === S.me?.id ? t('nft.you') : (S.users.find((u) => u.id === id)?.name || '—')));
-    const kind = h.kind === 'buy' ? t('nft.kindBuy') : t('nft.kindGift');
-    const when = new Date(h.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    const line = h.kind === 'buy'
-      ? `${kind}: ${nameOf(h.to_user)}`
-      : `${kind}: ${nameOf(h.from_user)} → ${nameOf(h.to_user)}`;
-    return `<div class="nft-hist-row"><span>${esc(line)}</span><span>${esc(when)}</span></div>`;
-  }).join('');
-
-  body.innerHTML = `
-    <div class="nft-item-hero">
-      <img src="${esc(safeImgSrc(d.art) || 'assets/relics/relics-scroll.png')}" alt="">
-      <span class="nft-name">${esc(d.name || '')}</span>
-      <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
-      ${d.season ? `<span class="nft-season">${esc(d.season)}</span>` : ''}
-      <span class="nft-sub">№${esc(String(it.serial || ''))}</span>
-    </div>
-    <div class="nft-item-meta">
-      <span class="nft-sub">${esc(t('nft.owner').replace('{name}', ownerName))}</span>
-    </div>
-    <span class="nc-hint">${esc(t('nft.history'))}</span>
-    <div class="nft-history">${rows || `<div class="nc-hint">${esc(t('nft.noHistory'))}</div>`}</div>`;
-}
-
-export async function openNft() {
-  if (!$('#nftOv')) return;  $('#nftOv').hidden = false;
-  $('#nftBalance').textContent = S.relics == null ? '—' : String(S.relics);
-  setNftTab(nftTab);
-  await refreshNft();
-}
-
-function setNftTab(tab) {
-  nftTab = tab === 'mine' ? 'mine' : 'shop';
-  document.querySelectorAll('#nftOv .nft-tab').forEach((b) => {
-    b.classList.toggle('on', b.dataset.nftTab === nftTab);
-  });
-  $('#nftShop').hidden = nftTab !== 'shop';
-  $('#nftMine').hidden = nftTab !== 'mine';
-}
-
-async function refreshNft() {
-  $('#nftBalance').textContent = S.relics == null ? '—' : String(S.relics);
-  try {
-    const drops = await listDrops();
-    $('#nftShop').innerHTML = drops.length
-      ? drops.map((d) => nftCard(d, 'shop')).join('')
-      : `<div class="nc-hint">${t('nft.empty')}</div>`;
-  } catch (e) {
-    $('#nftShop').innerHTML = `<div class="nc-hint">${t('nft.fail')}</div>`;
-  }
-
-  try {
-    const items = await myItems();
-    $('#nftMine').innerHTML = items.length
-      ? items.map((it) => nftCard({ ...it.drop, id: it.id, serial: it.serial }, 'mine')).join('')
-      : `<div class="nc-hint">${t('nft.emptyMine')}</div>`;
-    fillNftRecipients();
-  } catch (e) {
-    $('#nftMine').innerHTML = `<div class="nc-hint">${t('nft.emptyMine')}</div>`;
-  }
-}
-
-function fillNftRecipients() {
-  const ids = [...new Set((S.contacts || []).map((c) => c.userId))].filter((id) => id && id !== S.me?.id);
-  const people = ids.map((id) => S.users.find((u) => u.id === id) || { id, name: '…' });
-  document.querySelectorAll('#nftMine select[data-nft-to]').forEach((sel) => {
-    sel.innerHTML = `<option value="">${esc(t('nft.pick'))}</option>` +
-      people.map((p) => `<option value="${esc(p.id)}">${esc(p.name || '')}</option>`).join('');
-    if (!people.length) {
-      sel.innerHTML = `<option value="">${esc(t('nft.noContacts'))}</option>`;
-      sel.disabled = true;
-    }
-  });
-}
-
-async function nftBuy(dropId) {
-  try {
-    await buyItem(dropId);
-    paintRelics();
-    relicBurst();
-    toast(t('nft.bought'));
-    await refreshNft();
-  } catch (err) {
-    const msg = String(err?.message || '');
-    toast(/not_enough_relics/.test(msg) ? t('nft.notEnough')
-      : /sold_out/.test(msg) ? t('nft.soldOut')
-        : t('nft.fail'), { type: 'error' });
-  }
-}
-
-async function nftSend(itemId, sel) {
-  const to = sel?.value;
-  if (!to) { toast(t('nft.pick')); return; }
-  try {
-    await transferItem(itemId, to);
-    toast(t('nft.transferred'));
-    await refreshNft();
-  } catch (err) {
-    const msg = String(err?.message || '');
-    toast(/cooldown/.test(msg) ? t('nft.cooldown') : t('nft.fail'), { type: 'error' });
-  }
-}
-
 
 export function openGlobalSearch(initial = '') {
   const ov = $('#gsOv');
@@ -1603,7 +1277,7 @@ async function paintContacts() {
     return `<button class="contact" data-uid="${esc(u.id)}" data-hcid="${esc(dm?.id || '')}">
       ${avatarHtml(u, { online: u.seen === 'online' })}
       <span class="info">
-        <span class="n">${esc(u.name)}${adminBadge(u)}</span>
+        <span class="n">${esc(u.name)}</span>
         <span class="s">${u.username ? '@' + esc(u.username) : t('chat.' + u.seen)}</span>
       </span>
     </button>`;
@@ -1725,7 +1399,7 @@ function peopleRow(u) {
   return `<div class="contact people-row" data-puid="${esc(u.id)}">
     ${avatarHtml(u, { online: u.seen === 'online' })}
     <span class="info">
-      <span class="n">${esc(u.name)}${adminBadge(u)}</span>
+      <span class="n">${esc(u.name)}</span>
       <span class="s">${sub}</span>
     </span>
     <span class="pc-act">${peopleActions(u.id, rel)}</span>
@@ -1816,7 +1490,7 @@ async function paintRequests() {
     return `<div class="contact people-row">
       ${avatarHtml(u)}
       <span class="info">
-        <span class="n">${esc(name)}${adminBadge(u)}</span>
+        <span class="n">${esc(name)}</span>
         <span class="s">${u?.username ? '@' + esc(u.username) : (kind === 'in' ? t('req.wants') : kind === 'out' ? t('people.pendingOut') : t('req.inContacts'))}</span>
       </span>
       <span class="pc-act">${acts}</span>
@@ -1934,7 +1608,7 @@ async function paintGroupContacts() {
     <button class="contact" data-gc-uid="${esc(u.id)}">
       ${avatarHtml(u)}
       <span class="info">
-        <span class="n">${esc(u.name)}${adminBadge(u)}</span>
+        <span class="n">${esc(u.name)}</span>
       </span>
     </button>
   `).join('') || `<div class="nc-hint">${t(failed ? 'group.searchError' : 'newchat.empty')}
@@ -1959,7 +1633,7 @@ function paintGroupMembers() {
     const u = user(uid);
     return `<button class="group-member" data-uid="${esc(uid)}">
       ${avatarHtml(u)}
-      <span>${esc(u.name)}${adminBadge(u)}</span>
+      <span>${esc(u.name)}</span>
       <span class="rm" data-rm="${esc(uid)}">${icon('x', 14)}</span>
     </button>`;
   }).join('');

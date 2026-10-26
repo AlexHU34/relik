@@ -83,9 +83,6 @@ export function avatarHtml(u, opts = {}) {
   return `<span class="${cls}" data-h="${Number.isFinite(hue) ? hue : 0}">${inner}${dot}</span>`;
 }
 
-export function adminBadge(u) {
-  return u?.role === 'admin' ? '<span class="admin-chip">ADMIN</span>' : '';
-}
 
 /* Превью последнего сообщения для списка чатов */
 export function preview(chat) {
