@@ -84,3 +84,8 @@ node scripts/e2e.mjs
 | B не видит сообщение | `docs`: проверь статус в `tools/status.html`, realtime/RLS |
 | заявка не уходит | выполнена ли `supabase/contacts.sql` |
 | e2e падает на первом шаге | сайт не открылся: проверь `--url` и сеть |
+
+## Почта
+
+Коды подтверждения/входа отправляет отдельный VPS-сервис:
+`scripts/mail-service/README.md` (Supabase Send Email Hook → Brevo, без домена).

@@ -1,0 +1,17 @@
+{
+  "name": "relik-mail",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Relik auth mail service: Supabase Send Email Hook -> Brevo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test:hook": "node test-hook.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.16"
+  }
+}
