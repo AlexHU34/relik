@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Relik — предпросмотр на телефоне</title>
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14161f; --surface2:#181b26; --line:#242836; --line2:#2e3344;
+    --tx:#eef0f7; --tx2:#b7bccd; --tx3:#7d8398; --accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 600px at 50% -10%,#171a28,#0b0c12 60%);color:var(--tx);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:18px 14px 34px}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:14px}
+  .mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800;font-size:15px}
+  h1{font-size:15px;margin:0;font-weight:700}
+  .hint{color:var(--tx3);font-size:12px}
+  .bar{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center;margin-bottom:14px}
+  button,label.chk{font:inherit;font-size:12.5px;color:var(--tx2);background:var(--surface2);
+    border:1px solid var(--line2);border-radius:9px;padding:6px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  button:hover,label.chk:hover{background:#1f2432;color:var(--tx)}
+  button.on{border-color:rgba(91,108,249,.6);background:rgba(91,108,249,.16);color:#c3c9ff}
+  .stage{position:relative}
+  .phone{
+    position:relative;padding:12px;border-radius:44px;background:linear-gradient(160deg,#20242f,#0e1017);
+    box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 0 0 1px rgba(255,255,255,.06);
+    transition:width .18s ease,height .18s ease;
+  }
+  .phone::after{content:"";position:absolute;left:50%;transform:translateX(-50%);top:6px;width:96px;height:20px;
+    border-radius:0 0 14px 14px;background:#0b0c12;z-index:3}
+  .screen{position:relative;overflow:hidden;border-radius:34px;background:#0b0c12}
+  iframe{display:block;border:0;width:100%;height:100%;background:#0b0c12}
+  .foot{margin-top:12px;color:var(--tx3);font-size:11.5px;text-align:center;max-width:520px}
+  .size{font-variant-numeric:tabular-nums;color:var(--tx3);font-size:11.5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark">R</div>
+  <h1>Предпросмотр на телефоне</h1>
+  <span class="hint">окно как экран телефона — без этого приложения</span>
+</header>
+
+<div class="bar" id="bar">
+  <button data-preset="iphone" class="on">iPhone 390×844</button>
+  <button data-preset="small">Android 360×740</button>
+  <button data-preset="tablet">Планшет 768×1024</button>
+  <label class="chk"><input type="checkbox" id="demo" checked> демо (?demo=1)</label>
+  <button id="reload">Перезагрузить</button>
+  <button id="open">В новой вкладке</button>
+</div>
+
+<div class="stage" id="stage">
+  <div class="phone" id="phone">
+    <div class="screen" id="screen">
+      <iframe id="frame" title="Relik" src="../index.html?demo=1"></iframe>
+    </div>
+  </div>
+</div>
+
+<p class="foot">
+  Ширина окна меняется кнопками сверху — приложение само переключится в режим «телефон».
+  Чтобы вернуться к обычному виду, закройте эту вкладку. <span class="size" id="size"></span>
+</p>
+
+<script>
+(function () {
+  var PRESETS = {
+    iphone: { w: 390, h: 844, label: 'iPhone 390×844' },
+    small: { w: 360, h: 740, label: 'Android 360×740' },
+    tablet: { w: 768, h: 1024, label: 'Планшет 768×1024' },
+  };
+  var frame = document.getElementById('frame');
+  var phone = document.getElementById('phone');
+  var screen = document.getElementById('screen');
+  var stage = document.getElementById('stage');
+  var sizeEl = document.getElementById('size');
+  var demo = document.getElementById('demo');
+  var current = 'iphone';
+
+  function src(extra) {
+    var u = new URL('../index.html', location.href);
+    if (demo.checked) u.searchParams.set('demo', '1');
+    if (extra) u.hash = extra;
+    return u.href;
+  }
+
+  function apply() {
+    var p = PRESETS[current] || PRESETS.iphone;
+    phone.style.width = (p.w + 24) + 'px';
+    phone.style.height = (p.h + 24) + 'px';
+    screen.style.width = p.w + 'px';
+    screen.style.height = p.h + 'px';
+    sizeEl.textContent = '· ' + p.w + '×' + p.h + ', режим ' + (p.w < 640 ? 'phone' : p.w < 1100 ? 'tablet' : 'desktop');
+
+    /* если окно браузера меньше — масштабируем, но не больше 1 */
+    var avail = Math.min(window.innerWidth - 40, window.innerHeight - 150);
+    var need = Math.max(p.h + 24, p.w + 24);
+    var k = Math.min(1, avail / need);
+    stage.style.transform = k < 1 ? 'scale(' + k.toFixed(3) + ')' : 'none';
+    stage.style.transformOrigin = 'top center';
+    stage.style.height = k < 1 ? (need * k) + 'px' : 'auto';
+    document.querySelectorAll('[data-preset]').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.preset === current);
+    });
+  }
+
+  function reload() {
+    frame.src = src('#/app');
+  }
+
+  document.getElementById('bar').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-preset]');
+    if (b) { current = b.dataset.preset; apply(); return; }
+    if (e.target.id === 'reload') { reload(); return; }
+    if (e.target.id === 'open') {
+      window.open(src('#/app'), '_blank', 'noopener');
+    }
+  });
+
+  demo.addEventListener('change', function () { frame.src = src(); });
+  window.addEventListener('resize', apply);
+  apply();
+  frame.addEventListener('load', apply);
+})();
+</script>
+</body>
+</html>

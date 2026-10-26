@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.16.7';
+const VER = 'relik-v1.16.8';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css',
