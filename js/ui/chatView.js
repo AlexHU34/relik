@@ -27,6 +27,7 @@ import { sb } from '../backend/supabaseClient.js';
 import { logEvent } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
 import { giftsForChat, subscribeGifts, sendGift } from '../backend/wallet.js';
+import { showcaseOf, sharesForChat, subscribeShares } from '../backend/nft.js';
 import { paintRelics } from './modals.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 
@@ -41,6 +42,7 @@ let unseenCount = 0;
 let forwardMsg = null;
 let forwardTargets = new Set();
 let giftSub = null;
+let shareSub = null;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
@@ -149,7 +151,8 @@ export function initChatView() {
   }, true));
 
   document.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || String(e.key).toLowerCase() !== 'f') return;
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+    if (!(e.code === 'KeyF' || String(e.key).toLowerCase() === 'f')) return;
     if (!S.active) return;
     if (document.querySelector('.overlay:not([hidden]), .lightbox:not([hidden]), .call-overlay:not([hidden])')) return;
     e.preventDefault();
@@ -1033,6 +1036,22 @@ export async function openChat(id) {
       },
     }, chat.kind, chat.publicKey);
 
+    /* предметы, отправленные в этот чат */
+    S.shares = [];
+    if (shareSub) { try { shareSub.unsubscribe(); } catch (e) { /* ignore */ } shareSub = null; }
+    sharesForChat(id).then((list) => {
+      if (S.active !== id) return;
+      S.shares = list;
+      renderMessages();
+    }).catch(() => {});
+    shareSub = subscribeShares(id, () => {
+      sharesForChat(id).then((list) => {
+        if (S.active !== id) return;
+        S.shares = list;
+        renderMessages();
+      }).catch(() => {});
+    });
+
     /* подарки чата: подгружаем и слушаем новые */
     S.gifts = [];
     if (giftSub) { try { giftSub.unsubscribe(); } catch (e) { /* ignore */ } giftSub = null; }
@@ -1435,6 +1454,44 @@ async function sendGiftFromModal(amount) {
   }
 }
 
+/* ── витрина предметов в профиле ──────────────────────────── */
+async function paintProfileShowcase(userId) {
+  const box = $('#profileShowcase');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!userId) return;
+  try {
+    const rows = await showcaseOf(userId);
+    const bySlot = {};
+    for (const r of rows) bySlot[r.slot] = r;
+    box.innerHTML = [1, 2, 3].map((slot) => {
+      const r = bySlot[slot];
+      const art = r?.nft_items?.nft_drops?.art;
+      return art
+        ? `<img src="${esc(art)}" alt="" title="${esc(r.nft_items.nft_drops.name || '')}">`
+        : '<span class="empty">·</span>';
+    }).join('');
+  } catch (e) {
+    box.innerHTML = '';
+  }
+}
+
+/* ── карточки предметов, отправленных в чат ────────────────── */
+function sharesHtml() {
+  const list = S.shares || [];
+  if (!list.length) return '';
+  return list.map((s) => {
+    const it = s.nft_items || {};
+    const d = it.nft_drops || {};
+    const who = user(s.from_user)?.name || '';
+    return `<div class="nft-share">
+      <img src="${esc(d.art || '')}" alt="">
+      <div class="t"><b>${esc(d.name || '')} ${it.serial ? '№' + esc(String(it.serial)) : ''}</b>
+      <span>${esc(t('nft.sharedBy').replace('{name}', who))}</span></div>
+    </div>`;
+  }).join('');
+}
+
 /* ── профиль собеседника / группы ── */
 function openChatProfile() {
   const chat = chatById(S.active);
@@ -1491,6 +1548,7 @@ function openChatProfile() {
   }
   renderProfileFingerprint(chat).catch(() => {});
   paintTtl(chat);
+  paintProfileShowcase(isDm ? chat.userId : S.me?.id);
   const mediaBtn = $('#profileMedia');
   if (mediaBtn) mediaBtn.onclick = () => openChatMedia();
   $('#profileOv').hidden = false;
@@ -1601,6 +1659,7 @@ export function renderMessages(opts = {}) {
     prev = m;
   }
   if (S.typingChat === S.active && !q) html += typingHtml();
+  if (!q) html += sharesHtml();
 
   els.msgs.innerHTML = html;
 

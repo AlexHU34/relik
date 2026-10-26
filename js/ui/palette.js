@@ -398,8 +398,8 @@ function navigateChat(dir) {
 function onKey(e) {
   const cmd = e.ctrlKey || e.metaKey;
 
-  /* Ctrl/Cmd+K — открыть/закрыть палитру */
-  if (cmd && !e.shiftKey && low(e.key) === 'k') {
+  /* Ctrl/Cmd+K — открыть/закрыть палитру (e.code не зависит от раскладки) */
+  if (cmd && !e.shiftKey && (e.code === 'KeyK' || low(e.key) === 'k')) {
     if (!S.me) return;
     e.preventDefault();
     if (isOpen) closePalette(); else openPalette();

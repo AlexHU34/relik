@@ -13,7 +13,7 @@ import { searchUsers, createDmChat, listProfiles, setUserRole, profilesByIds } f
 import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../backend/contacts.js';
 import { pushSupported, pushState, enablePush, disablePush } from '../backend/push.js';
 import { ensureWallet, claimDailyBonus } from '../backend/wallet.js';
-import { listDrops, myItems, buyItem, transferItem } from '../backend/nft.js';
+import { listDrops, myItems, buyItem, transferItem, setShowcase } from '../backend/nft.js';
 import { createGroup } from '../backend/groups.js';
 import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
@@ -70,7 +70,7 @@ export function initModals() {
       closeOv($('#pollOv')); closeOv($('#adminOv')); closeOv($('#profileOv'));
       closeOv($('#groupOv')); closeOv($('#readOv'));
       closeOv($('#peopleOv')); closeOv($('#reqOv')); closeOv($('#gsOv'));
-      closeOv($('#relicsOv')); closeOv($('#giftOv'));
+      closeOv($('#relicsOv')); closeOv($('#giftOv')); closeOv($('#nftOv'));
       closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#fwdOv'));
     }
   });
@@ -127,7 +127,7 @@ export function initModals() {
   /* Ctrl/Cmd+Shift+F — сквозной поиск, Ctrl/Cmd+F остаётся за чатом */
   document.addEventListener('keydown', (e) => {
     if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
-    if (String(e.key).toLowerCase() !== 'f' || !S.me) return;
+    if (!(e.code === 'KeyF' || String(e.key).toLowerCase() === 'f') || !S.me) return;
     if ($('#paletteOv') && !$('#paletteOv').hidden) return;
     e.preventDefault();
     openGlobalSearch($('#searchInput')?.value || '');
@@ -148,6 +148,21 @@ export function initModals() {
     if (send) {
       const sel = $('#nftMine')?.querySelector(`select[data-nft-to="${send.dataset.nftSend}"]`);
       nftSend(send.dataset.nftSend, sel);
+      return;
+    }
+    const slot = e.target.closest('[data-nft-slot]');
+    if (slot) {
+      setShowcase(slot.dataset.nftItem, Number(slot.dataset.nftSlot))
+        .then(() => toast(t('nft.showcaseSet')))
+        .catch(() => toast(t('nft.fail'), { type: 'error' }));
+      return;
+    }
+    const share = e.target.closest('[data-nft-share]');
+    if (share) {
+      if (!S.active) { toast(t('nft.noChat')); return; }
+      shareItem(share.dataset.nftShare, S.active)
+        .then(() => toast(t('nft.shared')))
+        .catch(() => toast(t('nft.fail'), { type: 'error' }));
     }
   });
   $('#relicChip')?.addEventListener('click', openRelics);
@@ -1188,7 +1203,12 @@ function nftCard(d, mode) {
     : `<div class="nft-row">
          <select data-nft-to="${esc(d.id)}"><option value="">${esc(t('nft.pick'))}</option></select>
          <button class="nft-btn" type="button" data-nft-send="${esc(d.id)}">${esc(t('nft.transfer'))}</button>
-       </div>`;
+       </div>
+       <div class="nft-slots">
+         <span class="nft-sub">${esc(t('nft.showcase'))}</span>
+         ${[1, 2, 3].map((n) => `<button type="button" data-nft-slot="${n}" data-nft-item="${esc(d.id)}">${n}</button>`).join('')}
+       </div>
+       <button class="nft-btn" type="button" data-nft-share="${esc(d.id)}">${esc(t('nft.share'))}</button>`;
   return `<div class="nft-card">
     <img class="nft-art" src="${esc(d.art)}" alt="" loading="lazy" decoding="async">
     <span class="nft-name">${esc(d.name)}</span>

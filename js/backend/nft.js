@@ -88,3 +88,33 @@ export async function showcaseOf(userId) {
   if (error) return [];
   return data || [];
 }
+
+export async function shareItem(itemId, chatId) {
+  if (!real()) return null;
+  const { data, error } = await sb.rpc('nft_share', { p_item: itemId, p_chat: chatId });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
+}
+
+export async function sharesForChat(chatId) {
+  if (!real() || !chatId) return [];
+  const { data, error } = await sb
+    .from('nft_shares')
+    .select('id, chat_id, item_id, from_user, created_at, nft_items(serial, nft_drops(name, art, rarity))')
+    .eq('chat_id', chatId)
+    .order('created_at', { ascending: true })
+    .limit(50);
+  if (error) return [];
+  return data || [];
+}
+
+export function subscribeShares(chatId, onShare) {
+  if (!real() || !chatId) return { unsubscribe: () => {} };
+  const ch = sb
+    .channel(`nft-shares:${chatId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'nft_shares', filter: `chat_id=eq.${chatId}`,
+    }, (payload) => onShare?.(payload.new))
+    .subscribe();
+  return { unsubscribe: () => { sb.removeChannel(ch); } };
+}

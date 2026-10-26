@@ -23,6 +23,7 @@ export const S = {
   blockedBy: [],     // кто заблокировал меня
   relics: null,      // баланс внутренней валюты
   gifts: [],         // подарки активного чата
+  shares: [],        // предметы, отправленные в активный чат
 };
 
 export const bus = new EventTarget();
