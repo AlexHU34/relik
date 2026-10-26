@@ -487,3 +487,22 @@ html[data-device="phone"] .recover-bar .rb-btn{flex:1}
 .nft-share .t{display:grid;gap:1px;min-width:0}
 .nft-share .t b{font-size:12.5px}
 .nft-share .t span{font-size:11px;color:var(--tx-3)}
+
+/* Предмет: детали и история */
+.nft-item-hero{display:grid;place-items:center;gap:6px;margin-bottom:10px}
+.nft-item-hero img{width:160px;height:160px;object-fit:contain;filter:drop-shadow(0 12px 28px rgba(0,0,0,.5))}
+.nft-item-meta{display:grid;gap:4px;justify-items:center;margin-bottom:12px;text-align:center}
+.nft-item-meta b{font-size:16px}
+.nft-history{display:grid;gap:6px;margin-top:8px}
+.nft-hist-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--tx2);border-top:1px solid var(--line);padding-top:6px}
+.nft-season{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#8fd4b0;background:rgba(56,185,138,.14);border:1px solid rgba(56,185,138,.35);border-radius:99px;padding:2px 7px;justify-self:center}
+
+/* Вспышка при покупке */
+.relic-burst{position:fixed;width:12px;height:12px;border-radius:50%;pointer-events:none;z-index:9999;
+  background:radial-gradient(circle,#f6c768 0%,rgba(246,199,104,.5) 55%,transparent 70%);
+  animation:relicBurst .62s var(--ease) forwards}
+@keyframes relicBurst{
+  0%{transform:translate(-50%,-50%) scale(.6);opacity:1}
+  100%{transform:translate(-50%,-50%) scale(14);opacity:0}
+}
+html[data-motion="off"] .relic-burst{display:none}

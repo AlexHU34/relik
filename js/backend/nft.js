@@ -9,7 +9,7 @@ const real = () => !!(SUPABASE.url && SUPABASE.anonKey && sb && S.me?.id);
 export async function listDrops() {
   if (!real()) return [];
   const [dropsRes, itemsRes] = await Promise.all([
-    sb.from('nft_drops').select('id, slug, name, art, rarity, total, price, active').eq('active', true).order('price'),
+    sb.from('nft_drops').select('id, slug, name, art, rarity, total, price, active, season, ends_at').eq('active', true).order('price'),
     sb.from('nft_items').select('drop_id'),
   ]);
   if (dropsRes.error) return [];
@@ -117,4 +117,29 @@ export function subscribeShares(chatId, onShare) {
     }, (payload) => onShare?.(payload.new))
     .subscribe();
   return { unsubscribe: () => { sb.removeChannel(ch); } };
+}
+export async function itemDetail(itemId) {
+  if (!real() || !itemId) return null;
+  const { data, error } = await sb
+    .from('nft_items')
+    .select('id, drop_id, serial, owner_id, minted_at, nft_drops(name, art, rarity, price, slug, season)')
+    .eq('id', itemId)
+    .maybeSingle();
+  if (error || !data) return null;
+
+  const { data: history } = await sb
+    .from('nft_transfers')
+    .select('id, from_user, to_user, price, kind, created_at')
+    .eq('item_id', itemId)
+    .order('created_at', { ascending: true })
+    .limit(50);
+
+  return {
+    id: data.id,
+    serial: data.serial,
+    ownerId: data.owner_id,
+    mintedAt: data.minted_at,
+    drop: data.nft_drops || {},
+    history: history || [],
+  };
 }

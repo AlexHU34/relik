@@ -142,6 +142,8 @@ export function initModals() {
   $('#nftOv')?.addEventListener('click', (e) => {
     const tab = e.target.closest('[data-nft-tab]');
     if (tab) { setNftTab(tab.dataset.nftTab); return; }
+    const open = e.target.closest('[data-nft-open]');
+    if (open) { openNftItem(open.dataset.nftOpen); return; }
     const buy = e.target.closest('[data-nft-buy]');
     if (buy) { nftBuy(buy.dataset.nftBuy).then(() => nftTab && setNftTab(nftTab)); return; }
     const send = e.target.closest('[data-nft-send]');
@@ -1210,18 +1212,70 @@ function nftCard(d, mode) {
        </div>
        <button class="nft-btn" type="button" data-nft-share="${esc(d.id)}">${esc(t('nft.share'))}</button>`;
   return `<div class="nft-card">
-    <img class="nft-art" src="${esc(d.art)}" alt="" loading="lazy" decoding="async">
+    <img class="nft-art" src="${esc(d.art)}" alt="" loading="lazy" decoding="async" ${mode === 'mine' ? `data-nft-open="${esc(d.id)}" style="cursor:zoom-in"` : ''}>
     <span class="nft-name">${esc(d.name)}</span>
     <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
+    ${d.season ? `<span class="nft-season">${esc(d.season)}</span>` : ''}
     ${d.serial ? `<span class="nft-sub">№${esc(String(d.serial))}</span>` : left}
     ${mode === 'shop' ? price : ''}
     ${action}
   </div>`;
 }
 
+/* вспышка при покупке */
+function relicBurst() {
+  try {
+    const anchor = $('#nftBalance') || $('#relicBalance');
+    const r = anchor ? anchor.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
+    const el = document.createElement('div');
+    el.className = 'relic-burst';
+    el.style.left = (r.left + r.width / 2) + 'px';
+    el.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 700);
+  } catch (e) { /* ignore */ }
+}
+
+/* карточка предмета с историей */
+export async function openNftItem(itemId) {
+  if (!itemId) return;
+  const body = $('#nftItemBody');
+  if (!body) return;
+  body.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
+  $('#nftItemOv').hidden = false;
+
+  const it = await itemDetail(itemId);
+  if (!it) {
+    body.innerHTML = `<div class="nc-hint">${t('nft.fail')}</div>`;
+    return;
+  }
+  const d = it.drop || {};
+  const ownerName = it.ownerId === S.me?.id ? t('nft.you') : (S.users.find((u) => u.id === it.ownerId)?.name || '—');
+  const rows = (it.history || []).map((h) => {
+    const from = h.from_user ? (S.users.find((u) => u.id === h.from_user)?.name || '—') : '—';
+    const to = S.users.find((u) => u.id === h.to_user)?.name || '—';
+    const kind = h.kind === 'buy' ? t('nft.kindBuy') : t('nft.kindGift');
+    const when = new Date(h.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `<div class="nft-hist-row"><span>${esc(kind)}: ${esc(from)} → ${esc(to)}</span><span>${esc(when)}</span></div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="nft-item-hero">
+      <img src="${esc(d.art || '')}" alt="">
+      <span class="nft-name">${esc(d.name || '')}</span>
+      <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
+      ${d.season ? `<span class="nft-season">${esc(d.season)}</span>` : ''}
+      <span class="nft-sub">№${esc(String(it.serial || ''))}</span>
+    </div>
+    <div class="nft-item-meta">
+      <span class="nft-sub">${esc(t('nft.owner').replace('{name}', ownerName))}</span>
+    </div>
+    <span class="nc-hint">${esc(t('nft.history'))}</span>
+    <div class="nft-history">${rows || `<div class="nc-hint">${esc(t('nft.noHistory'))}</div>`}</div>`;
+}
+
 export async function openNft() {
-  if (!$('#nftOv')) return;
-  $('#nftOv').hidden = false;
+  if (!$('#nftOv')) return;  $('#nftOv').hidden = false;
   $('#nftBalance').textContent = S.relics == null ? '—' : String(S.relics);
   setNftTab(nftTab);
   await refreshNft();
@@ -1275,6 +1329,7 @@ async function nftBuy(dropId) {
   try {
     await buyItem(dropId);
     paintRelics();
+    relicBurst();
     toast(t('nft.bought'));
     await refreshNft();
   } catch (err) {
