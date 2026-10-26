@@ -270,6 +270,7 @@ const NOTIFICATIONS = new Set([
 function formatCode(token) {
   const digits = String(token || '').replace(/\D/g, '');
   if (digits.length === 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  if (digits.length === 8) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
   return String(token || '');
 }
 

@@ -37,7 +37,7 @@ export default {
   'verify.confirm': 'Verify',
   'verify.resend': 'Resend code',
   'verify.sent': 'A new code has been sent',
-  'verify.badCode': 'Enter the 6 digits from the email',
+  'verify.badCode': 'Enter the code from the email (6–10 digits)',
   'verify.error': 'Could not verify the code',
   'verify.inviteTitle': 'Access code',
   'verify.inviteSub': 'Enter the code you were given to join Relik. No email needed.',

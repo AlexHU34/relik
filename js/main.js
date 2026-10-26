@@ -376,7 +376,7 @@ function showVerify(email, mode = 'email') {
   const inp = $('#verifyCode');
   inp.value = '';
   inp.classList.toggle('invite', isInvite);
-  inp.maxLength = isInvite ? 20 : 7;
+  inp.maxLength = isInvite ? 20 : 12;
   inp.inputMode = isInvite ? 'text' : 'numeric';
   inp.autocomplete = isInvite ? 'off' : 'one-time-code';
   inp.placeholder = t(isInvite ? 'verify.invitePh' : 'verify.ph');
@@ -459,15 +459,20 @@ function wireVerify() {
       e.target.value = e.target.value.toUpperCase().replace(/\s+/g, '');
       return;
     }
-    const d = e.target.value.replace(/\D/g, '').slice(0, 6);
-    e.target.value = d.length > 3 ? `${d.slice(0, 3)}-${d.slice(3)}` : d;
+    const d = e.target.value.replace(/\D/g, '').slice(0, 10);
+    /* Supabase умеет 6–10 цифр; 6 и 8 показываем с дефисом. */
+    e.target.value = d.length === 6
+      ? `${d.slice(0, 3)}-${d.slice(3)}`
+      : d.length === 8
+        ? `${d.slice(0, 4)}-${d.slice(4)}`
+        : d;
   });
 
   $('#verifyGo').addEventListener('click', async () => {
     if (verifyMode === 'invite') { await submitAccessCode(); return; }
 
     const digits = $('#verifyCode').value.replace(/\D/g, '');
-    if (digits.length !== 6) { toast(t('verify.badCode')); return; }
+    if (digits.length < 6 || digits.length > 10) { toast(t('verify.badCode')); return; }
     try {
       $('#verifyGo').disabled = true;
       S.me = await verifySignupCode(verifyEmail, digits, lastPass);

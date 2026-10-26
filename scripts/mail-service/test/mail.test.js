@@ -21,6 +21,7 @@ function sign(body, id, ts, secret = secretB64) {
 test('formatCode formats six digits as 234-098', () => {
   assert.equal(mail.formatCode('234098'), '234-098');
   assert.equal(mail.formatCode('123456'), '123-456');
+  assert.equal(mail.formatCode('57166874'), '5716-6874');
   assert.equal(mail.formatCode(''), '');
   assert.equal(mail.formatCode('12345'), '12345');
 });

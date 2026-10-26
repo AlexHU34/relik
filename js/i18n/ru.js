@@ -37,7 +37,7 @@ export default {
   'verify.confirm': 'Подтвердить',
   'verify.resend': 'Отправить код ещё раз',
   'verify.sent': 'Новый код отправлен',
-  'verify.badCode': 'Введите 6 цифр из письма',
+  'verify.badCode': 'Введите код из письма (6–10 цифр)',
   'verify.error': 'Не удалось подтвердить код',
   'verify.inviteTitle': 'Код доступа',
   'verify.inviteSub': 'Введите код, который вам дали для входа в Relik. Письмо не потребуется.',
