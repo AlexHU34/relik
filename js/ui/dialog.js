@@ -29,13 +29,40 @@ export function confirmAction(opts = {}) {
       </div>
     </div>`;
     document.body.appendChild(ov);
+    const previousFocus = document.activeElement;
 
     const finish = (value) => {
       document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('keydown', onTab, true);
       ov.classList.add('out');
-      setTimeout(() => ov.remove(), 160);
+      setTimeout(() => {
+        ov.remove();
+        if (previousFocus?.isConnected) {
+          try { previousFocus.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+        }
+      }, 160);
       resolve(value);
     };
+    const onTab = (e) => {
+      if (e.key !== 'Tab') return;
+      const list = [...ov.querySelectorAll('button:not([disabled])')].filter((b) => b.getClientRects().length > 0);
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (!ov.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+        return;
+      }
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onTab, true);
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();

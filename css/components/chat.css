@@ -407,3 +407,23 @@ html[data-motion="off"] .msg-loading .ic{animation:none}
 @media (max-width:720px), (hover:none){
   .chat-head,.chat-search,.day span{backdrop-filter:none}
 }
+
+/* ---------- выбор нескольких сообщений ---------- */
+.select-bar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px max(14px,calc((100% - 940px)/2));
+  border-top:1px solid var(--line);background:var(--surface-2);
+}
+.select-bar[hidden]{display:none!important}
+.select-bar b{font-size:var(--fs-sm);color:var(--tx-2);white-space:nowrap}
+.select-bar .sel-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.select-bar .btn{padding:6px 10px;font-size:var(--fs-xs);min-height:0}
+.msg.selectable .bubble{cursor:pointer;user-select:none}
+.msg.selected .bubble{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.msg.selected::after{
+  content:'✓';position:absolute;top:-4px;right:-4px;z-index:5;
+  width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:700;display:grid;place-items:center;
+}
+.msg.mine.selected::after{right:auto;left:-4px}
+.msgs.selecting .msg .tools{display:none!important}

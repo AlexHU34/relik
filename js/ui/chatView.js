@@ -41,7 +41,7 @@ let searchIndex = 0;
 let searchInputTimer = 0;
 let lastSearchQuery = '';
 let unseenCount = 0;
-let forwardMsg = null;
+let forwardMsgs = [];
 let forwardTargets = new Set();
 let giftSub = null;
 let shareSub = null;
@@ -50,6 +50,8 @@ let pollTimer = null;           // страховочный опрос акти�
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
 let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
+let selectMode = false;         // режим выбора нескольких сообщений
+const selectedMsgs = new Set(); // id выбранных сообщений
 let autoScrolling = false;
 let showLocked = false;         // показывать недоступные (нерасшифрованные) сообщения
 const readMarks = new Map();    // chatId -> { upto, at } — последняя отправленная отметка
@@ -68,6 +70,7 @@ export function initChatView() {
   /* Панель действий: показываем только у сообщения под курсором.
      На тач-устройствах её открывает тап (см. onMsgClick). */
   els.msgs.addEventListener('pointerover', (e) => {
+    if (selectMode) return;
     if (e.pointerType === 'touch') return;
     const el = e.target.closest?.('.msg');
     if (!el || el.contains(e.relatedTarget)) return;
@@ -82,7 +85,15 @@ export function initChatView() {
   });
   els.msgs.addEventListener('scroll', updateToBottom, { passive: true });
   els.toBottom.addEventListener('click', () => scrollBottom(false));
+  $('#selClose').innerHTML = icon('x', 16);
+  $('#selClose').title = t('common.close');
+  $('#selClose').setAttribute('aria-label', t('common.close'));
+  $('#selClose').addEventListener('click', exitSelect);
+  $('#selForward').addEventListener('click', forwardSelected);
+  $('#selCopy').addEventListener('click', copySelected);
+  $('#selDelete').addEventListener('click', deleteSelected);
   $('#backBtn').addEventListener('click', () => {
+    exitSelect();
     stopActiveSync();
     stopTyping();
     location.hash = '#/app';
@@ -223,6 +234,7 @@ export function initChatView() {
     const dy = Math.abs(t.clientY - sy);
     sx = 0;
     if (dx > 80 && dy < 60 && $('#appView').classList.contains('pane-chat')) {
+      exitSelect();
       stopActiveSync();
       location.hash = '#/app';
       S.active = null;
@@ -242,6 +254,7 @@ export function initChatView() {
 
   /* двойной клик по сообщению — ответ */
   els.msgs.addEventListener('dblclick', (e) => {
+    if (selectMode) return;
     if (e.target.closest('a,button,input,textarea,.msg-img')) return;
     const msgEl = e.target.closest('.msg');
     const m = msgEl && byId(msgEl.dataset.mid);
@@ -306,6 +319,7 @@ export function initChatView() {
   /* Esc закрывает панель действий/реакции, не трогая остальные слои */
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (selectMode) { exitSelect(); return; }
     if (!toolsOpen && !S.reactOpen) return;
     closeTools();
     closeReact();
@@ -313,6 +327,14 @@ export function initChatView() {
 }
 
 function onMsgClick(e) {
+  if (selectMode) {
+    const pick = e.target.closest('.msg');
+    if (pick) {
+      e.preventDefault();
+      toggleSelect(pick.dataset.mid);
+      return;
+    }
+  }
   if (e.target.closest('[data-show-locked]')) {
     showLocked = !showLocked;
     renderMessages();
@@ -451,16 +473,13 @@ function onMsgClick(e) {
            до document уже без предка .msg и закроет выбор реакций. */
       }
     }
+    else if (act === 'select') { startSelect(m); }
     else if (act === 'retry') { retryMessage(m); }
     else if (act === 'copy') {
       const text = m.text || '';
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text)
-          .then(() => toast(t('msg.copied'), { type: 'success' }))
-          .catch(() => toast(t('toast.error'), { type: 'error' }));
-      } else {
-        toast(t('toast.error'), { type: 'error' });
-      }
+      copyText(text).then((ok) => {
+        toast(t(ok ? 'msg.copied' : 'toast.error'), { type: ok ? 'success' : 'error' });
+      });
     }
     else if (act === 'edit') { S.editing = m.id; S.reply = null; loadEdit(m); closeReact(); }
     else if (act === 'pin') {
@@ -920,6 +939,7 @@ export async function openChat(id) {
   }
 
   // Отписываемся от предыдущего чата
+  exitSelect();
   stopActiveSync();
   realtimeStatus = 'offline';
   if (currentSubscription) {
@@ -1804,6 +1824,7 @@ export function renderMessages(opts = {}) {
 
   renderPin();
   updateToBottom();
+  if (selectMode) syncSelectBar();
 }
 
 /* ── поиск ─────────────────────────────────────────────────── */
@@ -1882,7 +1903,12 @@ function unpin() {
 
 /* ── пересылка ─────────────────────────────────────────────── */
 function openForward(m) {
-  forwardMsg = m;
+  openForwardMany([m]);
+}
+
+function openForwardMany(msgs) {
+  forwardMsgs = (Array.isArray(msgs) ? msgs : [msgs]).filter(Boolean);
+  if (!forwardMsgs.length) return;
   forwardTargets = new Set();
   const list = $('#fwdList');
   const chats = S.chats.filter((c) => c.id !== S.active);
@@ -1908,55 +1934,75 @@ function paintForwardCount() {
 }
 
 async function forwardToMany() {
-  const m = forwardMsg;
+  const msgs = forwardMsgs.slice();
   const ids = [...forwardTargets];
-  if (!m || !ids.length) return;
+  if (!msgs.length || !ids.length) return;
   $('#fwdOv').hidden = true;
-  forwardMsg = null;
+  forwardMsgs = [];
   forwardTargets = new Set();
 
-  const fwd = forwardPayload(m);
-  if (!fwd) { toast(t('msg.forwardUnsupported'), { type: 'error' }); return; }
-  if (fwd.media?.path && fwd.file?.src) rememberMediaPreview(fwd.media.path, fwd.file.src);
-  for (const it of fwd.album || []) {
-    if (it?.path && it.src) rememberMediaPreview(it.path, it.src);
-  }
+  let sent = 0;
+  let failed = 0;
 
   for (const chatId2 of ids) {
     const chat = chatById(chatId2);
     if (!chat) continue;
-    const msg = {
-      id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
-      type: fwd.type, text: fwd.text || '', reactions: [], status: 'sending', forwarded: true,
-      wire: fwd.wire,
-      ...(fwd.file ? { file: fwd.file } : {}),
-      ...(fwd.voice ? { voice: fwd.voice } : {}),
-      ...(fwd.media ? { media: fwd.media } : {}),
-      ...(fwd.album ? { album: fwd.album } : {}),
-    };
-    await deliverMessage(chatId2, msg);
-    try {
-      await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
-      msg.status = 'sent';
-      await idb.put('messages', msg);
-      if (S.active === chatId2) renderMessages();
-      notifyPush(chat);
-    } catch (err) {
-      msg.status = 'error';
-      msg.error = String(err?.message || '');
-      await idb.put('messages', msg);
-      if (S.active === chatId2) renderMessages();
+    let sentToChat = 0;
+    for (const m of msgs) {
+      const fwd = forwardPayload(m);
+      if (!fwd) continue;
+      if (fwd.media?.path && fwd.file?.src) rememberMediaPreview(fwd.media.path, fwd.file.src);
+      for (const it of fwd.album || []) {
+        if (it?.path && it.src) rememberMediaPreview(it.path, it.src);
+      }
+      const msg = {
+        id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
+        type: fwd.type, text: fwd.text || '', reactions: [], status: 'sending', forwarded: true,
+        wire: fwd.wire,
+        ...(fwd.file ? { file: fwd.file } : {}),
+        ...(fwd.voice ? { voice: fwd.voice } : {}),
+        ...(fwd.media ? { media: fwd.media } : {}),
+        ...(fwd.album ? { album: fwd.album } : {}),
+      };
+      await deliverMessage(chatId2, msg);
+
+      if (!(SUPABASE.url && SUPABASE.anonKey)) {
+        msg.status = 'sent';
+        await idb.put('messages', msg);
+        sent += 1;
+        sentToChat += 1;
+        continue;
+      }
+
+      try {
+        await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
+        msg.status = 'sent';
+        await idb.put('messages', msg);
+        refreshMessageStatus(msg);
+        sent += 1;
+        sentToChat += 1;
+      } catch (err) {
+        msg.status = 'error';
+        msg.error = String(err?.message || '');
+        await idb.put('messages', msg);
+        refreshMessageStatus(msg);
+        failed += 1;
+      }
     }
+    if (sentToChat) notifyPush(chat);
   }
-  toast(t('msg.forwarded').replace('{n}', String(ids.length)));
+
   renderSidebar();
+  if (!sent) toast(t('msg.forwardUnsupported'), { type: 'error' });
+  else toast(t('msg.forwardedMany').replace('{n}', String(sent)), { type: 'success' });
+  if (failed) toast(t('toast.error'), { type: 'error' });
 }
 
 async function forwardTo(chatId2) {
-  const m = forwardMsg;
+  const m = forwardMsgs[0];
   const chat = chatById(chatId2);
   $('#fwdOv').hidden = true;
-  forwardMsg = null;
+  forwardMsgs = [];
   if (!m || !chat) return;
 
   const fwd = forwardPayload(m);
@@ -2105,7 +2151,8 @@ function msgHtml(m, first, hitIndex = -1) {
   const mine = m.sender === 'u_me';
   const u = mine ? S.me : user(m.sender);
   const searchCls = hitIndex >= 0 ? ` search-hit${hitIndex === searchIndex ? ' search-current' : ''}` : '';
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}`;
+  const selectCls = selectMode ? ` selectable${selectedMsgs.has(m.id) ? ' selected' : ''}` : '';
+  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}${selectCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
@@ -2446,6 +2493,138 @@ function toggleTools(el, m) {
   showTools(el);
 }
 
+/* ── выбор нескольких сообщений ────────────────────────────── */
+function syncSelectBar() {
+  const bar = $('#selectBar');
+  if (!bar) return;
+  bar.hidden = !selectMode;
+  if (!selectMode) return;
+  const n = selectedMsgs.size;
+  const count = $('#selCount');
+  if (count) count.textContent = n ? t('select.count').replace('{n}', String(n)) : t('select.hint');
+  ['selForward', 'selCopy', 'selDelete'].forEach((id) => {
+    const b = $('#' + id);
+    if (b) b.disabled = n === 0;
+  });
+}
+
+function startSelect(m) {
+  selectMode = true;
+  selectedMsgs.clear();
+  if (m?.id) selectedMsgs.add(m.id);
+  closeTools();
+  closeReact();
+  const holder = els.msgs;
+  holder?.classList.add('selecting');
+  holder?.querySelectorAll('.msg[data-mid]').forEach((el) => {
+    el.classList.add('selectable');
+    el.classList.toggle('selected', selectedMsgs.has(el.dataset.mid));
+  });
+  syncSelectBar();
+}
+
+function exitSelect() {
+  selectMode = false;
+  selectedMsgs.clear();
+  const holder = els.msgs;
+  holder?.classList.remove('selecting');
+  holder?.querySelectorAll('.msg[data-mid]').forEach((el) => el.classList.remove('selectable', 'selected'));
+  syncSelectBar();
+}
+
+function toggleSelect(id) {
+  if (!byId(id)) return;
+  if (selectedMsgs.has(id)) selectedMsgs.delete(id);
+  else selectedMsgs.add(id);
+  const el = els.msgs?.querySelector(`.msg[data-mid="${nonzeroEscape(id)}"]`);
+  el?.classList.toggle('selected', selectedMsgs.has(id));
+  syncSelectBar();
+}
+
+function selectedList() {
+  return [...selectedMsgs].map((id) => byId(id)).filter(Boolean);
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fallback */ }
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function copySelected() {
+  const text = selectedList()
+    .map((m) => m.text || snippet(m))
+    .filter(Boolean)
+    .join('\n\n');
+  if (!text) { toast(t('select.nothing')); return; }
+  if (await copyText(text)) {
+    toast(t('select.copied'), { type: 'success' });
+    exitSelect();
+  } else {
+    toast(t('toast.error'), { type: 'error' });
+  }
+}
+
+async function deleteSelected() {
+  const list = selectedList();
+  if (!list.length) return;
+  let ok = false;
+  try {
+    const { confirmAction } = await import('./dialog.js');
+    ok = await confirmAction({
+      title: t('select.deleteTitle'),
+      text: t('select.deleteText'),
+      ok: t('select.deleteOk'),
+      danger: true,
+    });
+  } catch (e) { /* ignore */ }
+  if (!ok) return;
+
+  const ids = new Set(list.map((m) => m.id));
+  for (const m of list) {
+    clearTtlTimer(m.id);
+    m.hidden = true;
+    m.localDeleted = true;
+  }
+  await idb.bulkPut('messages', list).catch(() => {});
+  const chat = chatById(S.active);
+  if (chat) {
+    if (chat.pin && ids.has(chat.pin.id)) {
+      delete chat.pin;
+      idb.del('settings', 'pin:' + chat.id).catch(() => {});
+    }
+    const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
+    chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
+    await idb.put('chats', chat).catch(() => {});
+  }
+  exitSelect();
+  renderMessages();
+  renderSidebar();
+  renderPin();
+  toast(t('select.deleted').replace('{n}', String(list.length)), { type: 'success' });
+}
+
+function forwardSelected() {
+  const list = selectedList();
+  if (!list.length) return;
+  exitSelect();
+  openForwardMany(list);
+}
+
 function toolsHtml(m, mine) {
   const isText = m.type === 'text';
   const canForward = ['text', 'image', 'file', 'voice', 'video', 'videoNote', 'album'].includes(m.type);
@@ -2453,6 +2632,7 @@ function toolsHtml(m, mine) {
   const tools = [
     `<button type="button" data-act="reply" title="${t('msg.reply')}" aria-label="${t('msg.reply')}">${icon('reply', 15)}</button>`,
     `<button type="button" data-act="react" title="${t('msg.react')}" aria-label="${t('msg.react')}">${icon('smile', 15)}</button>`,
+    `<button type="button" data-act="select" title="${t('msg.select')}" aria-label="${t('msg.select')}">${icon('check2', 15)}</button>`,
     canForward ? `<button type="button" data-act="forward" title="${t('msg.forward')}" aria-label="${t('msg.forward')}">${icon('forward', 15)}</button>` : '',
     `<button type="button" data-act="pin" title="${t('msg.pin')}" aria-label="${t('msg.pin')}">${icon('pin', 15)}</button>`,
     isText ? `<button type="button" data-act="copy" title="${t('msg.copy')}" aria-label="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',

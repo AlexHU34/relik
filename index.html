@@ -388,6 +388,15 @@
             </div>
             <button class="icon-btn" id="pinClose"></button>
           </div>
+          <div class="select-bar" id="selectBar" hidden>
+            <button class="icon-btn" id="selClose" type="button"></button>
+            <b id="selCount"></b>
+            <span class="sel-actions">
+              <button class="btn btn-ghost" id="selForward" type="button" data-i18n="select.forward">Переслать</button>
+              <button class="btn btn-ghost" id="selCopy" type="button" data-i18n="select.copy">Копировать</button>
+              <button class="btn btn-danger-soft" id="selDelete" type="button" data-i18n="select.delete">Удалить</button>
+            </span>
+          </div>
         </div>
         <div class="msgs" id="msgs"></div>
         <div class="drop-hint" id="dropHint" aria-hidden="true">

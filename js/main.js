@@ -78,6 +78,7 @@ function paintChrome() {
     el.setAttribute('aria-label', t(key));
   };
   title('#backBtn', 'common.back');
+  title('#selClose', 'common.close');
   title('#chatSearchClose', 'common.close');
   title('#chatSearchPrev', 'chat.searchPrev');
   title('#chatSearchNext', 'chat.searchNext');
