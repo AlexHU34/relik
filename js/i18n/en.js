@@ -445,6 +445,8 @@ export default {
   'settings.preflight': 'Device preflight',
   'settings.push': 'Push when the app is closed',
   'settings.pushHint': 'Works in Chrome, Edge and the installed app. On iPhone push is not available in the browser.',
+  'settings.hideOnline': 'Hide online status',
+  'settings.hideOnlineHint': 'Others will see you as offline. Messages and calls are not affected.',
   'settings.pushOn': 'Push enabled',
   'settings.pushOff': 'Push disabled',
   'settings.pushDenied': 'Notifications are blocked in browser settings',

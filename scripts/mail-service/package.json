@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "test": "node --test test/mail.test.js",
     "test:hook": "node test-hook.mjs"
   },
   "engines": {

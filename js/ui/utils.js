@@ -59,13 +59,25 @@ export function snippet(m) {
   }
 }
 
+/* Безопасный источник для <img>: https, data:image, blob или локальный путь.
+   Отсекает javascript:, http: (mixed content) и protocol-relative //evil. */
+export function safeImgSrc(src) {
+  const s = String(src || '').trim();
+  if (!s) return '';
+  if (/^\/\//.test(s)) return '';
+  if (/^(https:\/\/|data:image\/|blob:)/i.test(s)) return s;
+  if (/^(\.\/|\/|assets\/)/i.test(s)) return s;
+  return '';
+}
+
 /* Аватар с буквой или фото; opts: {sm, lg, online} */
 export function avatarHtml(u, opts = {}) {
   if (!u) return '';
   const cls = ['avatar', opts.sm ? 'sm' : '', opts.lg ? 'lg' : ''].filter(Boolean).join(' ');
   const dot = opts.online ? '<i class="online-dot"></i>' : '';
-  const inner = u.avatar
-    ? `<img src="${esc(u.avatar)}" alt="">`
+  const src = safeImgSrc(u.avatar);
+  const inner = src
+    ? `<img src="${esc(src)}" alt="">`
     : `<b>${esc((u.name || '?').slice(0, 1).toUpperCase())}</b>`;
   const hue = Number(u.hue);
   return `<span class="${cls}" data-h="${Number.isFinite(hue) ? hue : 0}">${inner}${dot}</span>`;

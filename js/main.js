@@ -10,7 +10,7 @@ import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, initRelics } from './ui/modals.js';
-import { initPalette } from './ui/palette.js';
+import { initPalette, openPalette } from './ui/palette.js';
 import { initRecovery } from './ui/recovery.js';
 import { ensurePersistentStorage, autoPruneMedia } from './db/mediaCache.js';
 import { seedDemoRequests } from './backend/contacts.js';
@@ -348,6 +348,7 @@ async function enterApp(welcomeKey) {
   } else {
     routeAfterLogin();
   }
+  handlePwaAction();
 
   animateWelcome();
   toast(t(welcomeKey));
@@ -497,6 +498,30 @@ function routeAfterLogin() {
     route();
   }
   renderSidebar();
+}
+
+/* PWA-ярлыки: ./?action=new|settings|search — открываем нужный экран
+   после входа и убираем action из URL, чтобы он не срабатывал снова. */
+function handlePwaAction() {
+  if (!S.me) return;
+  let action = '';
+  try {
+    const u = new URL(location.href);
+    action = u.searchParams.get('action') || '';
+    if (action) {
+      u.searchParams.delete('action');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    }
+  } catch (e) {
+    return;
+  }
+  if (!action) return;
+  setTimeout(() => {
+    if (action === 'new') openNewChat();
+    else if (action === 'settings') openSettings();
+    else if (action === 'search') openPalette('');
+    else if (action === 'people') openPeople();
+  }, 220);
 }
 
 /* ── проверка, что Supabase-сессия ещё жива ───────────────── */
@@ -918,6 +943,7 @@ async function boot() {
       syncPrefsFromCloud().catch(() => {});
       if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
       maybeDemo();
+      handlePwaAction();
       reloadChats().catch(() => {});
     } else {
       showAuth();
@@ -960,6 +986,7 @@ async function boot() {
       if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
           maybeDemo();
           route();
+          handlePwaAction();
         }
         reloadChats().then(() => retryOutbox()).catch(() => {});
       })
@@ -988,6 +1015,7 @@ async function boot() {
     seedDemoRequests(S.users).then(() => refreshRequests()).catch(() => {});
     startGlobalRealtime();
     initCalls();
+    handlePwaAction();
   } else {
     showAuth();
   }

@@ -90,7 +90,7 @@ const log = (level, msg, extra = {}) => {
 function parseSender(value) {
   const raw = String(value || '').trim().replace(/^["']|["']$/g, '');
   const m = /^(.*?)\s*<([^>]+)>\s*$/.exec(raw);
-  if (m) return { name: m[1].trim() || 'Relik', email: m[2].trim().toLowerCase() };
+  if (m) return { name: m[1].trim().replace(/^["']|["']$/g, '') || 'Relik', email: m[2].trim().toLowerCase() };
   return { name: 'Relik', email: raw.toLowerCase() };
 }
 

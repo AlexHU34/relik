@@ -45,6 +45,7 @@ const DEFAULTS = () => ({
   accent: 'theme',     // см. ACCENTS
   enterToSend: true,
   motion: true,
+  hideOnline: false,
 });
 
 function load() {
@@ -240,6 +241,12 @@ export function setMotion(on) {
 
 export function setEnterToSend(on) {
   prefs.enterToSend = !!on;
+  savePrefs();
+}
+
+/* Скрывать онлайн-статус от других (last_seen уходит в 1970) */
+export function setHideOnline(on) {
+  prefs.hideOnline = !!on;
   savePrefs();
 }
 

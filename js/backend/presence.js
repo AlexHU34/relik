@@ -5,18 +5,22 @@ import { sb } from './supabaseClient.js';
 import { SUPABASE } from '../config.js';
 import { idb } from '../db/idb.js';
 import { S } from '../ui/state.js';
+import { prefs } from '../ui/prefs.js';
 
 /* ── Обновление last_seen (присутствие) ── */
 export async function updateLastSeen() {
-  if (!sb) return;
+  if (!sb || !S.me?.id) return;
 
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return;
+  /* Скрытый статус: ставим «очень давно», чтобы другие видели offline.
+     last_seen в схеме NOT NULL, поэтому не null, а 1970-01-01. */
+  const stamp = prefs.hideOnline
+    ? '1970-01-01T00:00:00.000Z'
+    : new Date().toISOString();
 
   const { error } = await sb
     .from('profiles')
-    .update({ last_seen: new Date().toISOString() })
-    .eq('id', user.id);
+    .update({ last_seen: stamp })
+    .eq('id', S.me.id);
 
   if (error) console.error('Update last_seen error:', error);
 }
@@ -137,11 +141,9 @@ export function subscribeToPresence(chatId, callbacks) {
 
 /* ── Отслеживание присутствия пользователя ── */
 function trackPresence(channel, chatId) {
-  const { data: { user } } = sb.auth.getUser();
-  if (!user) return;
-
+  if (!S.me?.id || prefs.hideOnline) return;
   channel.track({
-    user_id: user.id,
+    user_id: S.me.id,
     online_at: new Date().toISOString(),
   });
 }

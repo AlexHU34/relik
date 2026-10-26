@@ -163,6 +163,14 @@ TO_EMAIL='you@yandex.ru' \
 node /opt/relik-mail/test-hook.mjs
 ```
 
+Юнит-тесты сервиса (без сети и без писем):
+
+```bash
+cd /opt/relik-mail
+npm test
+# 7 tests: формат кода, подпись, email_change, шаблон
+```
+
 Реальная отправка:
 
 ```bash

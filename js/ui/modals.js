@@ -1,6 +1,6 @@
 /* Relik — модальные окна: настройки, новый чат, создание группы, лайтбокс */
 import { S, user, emit, chatById, chatTitle } from './state.js';
-import { $, esc, avatarHtml, adminBadge, fmtTime, fmtSize } from './utils.js';
+import { $, esc, avatarHtml, adminBadge, fmtTime, fmtSize, safeImgSrc } from './utils.js';
 import { icon } from './icons.js';
 import { t, lang, setLang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -19,7 +19,7 @@ import { THEMES, applyTheme, currentTheme } from './themes.js';
 import { FONTS, applyFont, applyFontStack, currentFontId, saveCustomFont } from './fonts.js';
 import { soundsEnabled, setSounds } from './sounds.js';
 import { notificationsEnabled, setNotifications } from './notify.js';
-import { prefs, WALLPAPERS, ACCENTS, setTextSize, setWallpaper, setMotion, setEnterToSend, setAccent, setCustomWall, clearChatPrefs } from './prefs.js';
+import { prefs, WALLPAPERS, ACCENTS, setTextSize, setWallpaper, setMotion, setEnterToSend, setAccent, setCustomWall, clearChatPrefs, setHideOnline } from './prefs.js';
 import { confirmAction } from './dialog.js';
 import { addMemberToGroup, removeMemberFromGroup, updateGroupTitle, leaveGroup } from '../backend/groups.js';
 import { canInstall, promptInstall } from './install.js';
@@ -61,6 +61,63 @@ export function initModals() {
     ov.querySelectorAll('[data-close]').forEach((btn) => {
       btn.addEventListener('click', () => closeOv(ov));
     });
+  });
+
+  /* ── доступность: Tab не выходит из открытого окна ── */
+  const dialogRoots = [...document.querySelectorAll('.overlay, .lightbox')];
+  const trapStack = [];
+  const focusables = (root) => [...root.querySelectorAll(
+    'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+  )].filter((el) => !el.hidden && el.getClientRects().length > 0);
+  const topTrap = () => trapStack[trapStack.length - 1] || null;
+
+  const pushTrap = (root) => {
+    if (trapStack.some((t) => t.root === root)) return;
+    const prev = document.activeElement;
+    trapStack.push({ root, prev });
+    const list = focusables(root);
+    const first = root.querySelector('[autofocus]') || list[0] || root;
+    if (first === root && !root.hasAttribute('tabindex')) root.setAttribute('tabindex', '-1');
+    try { first.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+  };
+
+  const popTrap = (root) => {
+    const i = trapStack.findIndex((t) => t.root === root);
+    if (i < 0) return;
+    const [t] = trapStack.splice(i, 1);
+    const top = topTrap();
+    const list = top ? focusables(top.root) : [];
+    const target = top ? (list[0] || top.root) : t.prev;
+    if (target && target.isConnected && !root.contains(target)) {
+      try { target.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+    }
+  };
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const top = topTrap();
+    if (!top) return;
+    const list = focusables(top.root);
+    if (!list.length) { e.preventDefault(); return; }
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = document.activeElement;
+    if (!top.root.contains(active)) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  }, true);
+
+  const trapObserver = new MutationObserver((muts) => {
+    for (const m of muts) {
+      const root = m.target;
+      if (!(root instanceof Element) || !root.matches('.overlay, .lightbox')) continue;
+      if (!root.hidden) pushTrap(root);
+      else popTrap(root);
+    }
+  });
+  dialogRoots.forEach((root) => {
+    trapObserver.observe(root, { attributes: true, attributeFilter: ['hidden'] });
+    if (!root.hidden) pushTrap(root);
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -352,6 +409,11 @@ export function initModals() {
   });
   $('#enterSendToggle')?.addEventListener('change', (e) => setEnterToSend(e.target.checked));
   $('#motionToggle')?.addEventListener('change', (e) => setMotion(e.target.checked));
+  $('#hideOnlineToggle')?.addEventListener('change', (e) => {
+    setHideOnline(e.target.checked);
+    import('../backend/presence.js').then((m) => m.updateLastSeen?.()).catch(() => {});
+    toast(t('settings.saved'));
+  });
   $('#pinToggle')?.addEventListener('change', async (e) => {
     const wanted = e.target.checked;
     e.target.disabled = true;
@@ -518,6 +580,7 @@ export function openSettings() {
   if (installBtn) installBtn.hidden = !canInstall();
   $('#enterSendToggle').checked = prefs.enterToSend !== false;
   $('#motionToggle').checked = prefs.motion !== false;
+  $('#hideOnlineToggle').checked = prefs.hideOnline === true;
   $('#adminField').hidden = S.me?.role !== 'admin';
   const allBtn = $('#logoutAllBtn');
   if (allBtn) allBtn.hidden = !(SUPABASE.url && SUPABASE.anonKey);
@@ -733,8 +796,9 @@ function paintFonts() {
 function paintAvatar() {
   const el = $('#avatarPreview');
   if (!el) return;
-  el.innerHTML = S.me?.avatar
-    ? `<img src="${esc(S.me.avatar)}" alt="">`
+  const av = safeImgSrc(S.me?.avatar);
+  el.innerHTML = av
+    ? `<img src="${esc(av)}" alt="">`
     : `<b>${esc((S.me?.name || '?').slice(0, 1).toUpperCase())}</b>`;
   el.dataset.h = S.me?.hue ?? 0;
 }
@@ -1212,7 +1276,7 @@ function nftCard(d, mode) {
        </div>
        <button class="nft-btn" type="button" data-nft-share="${esc(d.id)}">${esc(t('nft.share'))}</button>`;
   return `<div class="nft-card">
-    <img class="nft-art" src="${esc(d.art)}" alt="" loading="lazy" decoding="async" ${mode === 'mine' ? `data-nft-open="${esc(d.id)}" style="cursor:zoom-in"` : ''}>
+    <img class="nft-art" src="${esc(safeImgSrc(d.art) || 'assets/relics/relics-scroll.png')}" alt="" loading="lazy" decoding="async" ${mode === 'mine' ? `data-nft-open="${esc(d.id)}" style="cursor:zoom-in"` : ''}>
     <span class="nft-name">${esc(d.name)}</span>
     <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
     ${d.season ? `<span class="nft-season">${esc(d.season)}</span>` : ''}
@@ -1263,7 +1327,7 @@ export async function openNftItem(itemId) {
 
   body.innerHTML = `
     <div class="nft-item-hero">
-      <img src="${esc(d.art || '')}" alt="">
+      <img src="${esc(safeImgSrc(d.art) || 'assets/relics/relics-scroll.png')}" alt="">
       <span class="nft-name">${esc(d.name || '')}</span>
       <span class="nft-rarity ${esc(d.rarity || 'common')}">${esc(d.rarity || 'common')}</span>
       ${d.season ? `<span class="nft-season">${esc(d.season)}</span>` : ''}

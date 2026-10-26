@@ -1,6 +1,6 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
 import { S, user, chatTitle, chatById, bus } from './state.js';
-import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, adminBadge, snippet } from './utils.js';
+import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, adminBadge, snippet, safeImgSrc } from './utils.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -1052,6 +1052,7 @@ export async function openChat(id) {
         await hydrateMessageMedia(msg).catch(() => {});
         S.messages[id].push(msg);
         if (msg.sender !== 'u_me' && !msg.hidden && !isMuted(id)) playMessage();
+        if (msg.sender !== 'u_me' && !msg.hidden) announceIncoming(msg);
         if (msg.hidden) {
           /* голос/реакция/закрытие/прочтение: обновляем только нужный блок */
           if (msg.type === 'read') applyReadState(id);
@@ -1499,7 +1500,9 @@ async function openChatMedia() {
   grid.innerHTML = items
     .sort((a, b) => (b.ts || 0) - (a.ts || 0))
     .map((it, i) => `<button type="button" class="media-cell" data-media-idx="${i}">
-      <img src="${esc(it.src)}" loading="lazy" decoding="async" alt="">
+      ${safeImgSrc(it.src)
+        ? `<img src="${esc(safeImgSrc(it.src))}" loading="lazy" decoding="async" alt="">`
+        : `<span style="display:grid;place-items:center;width:100%;height:100%;color:var(--tx-3)">${icon('image', 22)}</span>`}
       ${it.kind === 'vid' ? `<span class="media-play">${icon('play', 18)}</span>` : ''}
     </button>`).join('');
 
@@ -1564,7 +1567,7 @@ async function paintProfileShowcase(userId) {
       const r = bySlot[slot];
       const art = r?.nft_items?.nft_drops?.art;
       return art
-        ? `<img src="${esc(art)}" alt="" title="${esc(r.nft_items.nft_drops.name || '')}">`
+        ? `<img src="${esc(safeImgSrc(art) || 'assets/relics/relics-scroll.png')}" alt="" title="${esc(r.nft_items.nft_drops.name || '')}">`
         : '<span class="empty">·</span>';
     }).join('');
   } catch (e) {
@@ -1581,7 +1584,7 @@ function sharesHtml() {
     const d = it.nft_drops || {};
     const who = user(s.from_user)?.name || '';
     return `<div class="nft-share">
-      <img src="${esc(d.art || '')}" alt="">
+      <img src="${esc(safeImgSrc(d.art) || 'assets/relics/relics-scroll.png')}" alt="">
       <div class="t"><b>${esc(d.name || '')} ${it.serial ? '№' + esc(String(it.serial)) : ''}</b>
       <span>${esc(t('nft.sharedBy').replace('{name}', who))}</span></div>
     </div>`;
@@ -2595,6 +2598,18 @@ export function hideTyping(chatId) {
   if (S.active === chatId) renderMessages();
 }
 
+/* ── доступность: объявляем новое сообщение скринридеру ───── */
+function announceIncoming(msg) {
+  if (!msg || msg.hidden || msg.sender === 'u_me') return;
+  if (document.visibilityState === 'hidden') return;
+  const el = document.getElementById('srLive');
+  if (!el) return;
+  const who = user(msg.sender)?.name || '';
+  el.textContent = who ? `${who}: ${snippet(msg)}` : snippet(msg);
+  clearTimeout(announceIncoming._t);
+  announceIncoming._t = setTimeout(() => { el.textContent = ''; }, 2500);
+}
+
 /* ── доставка сообщения (совместно с composer и демо-сценарием) ─ */
 export async function deliverMessage(chatId, msg) {
   const chat = chatById(chatId);
@@ -2617,6 +2632,7 @@ export async function deliverMessage(chatId, msg) {
   }
   renderSidebar();
   if (msg.sender !== 'u_me' && !isMuted(chatId)) playMessage();
+  if (S.active === chatId) announceIncoming(msg);
   scheduleTtlForChat(chatId);
 }
 

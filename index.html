@@ -531,6 +531,12 @@
           <i></i>
         </label>
         <span class="field-hint" id="pushHint" data-i18n="settings.pushHint">Работает в Chrome, Edge и в установленном приложении. На iPhone push в браузере недоступен.</span>
+        <label class="switch-row">
+          <span data-i18n="settings.hideOnline">Скрывать статус «онлайн»</span>
+          <input type="checkbox" id="hideOnlineToggle">
+          <i></i>
+        </label>
+        <span class="field-hint" data-i18n="settings.hideOnlineHint">Другие увидят вас офлайн. На сообщения и звонки это не влияет.</span>
         <div class="field">
           <span data-i18n="settings.pin">PIN-код при входе</span>
           <label class="switch-row">
@@ -1115,6 +1121,7 @@
   </div>
 
   <div id="toasts" role="status" aria-live="polite"></div>
+  <div id="srLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <div class="net-bar" id="netBar" hidden>
     <span class="nb-ic" id="netIc"></span>
     <span id="netText"></span>

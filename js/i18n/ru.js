@@ -445,6 +445,8 @@ export default {
   'settings.preflight': 'Предпроверка устройства',
   'settings.push': 'Push при закрытом приложении',
   'settings.pushHint': 'Работает в Chrome, Edge и в установленном приложении. На iPhone push в браузере недоступен.',
+  'settings.hideOnline': 'Скрывать статус «онлайн»',
+  'settings.hideOnlineHint': 'Другие увидят вас офлайн. На сообщения и звонки это не влияет.',
   'settings.pushOn': 'Push включён',
   'settings.pushOff': 'Push выключен',
   'settings.pushDenied': 'Уведомления запрещены в настройках браузера',
