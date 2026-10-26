@@ -4,6 +4,7 @@
 import { sb } from './supabaseClient.js';
 import { idb } from '../db/idb.js';
 import { S } from '../ui/state.js';
+import { SUPABASE } from '../config.js';
 
 /* ── Колонка profiles.avatar появляется миграцией supabase/avatar.sql.
    Проверяем один раз: до миграции приложение тоже работает — аватар

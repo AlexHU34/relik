@@ -181,9 +181,12 @@ async function sendContactRequest(ctx, username) {
   await sleep(900);
   const clicked = await ctx.evaluate(`(function(){
     var b=[...document.querySelectorAll('#peopleList [data-pact="add"]')][0];
-    if(!b) return false; b.click(); return true;
+    if (b) { b.click(); return 'sent'; }
+    var pending = document.querySelector('#peopleList .pc-pending');
+    if (pending) return 'already';
+    return false;
   })()`);
-  return Boolean(clicked);
+  return clicked;
 }
 
 async function acceptFirstRequest(ctx) {
@@ -327,6 +330,21 @@ async function runLive() {
 (async () => {
   console.log('Relik e2e · ' + BASE + (DEMO ? ' (демо)' : ''));
   try {
+    if (has('warmup')) {
+      const A = await launch('warm-a', 9344);
+      const B = await launch('warm-b', 9345);
+      try {
+        await login(A, env.a);
+        record('прогрев A: профиль и ключи', true);
+        await login(B, env.b);
+        record('прогрев B: профиль и ключи', true);
+      } finally {
+        A.close();
+        B.close();
+      }
+      await sleep(800);
+      process.exit(0);
+    }
     if (DEMO) await runDemo();
     else await runLive();
   } catch (err) {
