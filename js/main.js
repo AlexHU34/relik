@@ -388,7 +388,7 @@ function showVerify(email, mode = 'email') {
 }
 
 async function checkInviteCode(code) {
-  const expected = 'RELIK2013';
+  const expected = 'LAREK1999';
   const timeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), 8000));
   const request = (async () => {
     try {

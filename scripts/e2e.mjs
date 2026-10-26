@@ -390,7 +390,7 @@ async function runSignup() {
     if (invite) {
       await ctx.evaluate(`(function(){
         var i=document.getElementById('verifyCode');
-        i.value='RELIK2013';
+        i.value='LAREK1999';
         i.dispatchEvent(new Event('input'));
         document.getElementById('verifyGo').click();
       })()`);

@@ -1,6 +1,6 @@
 -- ============================================================
 -- Relik: код приглашения для регистрации
--- Выполнить в SQL Editor. Код по умолчанию: RELIK2013
+-- Выполнить в SQL Editor. Код по умолчанию: LAREK1999
 -- ============================================================
 
 create table if not exists public.app_settings (
@@ -13,7 +13,7 @@ create table if not exists public.app_settings (
 alter table public.app_settings enable row level security;
 
 insert into public.app_settings (key, value)
-values ('signup_code', 'RELIK2013')
+values ('signup_code', 'LAREK1999')
 on conflict (key) do update set value = excluded.value, updated_at = now();
 
 -- Проверка кода на сервере (клиент не видит сам код)
