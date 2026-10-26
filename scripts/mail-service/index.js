@@ -68,6 +68,20 @@ const providerReady = dryRun || (provider === 'brevo'
   : Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS));
 const ready = Boolean(sender.email && providerReady && secrets.length);
 
+function missingConfig() {
+  const missing = [];
+  if (!sender.email) missing.push('MAIL_FROM');
+  if (!secrets.length) missing.push('SEND_EMAIL_HOOK_SECRET');
+  if (provider === 'brevo') {
+    if (!BREVO_API_KEY) missing.push('BREVO_API_KEY');
+  } else {
+    if (!SMTP_HOST) missing.push('SMTP_HOST');
+    if (!SMTP_USER) missing.push('SMTP_USER');
+    if (!SMTP_PASS) missing.push('SMTP_PASS');
+  }
+  return missing;
+}
+
 const stats = {
   started: STARTED,
   received: 0,
@@ -631,6 +645,7 @@ const server = http.createServer((req, res) => {
     json(res, 200, {
       ok: true,
       ready,
+      missing: ready ? [] : missingConfig(),
       version: VERSION,
       provider: dryRun ? 'dry-run' : provider,
       uptime: Math.round((Date.now() - STARTED) / 1000),
