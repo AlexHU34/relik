@@ -1,6 +1,7 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
 import { S, user, chatTitle, chatById, bus } from './state.js';
 import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, snippet, safeImgSrc } from './utils.js';
+import { syncExpanded, setLabel } from './a11y.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -1294,6 +1295,7 @@ async function toggleProfileQr() {
     box.hidden = true;
     box.innerHTML = '';
     if (btn) btn.textContent = t('fp.qr');
+    syncExpanded();
     return;
   }
   const ready = await loadQrLib();
@@ -1309,6 +1311,8 @@ async function toggleProfileQr() {
     box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1 });
     box.hidden = false;
     if (btn) btn.textContent = t('fp.qrHide');
+    setLabel('fpQrBtn', 'fp.qrHide');
+    syncExpanded();
   } catch (err) {
     console.warn('QR error:', err);
     toast(t('fp.qrError'), { type: 'error' });
@@ -1782,6 +1786,7 @@ export function renderMessages(opts = {}) {
 function toggleSearch(show) {
   const bar = $('#chatSearch');
   bar.hidden = !show;
+  syncExpanded();
   if (show) {
     setTimeout(() => { $('#chatSearchInput').focus(); $('#chatSearchInput').select(); }, 40);
   } else {

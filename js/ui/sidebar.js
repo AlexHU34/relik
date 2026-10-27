@@ -82,7 +82,9 @@ export function renderSidebar(force = false) {
     });
 
   document.querySelectorAll('#folderRow [data-folder]').forEach((b) => {
-    b.classList.toggle('on', b.dataset.folder === folder);
+    const on = b.dataset.folder === folder;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
   });
 
   /* Первая загрузка: показываем скелетоны вместо пустого списка */

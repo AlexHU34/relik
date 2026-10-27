@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.22.0';
+const VER = 'relik-v1.23.0';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css', './css/fonts.css',
@@ -10,7 +10,7 @@ const ASSETS = [
   './js/main.js', './js/config.js', './js/vendor/supabase.js', './js/vendor/qrcode.js',
   './js/i18n/i18n.js', './js/i18n/ru.js', './js/i18n/en.js',
   './js/db/idb.js', './js/data/mock.js', './js/data/emoji.js',
-  './js/ui/state.js', './js/ui/utils.js', './js/ui/icons.js', './js/ui/toast.js',
+  './js/ui/state.js', './js/ui/utils.js', './js/ui/a11y.js', './js/ui/icons.js', './js/ui/toast.js',
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
   './js/ui/themes.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
   './js/ui/prefs.js', './js/ui/menu.js', './js/ui/dialog.js', './js/ui/richText.js', './js/ui/install.js', './js/ui/export.js', './js/ui/pin.js',

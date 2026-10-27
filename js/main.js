@@ -5,6 +5,7 @@ import { idb } from './db/idb.js';
 import { seedIfEmpty, USERS, ME, demoMessage } from './data/mock.js';
 import { S, chatById } from './ui/state.js';
 import { $ } from './ui/utils.js';
+import { applyA11y } from './ui/a11y.js';
 import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
@@ -188,11 +189,15 @@ function initAuth() {
   const passToggle = $('#passToggle');
   if (passToggle) {
     passToggle.innerHTML = icon('eye', 17);
+    passToggle.setAttribute('aria-label', t('auth.showPassword'));
+    passToggle.setAttribute('aria-pressed', 'false');
     passToggle.addEventListener('click', () => {
       const pass = $('#authPass');
       const show = pass.type === 'password';
       pass.type = show ? 'text' : 'password';
       passToggle.innerHTML = icon(show ? 'eyeOff' : 'eye', 17);
+      passToggle.setAttribute('aria-label', t(show ? 'auth.hidePassword' : 'auth.showPassword'));
+      passToggle.setAttribute('aria-pressed', String(show));
       pass.focus();
     });
   }
@@ -920,6 +925,7 @@ async function boot() {
   initPin();
   initChrome();
   paintChrome();
+  applyA11y();
 
   document.addEventListener('relik:lang', () => {
     applyDom();
@@ -928,6 +934,7 @@ async function boot() {
     paintEmptyChips();
     rerenderAll();
     refreshBar();
+    applyA11y();
   });
 
   /* при смене чата/экрана закрываем открытые окна (как в Telegram) */

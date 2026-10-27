@@ -1,6 +1,7 @@
 /* Relik — композер: ввод, ответ/редактирование, эмодзи, медиа, «микрофон» */
 import { S, chatById, chatTitle } from './state.js';
 import { $, fmtDur, esc, preview } from './utils.js';
+import { syncExpanded } from './a11y.js';
 import { icon } from './icons.js';
 import { t, lang } from '../i18n/i18n.js';
 import { idb, newId } from '../db/idb.js';
@@ -275,6 +276,7 @@ function togglePopup(which) {
   const other = which === 'attach' ? els.emojiPop : els.attachMenu;
   other.hidden = true;
   el.hidden = !el.hidden;
+  syncExpanded();
 }
 
 function insertAtCursor(txt) {

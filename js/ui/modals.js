@@ -732,6 +732,7 @@ function paintThemes() {
   wrap.innerHTML = THEMES.map((th) => `
     <button type="button" class="theme-swatch${th.id === cur ? ' on' : ''}"
             data-theme-id="${th.id}" title="${esc(th.name)}"
+            aria-label="${esc(th.name)}" aria-pressed="${th.id === cur}"
             style="background:${th.swatch[0]}"><i style="--sw-accent:${th.swatch[1]}"></i></button>
   `).join('');
 }

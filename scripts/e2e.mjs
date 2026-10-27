@@ -241,6 +241,64 @@ async function lastMessageText(ctx) {
   })()`);
 }
 
+async function runUiSmoke(ctx) {
+  const r = await ctx.evaluate(`(async () => {
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const $ = (s) => document.querySelector(s);
+    const vis = (s) => { const el = $(s); return !!el && !el.hidden; };
+    const out = {};
+
+    document.getElementById('settingsBtn').click();
+    await sleep(500);
+    out.settings = vis('#settingsOv') && document.querySelectorAll('#themeGrid > *').length >= 6;
+    document.querySelector('#settingsOv [data-close]')?.click();
+    await sleep(300);
+    out.settingsClosed = !vis('#settingsOv');
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true }));
+    await sleep(600);
+    out.palette = vis('#paletteOv') && document.querySelectorAll('#paletteList [data-pal-i]').length > 0;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(300);
+    out.paletteClosed = !vis('#paletteOv');
+
+    const si = $('#searchInput');
+    const before = document.querySelectorAll('.chat-item').length;
+    si.value = 'zzz-no-such-chat';
+    si.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(350);
+    const none = document.querySelectorAll('.chat-item').length;
+    si.value = '';
+    si.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(350);
+    out.search = before >= 1 && none === 0 && document.querySelectorAll('.chat-item').length === before;
+
+    const dm = document.querySelector('[data-folder="dm"]');
+    const all = document.querySelector('[data-folder="all"]');
+    dm?.click(); await sleep(250);
+    const dmCount = document.querySelectorAll('.chat-item').length;
+    all?.click(); await sleep(250);
+    out.folders = document.querySelectorAll('.chat-item').length >= dmCount;
+
+    out.nameless = [...document.querySelectorAll('button')]
+      .filter((b) => !(b.getAttribute('aria-label') || b.textContent || '').trim())
+      .map((b) => b.id || b.className);
+    out.namelessList = out.nameless.join(', ');
+    out.nameless = out.nameless.length;
+    return out;
+  })()`);
+
+  if (!r || r.__error) {
+    record('UI-смоук: настройки, палитра, поиск, папки, a11y', false, String(r && r.__error));
+    return;
+  }
+  record('настройки открываются и закрываются', Boolean(r.settings && r.settingsClosed));
+  record('палитра команд открывается и закрывается', Boolean(r.palette && r.paletteClosed));
+  record('поиск по чатам фильтрует и очищается', Boolean(r.search));
+  record('папки фильтруют и возвращают список', Boolean(r.folders));
+  record('у иконочных кнопок есть подписи для диктора', r.nameless === 0, 'без подписи: ' + r.nameless + (r.namelessList ? ' (' + r.namelessList + ')' : ''));
+}
+
 async function runDemo() {
   const ctx = await launch('demo', 9341);
   try {
@@ -278,6 +336,8 @@ async function runDemo() {
     await ctx.evaluate(`document.getElementById('peopleOv').hidden = true`);
 
     record('лента не сломалась', Number(before) >= 1, 'сообщений: ' + before);
+
+    await runUiSmoke(ctx);
   } finally {
     ctx.close();
   }
@@ -331,6 +391,8 @@ async function runLive() {
         record('B отправил ответ', Boolean(onB));
         const gotBack = await waitFor(A, `document.body.innerText.includes(${JSON.stringify(back)})`, 45000);
         record('A получил ответ', Boolean(gotBack));
+
+        await runUiSmoke(A);
 
         /* валюта: подарок 1 Relic за ответ B */
         const gifting = await A.evaluate(`(async () => {

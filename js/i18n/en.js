@@ -663,6 +663,18 @@ export default {
   'call.recError': 'Could not record the call',
   'call.recUnsupported': 'This browser cannot record calls',
   'call.screenNoAudio': 'System audio was not shared — tick “Share audio” when picking a screen',
+  /* labels for screen readers */
+  'call.mute': 'Mute microphone',
+  'call.unmute': 'Unmute microphone',
+  'call.hangup': 'End call',
+  'call.accept': 'Answer',
+  'call.decline': 'Decline',
+  'call.camera': 'Turn camera on',
+  'call.cameraOff': 'Turn camera off',
+  'call.share': 'Share screen',
+  'call.shareStop': 'Stop sharing',
+  'auth.showPassword': 'Show password',
+  'auth.hidePassword': 'Hide password',
 
   /* Command palette */
   'palette.title': 'Command palette',
