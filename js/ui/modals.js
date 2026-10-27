@@ -135,8 +135,15 @@ export function initModals() {
   $('#secNav')?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-target]');
     if (!b) return;
+    paintSecNav(b.dataset.target);
     document.querySelector(b.dataset.target)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   });
+  /* полоска под панелью появляется только когда список прокручен */
+  const mBody = $('#settingsOv .m-body');
+  mBody?.addEventListener('scroll', () => {
+    if (mBody.scrollTop > 2) delete mBody.dataset.atTop;
+    else mBody.dataset.atTop = '1';
+  }, { passive: true });
   ['#nameInput', '#usernameInput'].forEach((sel) => {
     $(sel)?.addEventListener('input', paintProfileDirty);
   });
@@ -541,8 +548,24 @@ export function openSettings() {
   paintStorage();
   refreshKeyStatus();
   const body = $('#settingsOv .m-body');
-  if (body) body.scrollTop = 0;
+  if (body) { body.scrollTop = 0; body.dataset.atTop = '1'; }
+  paintSecNav();
   $('#settingsOv').hidden = false;
+}
+
+/* Активный раздел в прилипшей панели: пониматно, где ты находишься,
+   и не нужно возвращаться к началу длинного списка. */
+function paintSecNav(activeTarget = null) {
+  const nav = $('#secNav');
+  if (!nav) return;
+  const buttons = [...nav.querySelectorAll('[data-target]')];
+  if (!buttons.length) return;
+  const current = activeTarget || buttons[0].dataset.target;
+  for (const b of buttons) {
+    const on = b.dataset.target === current;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-current', on ? 'true' : 'false');
+  }
 }
 
 async function paintMigrationStatus() {

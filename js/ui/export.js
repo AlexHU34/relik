@@ -36,9 +36,21 @@ async function collect() {
     }
     if (SUPABASE.url && SUPABASE.anonKey) {
       try {
-        const { loadMessages } = await import('../backend/messages.js');
-        const fresh = await loadMessages(chat.id, chat.kind, chat.publicKey);
-        if (fresh?.length) messages = fresh;
+        const { loadMessagesPage } = await import('../backend/messages.js');
+        const { oldestTs } = await import('./msgWindow.js');
+        /* история грузится страницами: экспорт должен быть полным */
+        const all = [];
+        let before = 0;
+        for (let i = 0; i < 60; i++) {
+          const { messages: page, hasMore } = await loadMessagesPage(
+            chat.id, chat.kind, chat.publicKey, before ? { before } : {},
+          );
+          if (page.length) all.unshift(...page);
+          if (!hasMore) break;
+          before = oldestTs(page);
+          if (!before) break;
+        }
+        if (all.length) messages = all;
       } catch (e) { /* остаёмся на кэше */ }
     }
     result.push({

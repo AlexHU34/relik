@@ -110,10 +110,10 @@ const THEME_DEFS = [
     id: 'light', name: 'Light',
     t: {
       bg: '#f5f7fb', surface: '#ffffff', surface2: '#eef1f7', surface3: '#e4e9f2', raise: '#ffffff',
-      line: '#dbe1ec', line2: '#c8d1e0', tx: '#1a2230', tx2: '#5a6577', tx3: '#8892a3',
+      line: '#dbe1ec', line2: '#c8d1e0', tx: '#1a2230', tx2: '#5a6577', tx3: '#66707f',
       a1: '#3b82f6', a2: '#6366f1', a3: '#8b5cf6',
       mine: '#dbe6ff', mineLine: '#c3d4f7', theirs: '#ffffff', theirsLine: '#e2e8f2',
-      metaMine: '#4a5fd6', quoteName: '#4a5fd6', tick: '#4a7cf0',
+      metaMine: '#4054c9', quoteName: '#4054c9', tick: '#3f6fe0',
       authBg: 'rgba(255,255,255,.82)', chatHeadBg: 'rgba(255,255,255,.85)', quoteBg: 'rgba(238,241,247,.9)',
     },
   },

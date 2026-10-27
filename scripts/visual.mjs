@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/* Визуальный регресс без зависимостей.
+   Снимает эталонные экраны (тёмная + светлая тема, 3 устройства) и сравнивает
+   хеши с базой. Изменился хеш — значит вёрстка поехала: смотрите новые PNG.
+
+     node scripts/visual.mjs --url http://localhost:8096/ --out shots/visual/run
+     node scripts/visual.mjs --url ... --update     # перезаписать базу
+     node scripts/visual.mjs --url ... --check      # падать при расхождении (для CI)
+
+   База: scripts/visual-baseline.json (хеши), PNG — в каталоге OUT.
+   Требуется Chrome/Edge; в CI визуальный прогон не обязателен. */
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
+import { launch, sleep, waitFor } from './lib/cdp.mjs';
+
+const argv = process.argv.slice(2);
+const has = (n) => argv.includes(`--${n}`);
+const arg = (n, d) => {
+  const i = argv.indexOf(`--${n}`);
+  return i >= 0 && argv[i + 1] ? argv[i + 1] : d;
+};
+
+const BASE = arg('url', 'http://localhost:8096/').replace(/\/?$/, '/');
+const OUT = arg('out', 'shots/visual/run');
+const CHECK = has('check');
+const UPDATE = has('update');
+const BASE_FILE = 'scripts/visual-baseline.json';
+
+const DEVICES = [
+  { id: 'desktop', width: 1440, height: 900, mobile: false },
+  { id: 'tablet', width: 834, height: 1112, mobile: true },
+  { id: 'phone', width: 390, height: 844, mobile: true },
+];
+
+mkdirSync(OUT, { recursive: true });
+
+const hash = (buf) => createHash('sha256').update(buf).digest('hex').slice(0, 16);
+
+const ctx = await launch({ port: 9334, size: [1440, 900] });
+const shots = [];
+let failed = 0;
+
+async function snap(name, device) {
+  await ctx.device(device.width, device.height, device.mobile);
+  await sleep(450);
+  const png = await ctx.screenshot();
+  if (!png) {
+    console.error(`  FAIL  ${name}: пустой скриншот`);
+    failed += 1;
+    return;
+  }
+  const file = join(OUT, `${name}.png`);
+  writeFileSync(file, png);
+  shots.push({ name, hash: hash(png), file });
+  console.log(`  OK    ${name}  ${hash(png)}  ${Math.round(png.length / 1024)} KB`);
+}
+
+async function loadDemo() {
+  await ctx.goto(`${BASE}?demo=1`, 1400);
+  /* ?demo=1 подменяет бэкенд на IndexedDB; вход — обычной формой
+     (в демо принимается любой email/пароль). */
+  const inApp = await ctx.evaluate(`!document.getElementById('appView')?.hidden`);
+  if (!inApp) {
+    await ctx.evaluate(`(function(){
+      var e=document.getElementById('authEmail'), p=document.getElementById('authPass');
+      if(!e||!p) return false;
+      e.value='demo@relik.app';
+      p.value='demo12345';
+      document.getElementById('authForm').requestSubmit();
+      return true;
+    })()`);
+    await sleep(1200);
+  }
+  await waitFor(ctx, `!document.getElementById('appView')?.hidden`, 25000, 500);
+  /* первый запуск демо — даём сиду и анимациям устояться */
+  await sleep(1200);
+}
+
+try {
+  await loadDemo();
+
+  for (const d of DEVICES) {
+    await snap(`app-${d.id}`, d);
+  }
+
+  /* чат: на каждом устройстве открываем первый диалог уже после ресайза —
+     на телефоне список и чат это разные панели */
+  for (const d of DEVICES) {
+    await ctx.device(d.width, d.height, d.mobile);
+    await sleep(400);
+    const opened = await ctx.evaluate(`(function(){
+      var row = document.querySelector('.chat-item[data-cid]');
+      if (!row) return false;
+      row.click();
+      return true;
+    })()`);
+    await sleep(900);
+    if (opened) await snap(`chat-${d.id}`, d);
+    else console.log('  SKIP  экран чата: нет чатов в демо-данных');
+  }
+
+  /* настройки */
+  await ctx.device(1440, 900, false);
+  await ctx.evaluate(`document.getElementById('settingsBtn')?.click()`);
+  await sleep(700);
+  await snap('settings-desktop', { width: 1440, height: 900, mobile: false });
+  await ctx.evaluate(`document.querySelector('#settingsOv [data-close]')?.click()`);
+  await sleep(300);
+
+  /* светлая тема (равноправная: проверяем контраст и читаемость) */
+  await ctx.evaluate(`localStorage.setItem('relik.theme','light')`);
+  await loadDemo();
+  await snap('app-light-desktop', { width: 1440, height: 900, mobile: false });
+  await snap('app-light-phone', { width: 390, height: 844, mobile: true });
+  await ctx.evaluate(`localStorage.removeItem('relik.theme')`);
+} catch (err) {
+  console.error('Визуальный прогон упал:', err?.message || err);
+  failed += 1;
+} finally {
+  ctx.close();
+}
+
+/* Сравнение с базой */
+let baseline = null;
+if (existsSync(BASE_FILE)) {
+  try { baseline = JSON.parse(readFileSync(BASE_FILE, 'utf8')); } catch (e) { baseline = null; }
+}
+const map = Object.fromEntries(shots.map((s) => [s.name, s.hash]));
+
+if (UPDATE) {
+  mkdirSync('scripts', { recursive: true });
+  writeFileSync(BASE_FILE, JSON.stringify(map, null, 2) + '\n');
+  console.log(`\nБаза обновлена: ${BASE_FILE} (${shots.length} экранов)`);
+} else if (baseline) {
+  const changed = [];
+  for (const [name, h] of Object.entries(map)) {
+    if (baseline[name] && baseline[name] !== h) changed.push(name);
+  }
+  if (changed.length) {
+    console.log(`\nИзменились экраны (${changed.length}): ${changed.join(', ')}`);
+    console.log(`PNG: ${OUT}. Если это ожидаемо — обновите базу: --update`);
+    if (CHECK) failed += 1;
+  } else {
+    console.log('\nВизуально всё совпадает с базой.');
+  }
+} else {
+  console.log(`\nБазы нет. Создать: node scripts/visual.mjs --url ${BASE} --update`);
+}
+
+if (failed) process.exit(1);

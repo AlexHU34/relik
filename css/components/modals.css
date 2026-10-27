@@ -127,9 +127,11 @@ html[data-device="phone"] .m-foot .btn{flex:1;min-width:120px}
 .lightbox .lx-dl:hover{color:var(--tx)}
 .lightbox .lx-close:hover{color:var(--tx)}
 
-/* Тосты */
-#toasts{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));translate:-50% 0;z-index:100;display:grid;gap:8px;justify-items:center;pointer-events:none}
+/* Тосты: слой выше навигации и модалок — на телефоне они не должны
+   прятаться за строкой профиля (раньше z-index 100 спорил с панелями). */
+#toasts{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));translate:-50% 0;z-index:var(--z-toast);display:grid;gap:8px;justify-items:center;pointer-events:none;max-width:min(92vw,460px)}
 html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom))}
+html[data-device="phone"] .toast{max-width:calc(100vw - 28px)}
 .toast{
   display:flex;align-items:center;gap:8px;pointer-events:auto;
   background:var(--raise);border:1px solid var(--line-2);color:var(--tx);
@@ -343,7 +345,7 @@ html[data-device="phone"] #toasts{bottom:calc(88px + env(safe-area-inset-bottom)
 .pal-name{font-size:var(--fs-sm);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pal-sub{font-size:var(--fs-2xs);color:var(--tx-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pal-side{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:none}
-.pal-time{font-size:9.5px;color:var(--tx-3);font-variant-numeric:tabular-nums}
+.pal-time{font-size:var(--fs-2xs);color:var(--tx-3);font-variant-numeric:tabular-nums}
 .pal-badge{
   min-width:18px;height:18px;padding:0 6px;border-radius:var(--r-full);
   background:var(--grad);color:#fff;font-size:10px;font-weight:700;
@@ -416,7 +418,7 @@ html[data-device="phone"] .recover-bar .rb-btn{flex:1}
 /* Ключи и восстановление доступа */
 .key-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .key-tabs{display:flex;gap:6px;margin:8px 0 10px}
-.key-tab{font:inherit;font-size:12.5px;color:var(--tx-2);background:transparent;border:1px solid var(--line-2);border-radius:9px;padding:6px 12px;cursor:pointer}
+.key-tab{font:inherit;font-size:var(--fs-xs);color:var(--tx-2);background:transparent;border:1px solid var(--line-2);border-radius:9px;padding:6px 12px;cursor:pointer}
 .key-tab.on{color:var(--tx);background:var(--surface-3);border-color:rgba(91,108,249,.5)}
 .key-phrase{min-height:76px;resize:vertical;font-size:13px;line-height:1.5;letter-spacing:.01em}
 .key-words{display:grid;grid-template-columns:repeat(auto-fill,minmax(126px,1fr));gap:6px;margin:10px 0}
@@ -433,7 +435,7 @@ html[data-device="phone"] .key-words{grid-template-columns:repeat(2,1fr)}
 .decrypt-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 10px 8px;padding:8px 10px;
   border:1px solid rgba(224,162,60,.45);background:rgba(224,162,60,.12);border-radius:12px}
 .decrypt-bar .db-ic{display:inline-flex;color:var(--warn,#e0a23c)}
-.decrypt-bar .db-text{flex:1;min-width:160px;font-size:12.5px;color:var(--tx-2);line-height:1.4}
+.decrypt-bar .db-text{flex:1;min-width:160px;font-size:var(--fs-xs);color:var(--tx-2);line-height:1.4}
 .decrypt-bar .btn{padding:6px 10px;font-size:12px}
 html[data-device="phone"] .decrypt-bar{margin:0 6px 6px}
 
@@ -453,11 +455,19 @@ html[data-device="phone"] .decrypt-bar{margin:0 6px 6px}
 .m-head .icon-btn{width:44px;height:44px}
 
 /* Настройки: быстрая навигация по разделам */
-.sec-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:2px}
+/* Панель разделов прилипает к верху: в длинных настройках до неё иначе
+   приходится прокручивать весь список обратно. */
+.sec-nav{
+  display:flex;gap:6px;flex-wrap:wrap;margin:0 -4px 2px;padding:8px 4px;
+  position:sticky;top:-1px;z-index:3;background:var(--surface);
+  border-bottom:1px solid transparent;transition:border-color var(--t-fast);
+}
+.m-body:not([data-at-top]) .sec-nav{border-bottom-color:var(--line)}
 .sec-nav button{
-  font:inherit;font-size:11.5px;font-weight:600;color:var(--tx-2);
+  font:inherit;font-size:var(--fs-2xs);font-weight:600;color:var(--tx-2);
   background:var(--surface-2);border:1px solid var(--line-2);border-radius:var(--r-full);
   padding:6px 12px;cursor:pointer;transition:background var(--t-fast),color var(--t-fast),border-color var(--t-fast);
 }
 .sec-nav button:hover{background:var(--surface-3);color:var(--tx)}
+.sec-nav button.on{background:var(--accent-soft);border-color:var(--accent-glow);color:var(--tx)}
 @media (hover:none){.sec-nav button{min-height:40px}}

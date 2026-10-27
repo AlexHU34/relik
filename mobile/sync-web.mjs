@@ -8,7 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, '..');
 const dst = path.join(here, 'www');
 
-const EXCLUDE_DIRS = new Set(['mobile', 'scripts', 'supabase', 'tools', '.git', 'node_modules', 'android', '.github']);
+const EXCLUDE_DIRS = new Set(['mobile', 'scripts', 'supabase', 'tools', 'shots', '.git', 'node_modules', 'android', '.github']);
 const EXCLUDE_FILES = new Set(['.gitignore', '.nojekyll']);
 
 fs.rmSync(dst, { recursive: true, force: true });

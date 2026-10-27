@@ -249,6 +249,7 @@ export default {
   'chat.searchNext': 'Следующее совпадение',
   'chat.newMessages': 'Новые сообщения',
   'chat.loadEarlier': 'Показать раньше',
+  'chat.loadEarlierFail': 'Не удалось загрузить историю. Проверьте связь.',
   'chat.dropFiles': 'Отпустите файл, чтобы отправить',
   'chat.toBottom': 'Вниз к новым сообщениям',
   'chat.pinned': 'Закреплённое',

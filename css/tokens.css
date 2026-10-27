@@ -48,10 +48,17 @@
   --sh-2:0 10px 30px -12px rgba(0,0,0,.55);
   --sh-pop:0 18px 50px -12px rgba(0,0,0,.65), 0 0 0 1px var(--line);
 
-  /* Типографика */
+  /* Типографика: целые пиксели — на 100% масштабе Windows текст без мыла.
+     Полупиксельные размеры (11.5 / 14.5 / 16.5) давали размытые глифы. */
   --font:"Inter","SF Pro Display",system-ui,"Segoe UI",Roboto,sans-serif;
-  --fs-2xs:11.5px; --fs-xs:12px; --fs-sm:13px; --fs-md:14.5px;
-  --fs-lg:16.5px; --fs-xl:20px; --fs-2xl:26px; --fs-3xl:34px;
+  --fs-2xs:12px; --fs-xs:13px; --fs-sm:14px; --fs-md:15px;
+  --fs-lg:17px; --fs-xl:20px; --fs-2xl:26px; --fs-3xl:34px;
+  --lh-tight:1.2; --lh-normal:1.5; --lh-loose:1.65;
+  --ls-tight:-.011em; --ls-wide:.02em;
+
+  /* Слои: один список, чтобы тосты и модалки не спорили за z-index */
+  --z-base:0; --z-sticky:20; --z-nav:60; --z-overlay:80;
+  --z-pop:100; --z-toast:1200; --z-lightbox:1100; --z-pin:9500;
 
   /* Отступы */
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px;

@@ -18,7 +18,7 @@ import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs, getChatTtl, getChatTtlSince, setChatTtl } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
-import { loadMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead, encodeTtl } from '../backend/messages.js';
+import { loadMessages, loadMessagesPage, loadOlderMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead, encodeTtl } from '../backend/messages.js';
 import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 import { ensureDmMember } from '../backend/chats.js';
@@ -30,11 +30,11 @@ import { notifyPush } from '../backend/push.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 import { registerExpiry, clearExpiry } from '../backend/expiry.js';
 import { openRecoveryFlow } from './keyRecovery.js';
-
-const PAGE_SIZE = 240;
+import { PAGE_SIZE, mergeMessages, windowOf, oldestTs } from './msgWindow.js';
 
 let els = {};
 const playing = new Map(); // msgId -> {timer, i, bars}
+let loadingOlder = false;
 let searchQuery = '';
 let searchHits = [];
 let searchIndex = 0;
@@ -156,11 +156,32 @@ export function initChatView() {
     const value = e.target.value.trim();
     clearTimeout(searchInputTimer);
     /* не перерисовываем 240 сообщений на каждую букву */
-    searchInputTimer = setTimeout(() => {
+    searchInputTimer = setTimeout(async () => {
       searchQuery = value;
       searchIndex = 0;
       renderMessages();
-      if (searchQuery && searchHits.length) jumpTo(searchHits[searchIndex]);
+      if (searchQuery && searchHits.length) { jumpTo(searchHits[searchIndex]); return; }
+      /* В памяти только последняя страница — на длинном чате поиск бы «врал».
+         Догружаем до трёх страниц истории, но только пока запрос тот же. */
+      const id = S.active;
+      if (!searchQuery || !id || !S.msgMore?.[id]) return;
+      for (let i = 0; i < 3 && S.msgMore?.[id] && searchQuery === value; i++) {
+        const chat = chatById(id);
+        const before = oldestTs(S.messages[id] || []);
+        if (!chat || !before) break;
+        try {
+          const { messages, hasMore } = await loadOlderMessages(id, before, chat.kind, chat.publicKey);
+          if (S.active !== id || searchQuery !== value) return;
+          S.msgMore = { ...(S.msgMore || {}), [id]: hasMore };
+          if (!messages.length) break;
+          S.messages[id] = mergeMessages(messages, S.messages[id] || []);
+          renderMessages();
+          if (searchHits.length) { jumpTo(searchHits[searchIndex]); break; }
+        } catch (err) {
+          console.warn('Search history error:', err);
+          break;
+        }
+      }
     }, 110);
   });
   $('#chatSearchInput').addEventListener('keydown', (e) => {
@@ -247,13 +268,50 @@ export function initChatView() {
     }
   }, { passive: true });
 
-  /* «Показать раньше» — подгружаем предыдущую страницу ленты */
-  els.msgs.addEventListener('click', (e) => {
-    if (!e.target.closest('[data-load-earlier]')) return;
+  /* «Показать раньше»: сначала расширяем окно из памяти, затем — страница с сервера */
+  els.msgs.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-load-earlier]');
+    if (!btn) return;
     const id = S.active;
     if (!id) return;
-    S.renderLimit = { ...(S.renderLimit || {}), [id]: (S.renderLimit?.[id] || PAGE_SIZE) + PAGE_SIZE };
-    renderMessages({ prepend: true });
+    const limit = S.renderLimit?.[id] || PAGE_SIZE;
+    const total = (S.messages[id] || []).filter((m) => !m.hidden).length;
+
+    if (total > limit) {
+      S.renderLimit = { ...(S.renderLimit || {}), [id]: limit + PAGE_SIZE };
+      renderMessages({ prepend: true });
+      return;
+    }
+
+    if (!S.msgMore?.[id] || loadingOlder) return;
+    loadingOlder = true;
+    btn.classList.add('loading');
+    btn.setAttribute('aria-busy', 'true');
+    try {
+      const chat = chatById(id);
+      const before = oldestTs(S.messages[id] || []);
+      if (!chat || !before) return;
+      const { messages, hasMore } = await loadOlderMessages(id, before, chat.kind, chat.publicKey);
+      if (S.active !== id) return;
+      S.msgMore = { ...(S.msgMore || {}), [id]: hasMore };
+      if (messages.length) {
+        S.messages[id] = mergeMessages(messages, S.messages[id] || []);
+        S.renderLimit = { ...(S.renderLimit || {}), [id]: limit + PAGE_SIZE };
+        renderMessages({ prepend: true });
+        hydrateMessagesMedia(messages).then((changed) => {
+          if (changed && S.active === id) renderMessages({ prepend: true });
+        }).catch(() => {});
+      } else {
+        renderMessages({ prepend: true });
+      }
+    } catch (err) {
+      console.warn('Load older error:', err);
+      toast(t('chat.loadEarlierFail'), { type: 'error' });
+    } finally {
+      loadingOlder = false;
+      btn.classList.remove('loading');
+      btn.removeAttribute('aria-busy');
+    }
   });
 
   /* двойной клик по сообщению — ответ */
@@ -596,20 +654,6 @@ function closeReact() {
 }
 
 /* ── «Живая» лента: Realtime + тихий опрос на случай сбоя сокета ── */
-function mergeMessages(server, local) {
-  const map = new Map(server.map((m) => [m.id, m]));
-  for (const m of local) {
-    const s = map.get(m.id);
-    if (!s) map.set(m.id, m);
-    else {
-      if (m.status === 'read') s.status = 'read'; // локальная отметка прочтения не теряется
-      if (m.localDeleted) { s.hidden = true; s.localDeleted = true; } // «удалено у себя»
-      if (m.ttlStartedAt && !s.ttlStartedAt) s.ttlStartedAt = m.ttlStartedAt;
-      if (m.expired) { s.hidden = true; s.expired = true; s.localDeleted = true; }
-    }
-  }
-  return [...map.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0));
-}
 
 /* ── Прочтение: скрытые read-события, без новых таблиц и RLS ── */
 function readUptos(raw) {
@@ -1027,10 +1071,12 @@ export async function openChat(id) {
     if (chat.kind === 'dm' && chat.userId) {
       ensureDmMember(id, chat.userId).catch(() => {});
     }
-    /* свежие сообщения из бэкенда (не блокируем UI) */
-    loadMessages(id, chat.kind, chat.publicKey)
-      .then(async (msgs) => {
+    /* свежие сообщения из бэкенда (не блокируем UI): последняя страница,
+       остальная история — по кнопке «показать раньше» */
+    loadMessagesPage(id, chat.kind, chat.publicKey)
+      .then(async ({ messages: msgs, hasMore }) => {
         if (S.active !== id) return;
+        S.msgMore = { ...(S.msgMore || {}), [id]: hasMore };
         /* сервер — источник правды, но локальные «отправляется/ошибка» не теряем */
         S.messages[id] = mergeMessages(msgs, S.messages[id] || []);
         applyReadState(id);
@@ -1684,8 +1730,9 @@ export function renderMessages(opts = {}) {
     const idx = all.findIndex((m) => m.id === currentId);
     if (idx >= 0 && all.length - idx > limit) limit = all.length - idx + 12;
   }
-  const visible = all.length <= limit ? all : all.slice(-limit);
-  const hiddenCount = all.length - visible.length;
+  const win = windowOf(all, limit);
+  const visible = win.visible;
+  const hiddenCount = win.hiddenCount;
 
   const countEl = $('#chatSearchCount');
   if (countEl) {
@@ -1722,9 +1769,10 @@ export function renderMessages(opts = {}) {
       <b>${t(showLocked ? 'chat.hide' : 'chat.show')}</b>
     </button>`;
   }
-  if (hiddenCount > 0) {
+  const moreOnServer = !!S.msgMore?.[S.active];
+  if (hiddenCount > 0 || (moreOnServer && !q)) {
     html += `<button type="button" class="load-earlier" data-load-earlier>
-      ${icon('chevronUp', 15)} <span>${t('chat.loadEarlier')}</span><b>${hiddenCount}</b>
+      ${icon('chevronUp', 15)} <span>${t('chat.loadEarlier')}</span>${hiddenCount ? `<b>${hiddenCount}</b>` : ''}
     </button>`;
   }
 
@@ -2120,7 +2168,8 @@ function msgHtml(m, first, hitIndex = -1) {
   const u = mine ? S.me : user(m.sender);
   const searchCls = hitIndex >= 0 ? ` search-hit${hitIndex === searchIndex ? ' search-current' : ''}` : '';
   const selectCls = selectMode ? ` selectable${selectedMsgs.has(m.id) ? ' selected' : ''}` : '';
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}${selectCls}`;
+  const hasMedia = ['image', 'video', 'file', 'voice', 'album', 'videoNote'].includes(m.type);
+  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${hasMedia ? ' has-media' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}${selectCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';

@@ -63,7 +63,7 @@
 }
 .emoji-tab:hover{opacity:1;background:var(--surface-3)}
 .emoji-tab.on{opacity:1;background:var(--accent-soft)}
-.emoji-group-title{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx-3);padding:7px 12px 2px}
+.emoji-group-title{font-size:var(--fs-2xs);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx-3);padding:7px 12px 2px}
 .emoji-grid{
   display:grid;grid-template-columns:repeat(8,1fr);gap:1px;
   padding:2px 6px 8px;overflow-y:auto;min-height:80px;

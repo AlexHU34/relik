@@ -249,6 +249,7 @@ export default {
   'chat.searchNext': 'Next match',
   'chat.newMessages': 'New messages',
   'chat.loadEarlier': 'Show earlier',
+  'chat.loadEarlierFail': 'Could not load history. Check your connection.',
   'chat.dropFiles': 'Drop a file to send',
   'chat.toBottom': 'Jump to new messages',
   'chat.pinned': 'Pinned',

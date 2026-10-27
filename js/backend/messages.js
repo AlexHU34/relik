@@ -255,25 +255,51 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
   return msg;
 }
 
-/* ── Загрузка сообщений чата с дешифрованием ── */
-export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = null) {
-  const { data, error } = await sb
+/* ── Загрузка сообщений чата с дешифрованием ──
+   Постранично: сначала последние SERVER_PAGE, остальное — по требованию
+   (loadOlderMessages). Раньше тянулась и расшифровывалась вся история,
+   из-за чего долгие чаты открывались секундами. */
+const SERVER_PAGE = 50;
+
+export async function loadMessagesPage(chatId, chatKind = 'dm', theirPublicKeyJwk = null, opts = {}) {
+  const limit = Math.min(200, Math.max(1, Number(opts.limit) || SERVER_PAGE));
+  let query = sb
     .from('messages')
     .select('*')
     .eq('conversation_id', chatId)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: false })
+    .limit(limit + 1);
+  if (opts.before) {
+    query = query.lt('created_at', new Date(Number(opts.before)).toISOString());
+  }
 
+  const { data, error } = await query;
   if (error) throw error;
+
+  const rows = Array.isArray(data) ? data : [];
+  const hasMore = rows.length > limit;
+  /* страница пришла «с конца» — разворачиваем и расшифровываем по порядку */
+  const page = (hasMore ? rows.slice(0, limit) : rows).slice().reverse();
 
   const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
   /* v2 ratchet нельзя расшифровывать параллельно: порядок важен */
   const messages = [];
-  for (const row of data) messages.push(await rowToMessage(row, keyPair, theirPubKey, chatKind));
+  for (const row of page) messages.push(await rowToMessage(row, keyPair, theirPubKey, chatKind));
 
   // Кэшируем в IndexedDB (уже дешифрованные)
   await idb.bulkPut('messages', messages);
 
+  return { messages, hasMore };
+}
+
+export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = null, opts = {}) {
+  const { messages } = await loadMessagesPage(chatId, chatKind, theirPublicKeyJwk, opts);
   return messages;
+}
+
+/* Предыдущая страница истории (то, что выше самого старого сообщения в ленте). */
+export async function loadOlderMessages(chatId, beforeTs, chatKind = 'dm', theirPublicKeyJwk = null) {
+  return loadMessagesPage(chatId, chatKind, theirPublicKeyJwk, { before: beforeTs });
 }
 
 /* ── Новые сообщения после отметки времени (страховка для Realtime) ── */

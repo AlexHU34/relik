@@ -11,7 +11,7 @@ on:
 jobs:
   static:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +32,12 @@ jobs:
 
       - name: Паритет переводов RU/EN
         run: node scripts/check-i18n.mjs
+
+      - name: CSP и хеши inline-скриптов
+        run: node scripts/check-csp.mjs
+
+      - name: Юнит-тесты (разметка, лента, отпечатки)
+        run: node scripts/test.mjs
 
       - name: JSON-файлы валидны
         run: |

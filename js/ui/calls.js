@@ -9,17 +9,11 @@ import { SUPABASE } from '../config.js';
 import { RELAY } from '../config.js';
 import { initCallSignaling, stopCallSignaling, sendCallSignal } from '../backend/calls.js';
 import { isBlocked } from '../backend/blocks.js';
+import { getIceServers, currentIceServers } from '../backend/turn.js';
 
-const ICE = {
-  iceServers: [
-    ...(Array.isArray(RELAY.stunUrls) ? RELAY.stunUrls.map((u) => ({ urls: u })) : []),
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
-    ...(Array.isArray(RELAY.urls) && RELAY.urls.length
-      ? [{ urls: RELAY.urls, username: RELAY.username || undefined, credential: RELAY.credential || undefined }]
-      : []),
-  ],
-};
+/* Креды TURN обновляются на старте звонка (эфемерные, на 1 час).
+   Здесь — синхронный запас на случай, если RPC не успел ответить. */
+let iceConfig = null;
 
 let state = 'idle';           // idle | out | in | connecting | active
 let pc = null;
@@ -110,6 +104,7 @@ export async function startCall(chat, opts = {}) {
   startRing();
 
   try {
+    await prepareIce();
     pc = createPc();
     await attachMedia(pc, wantVideo);
     const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: wantVideo });
@@ -206,6 +201,7 @@ async function acceptCall() {
   setStatus(t('call.connecting'));
 
   try {
+    await prepareIce();
     pc = createPc();
     await attachMedia(pc, wantVideo);
     await pc.setRemoteDescription(offerSdp);
@@ -226,8 +222,16 @@ function declineCall() {
 }
 
 /* ── WebRTC ───────────────────────────────────────────────── */
+async function prepareIce() {
+  try {
+    iceConfig = { iceServers: await getIceServers() };
+  } catch (e) {
+    iceConfig = { iceServers: currentIceServers() };
+  }
+}
+
 function createPc() {
-  const conn = new RTCPeerConnection(ICE);
+  const conn = new RTCPeerConnection(iceConfig || { iceServers: currentIceServers() });
 
   conn.onicecandidate = (e) => {
     if (e.candidate && peerId) {

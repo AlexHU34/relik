@@ -53,6 +53,10 @@
 }
 .msg.first.mine .bubble{border-bottom-right-radius:6px}
 .msg.flash .bubble{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+/* Медиа-пузырь подстраивается под картинку, а не тянется на всю ширину:
+   раньше справа от фото оставалась пустая полоса. */
+.msg.has-media .bubble{max-width:min(340px,100%)}
+.msg.has-media .msg-text{max-width:100%}
 
 .msg-text{font-size:var(--fs-md);line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .msg-deleted{color:var(--tx-3);font-style:italic;font-size:var(--fs-sm)}
@@ -180,15 +184,15 @@ html[data-motion="off"] .ticks.sending .ic{animation:none}
 .chat-search{display:flex;align-items:center;gap:8px;padding:8px max(14px,calc((100% - 940px)/2));border-bottom:1px solid var(--line);background:var(--surface);backdrop-filter:blur(14px)}
 .chat-search .cs-ic{color:var(--tx-3);display:grid;flex:none}
 .chat-search .input{flex:1;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-size:13px}
-.chat-search .cs-count{font-size:11.5px;color:var(--tx-3);min-width:34px;text-align:right}
+.chat-search .cs-count{font-size:var(--fs-2xs);color:var(--tx-3);min-width:34px;text-align:right}
 .pin-bar{display:flex;align-items:center;gap:10px;padding:8px max(14px,calc((100% - 940px)/2));border-bottom:1px solid var(--line);background:var(--surface-2);cursor:pointer}
 .pin-bar .pin-ic{color:var(--indigo);display:grid;flex:none}
 .pin-main{flex:1;display:grid;gap:1px;min-width:0}
-.pin-label{font-size:10.5px;font-weight:700;color:var(--indigo)}
-.pin-text{font-size:12.5px;color:var(--tx-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pin-label{font-size:var(--fs-2xs);font-weight:700;color:var(--indigo)}
+.pin-text{font-size:var(--fs-xs);color:var(--tx-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Скорость голосового */
-.v-speed{font-size:10.5px;font-weight:600;color:var(--tx-2);background:var(--surface-3);border:1px solid var(--line);border-radius:8px;padding:1px 6px;flex:none}
+.v-speed{font-size:var(--fs-2xs);font-weight:600;color:var(--tx-2);background:var(--surface-3);border:1px solid var(--line);border-radius:8px;padding:1px 6px;flex:none}
 .v-speed:hover{color:var(--tx);border-color:var(--line-2)}
 
 /* ---------- Опрос ---------- */
@@ -298,6 +302,9 @@ html[data-wallpaper="custom"] .msgs{
 }
 .load-earlier:hover{background:var(--surface-3);color:var(--tx)}
 .load-earlier b{color:var(--tx-3);font-weight:600}
+.load-earlier.loading{opacity:.6;pointer-events:none}
+.load-earlier.loading .ic{animation:spin 900ms linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---------- Поиск: подсветка совпадений ---------- */
 .msg.search-hit .bubble{border-color:var(--line-2)}
@@ -424,7 +431,7 @@ html[data-device="phone"] .chat-head .avatar{width:36px;height:36px;font-size:14
 html[data-device="phone"] .chat-head .who{gap:9px}
 html[data-device="phone"] .msg{max-width:84%}
 html[data-device="phone"] .msg .avatar{width:30px;height:30px;font-size:12px}
-html[data-device="phone"] .msg-meta{font-size:11.5px}
+html[data-device="phone"] .msg-meta{font-size:var(--fs-2xs)}
 html[data-device="phone"] .bubble{padding:9px 12px 7px}
 
 /* ---------- выбор нескольких сообщений ---------- */
