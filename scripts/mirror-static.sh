@@ -73,10 +73,18 @@ SRC="$SRC"
 DST="$DST"
 LOG=/var/log/relik-mirror.log
 
+# Без блокировки ручной запуск и таймер могут схватиться за один shallow-клон
+# («shallow file has changed since we read it»).
+exec 9>/run/relik-mirror.lock
+flock -n 9 || exit 0
+
 cd "\$SRC"
-git fetch --depth 1 origin "\$BRANCH" >>"\$LOG" 2>&1 || exit 0
+for i in 1 2 3; do
+  git fetch --depth 1 origin "\$BRANCH" >>"\$LOG" 2>&1 && break
+  sleep \$((i * 5))
+done
 LOCAL=\$(git rev-parse HEAD)
-REMOTE=\$(git rev-parse "origin/\$BRANCH")
+REMOTE=\$(git rev-parse "origin/\$BRANCH" 2>/dev/null || echo "\$LOCAL")
 [ "\$LOCAL" = "\$REMOTE" ] && exit 0
 
 git reset --hard "\$REMOTE" >>"\$LOG" 2>&1

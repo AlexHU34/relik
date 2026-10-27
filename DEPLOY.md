@@ -10,6 +10,7 @@
    - Получите Project URL и anon key
    - Вставьте в `js/config.js`
    - Для звонков за строгими NAT заполните `RELAY` в `js/config.js` (TURN); без него остаётся только STUN. Используйте короткоживущие credentials — всё в `js/config.js` видно клиенту.
+   - Мониторинг (рекомендуется): `supabase/service_status.sql` + `supabase/service_uptime.sql`, агент на VPS — `scripts/push-service` (проверки раз в минуту, история доступности, алерты в Telegram). Пошагово: `OPS.md`.
 
 2. **Git репозиторий**
    - Инициализируйте: `git init`
