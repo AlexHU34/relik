@@ -1267,7 +1267,26 @@ function copyProfileFingerprint() {
   }
 }
 
-function toggleProfileQr() {
+/* qrcode.js — 55 КБ, нужен только для QR в карточке безопасности.
+   Грузим по требованию: при первом запуске эти килобайты не конкурируют
+   с модулями приложения (важно на мобильном интернете). Файл остаётся
+   в ASSETS service worker, поэтому офлайн-режим не страдает. */
+let qrLibPromise = null;
+
+function loadQrLib() {
+  if (typeof qrcode === 'function') return Promise.resolve(true);
+  if (qrLibPromise) return qrLibPromise;
+  qrLibPromise = new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = new URL('js/vendor/qrcode.js', document.baseURI).href;
+    s.onload = () => resolve(typeof qrcode === 'function');
+    s.onerror = () => { qrLibPromise = null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return qrLibPromise;
+}
+
+async function toggleProfileQr() {
   const box = $('#fpQr');
   const btn = $('#fpQrBtn');
   if (!box || !profileFp) return;
@@ -1277,10 +1296,12 @@ function toggleProfileQr() {
     if (btn) btn.textContent = t('fp.qr');
     return;
   }
-  if (typeof qrcode !== 'function') {
+  const ready = await loadQrLib();
+  if (!ready) {
     toast(t('fp.qrError'), { type: 'error' });
     return;
   }
+  if (!box.hidden) return; // пока грузили, окно уже открыли
   try {
     const qr = qrcode(0, 'M');
     qr.addData(profileFp.fullHex);

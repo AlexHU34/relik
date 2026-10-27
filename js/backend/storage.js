@@ -66,6 +66,9 @@ export async function uploadEncryptedBlob(chatId, blob, meta = {}) {
       .upload(path, fromBase64(encrypted.ciphertext), {
         contentType: 'application/octet-stream',
         upsert: false,
+        /* Файл неизменяемый (уникальный путь), поэтому можно кэшировать долго:
+           повторные просмотры идут из CDN Supabase, а не из egress. */
+        cacheControl: '604800',
       });
 
     if (error) {
@@ -270,7 +273,11 @@ export async function uploadFile(chatId, file, encryptionKey = null) {
     const path = `${chatId}/${Date.now()}_${randomId()}.bin`;
     const { data, error } = await sb.storage
       .from(BUCKET_NAME)
-      .upload(path, fromBase64(encrypted.ciphertext), { contentType: 'application/octet-stream', upsert: false });
+      .upload(path, fromBase64(encrypted.ciphertext), {
+        contentType: 'application/octet-stream',
+        upsert: false,
+        cacheControl: '604800',
+      });
     if (error) throw error;
     return { path: data.path, metadata: { name: file.name, size: file.size, type: file.type, iv: encrypted.iv } };
   }

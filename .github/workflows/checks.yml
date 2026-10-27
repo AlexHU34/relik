@@ -1,0 +1,40 @@
+# Статические проверки на каждый пуш: ловят поломки до того, как их увидят люди.
+# Ничего не деплоит — только проверяет.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Синтаксис всех модулей
+        run: |
+          fail=0
+          for f in $(find js scripts -type f \( -name '*.js' -o -name '*.mjs' \)); do
+            node --check "$f" || { echo "FAIL $f"; fail=1; }
+          done
+          exit $fail
+
+      - name: Ассеты и офлайн-оболочка (sw.js ASSETS, 404, импорты)
+        run: node scripts/check-assets.mjs
+
+      - name: Паритет переводов RU/EN
+        run: node scripts/check-i18n.mjs
+
+      - name: JSON-файлы валидны
+        run: |
+          for f in version.json manifest.json scripts/push-service/package.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
+          done

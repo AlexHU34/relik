@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.21.0';
+const VER = 'relik-v1.22.0';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css', './css/fonts.css',
@@ -22,16 +22,30 @@ const ASSETS = [
   './assets/icons/icon-192.png', './assets/icons/icon-512.png',
 ];
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(VER)
-      .then((c) => Promise.allSettled(ASSETS.map(async (url) => {
+/* Предзагрузка оболочки с ограничением параллельности: 86 файлов разом
+   забивают канал на мобильном интернете и мешают первой отрисовке.
+   5 потоков — компромисс: быстро и не отнимает полосу у приложения. */
+async function preloadAssets(cache, urls, concurrency = 5) {
+  const queue = urls.slice();
+  const worker = async () => {
+    while (queue.length) {
+      const url = queue.shift();
+      try {
         /* cache: no-cache — иначе GitHub Pages (max-age=600) может отдать
            в новый кэш старую версию файла. Один отсутствующий файл не
            должен ломать установку SW. */
         const res = await fetch(new Request(url, { cache: 'no-cache' }));
-        if (res && res.ok) await c.put(url, res);
-      })))
+        if (res && res.ok) await cache.put(url, res);
+      } catch (e) { /* пропускаем битый файл */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+}
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(VER)
+      .then((c) => preloadAssets(c, ASSETS))
       .then(() => self.skipWaiting())
   );
 });

@@ -1076,7 +1076,7 @@
 
   <!-- SDK грузим с defer: он больше не блокирует разбор страницы и первую отрисовку -->
   <script defer src="js/vendor/supabase.js"></script>
-  <script defer src="js/vendor/qrcode.js"></script>
+  <!-- qrcode.js (55 КБ) грузится по требованию из js/ui/chatView.js -->
   <script nomodule>
     document.addEventListener('DOMContentLoaded', function () {
       if (window.relikBoot) window.relikBoot.fail('Браузер не поддерживает современный JavaScript', 'Обновите браузер или откройте ссылку в Chrome / Safari.');

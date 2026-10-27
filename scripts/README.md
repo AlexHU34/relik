@@ -111,5 +111,10 @@ node scripts/relik-health.mjs --telegram # плюс алерт в Telegram пр�
 | `Caddyfile.relik` | конфиг Caddy для зеркала (кэш, HSTS, без SPA-fallback) |
 | `backup-db.sh` | ежедневный дамп БД (restore-тест — раз в квартал) |
 | `fetch-fonts.mjs` | перекачать локальный Inter (обычно не нужен) |
+| `check-assets.mjs` | проверка целостности офлайн-оболочки: ASSETS ↔ файлы, 404 в HTML/CSS, импорты, версия кэша |
+| `check-i18n.mjs` | паритет ключей RU/EN |
+
+Обе проверки гоняются автоматически в GitHub Actions (`.github/workflows/checks.yml`)
+на каждый пуш: битый ассет или несогласованный перевод больше не доедет до людей.
 
 Мониторинг включается за 30 минут и без денег — пошагово в `OPS.md`, раздел 4.
