@@ -41,9 +41,39 @@ const ctx = await launch({ port: 9334, size: [1440, 900] });
 const shots = [];
 let failed = 0;
 
-async function snap(name, device) {
+/* Глушим анимации и фиксируем часы: иначе «22:45» в ленте меняет каждый
+   прогон и хеши не совпадают. Экраны с живыми счётчиками помечаем volatile. */
+const FIXED_TS = Date.UTC(2026, 9, 27, 12, 0, 0);
+await ctx.send('Page.addScriptToEvaluateOnNewDocument', {
+  source: `(function(){
+    var FIXED = ${FIXED_TS};
+    var Real = Date;
+    function Fake(...a){ return a.length ? new Real(...a) : new Real(FIXED); }
+    Fake.now = function(){ return FIXED; };
+    Fake.parse = Real.parse; Fake.UTC = Real.UTC;
+    Fake.prototype = Real.prototype;
+    window.Date = Fake;
+    document.addEventListener('DOMContentLoaded', function(){
+      var s = document.createElement('style');
+      s.textContent = '*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition:none!important}';
+      document.head.appendChild(s);
+    });
+  })();`,
+});
+
+const STABLE_CSS = `(function(){
+  var s = document.createElement('style');
+  s.textContent = '#toasts{display:none!important}.typing{display:none!important}';
+  document.head.appendChild(s);
+  document.querySelectorAll('#toasts').forEach(function(n){ n.remove(); });
+  return true;
+})()`;
+
+async function snap(name, device, { volatile = false } = {}) {
   await ctx.device(device.width, device.height, device.mobile);
   await sleep(450);
+  await ctx.evaluate(STABLE_CSS);
+  await sleep(120);
   const png = await ctx.screenshot();
   if (!png) {
     console.error(`  FAIL  ${name}: пустой скриншот`);
@@ -52,8 +82,10 @@ async function snap(name, device) {
   }
   const file = join(OUT, `${name}.png`);
   writeFileSync(file, png);
-  shots.push({ name, hash: hash(png), file });
-  console.log(`  OK    ${name}  ${hash(png)}  ${Math.round(png.length / 1024)} KB`);
+  /* volatile-экраны содержат живые числа (занятое место, счётчики) —
+     снимаем их для глазами, но из сравнения хешей исключаем */
+  shots.push({ name, hash: hash(png), file, volatile });
+  console.log(`  OK    ${name}  ${hash(png)}  ${Math.round(png.length / 1024)} KB${volatile ? '  (volatile)' : ''}`);
 }
 
 async function loadDemo() {
@@ -88,15 +120,19 @@ try {
      на телефоне список и чат это разные панели */
   for (const d of DEVICES) {
     await ctx.device(d.width, d.height, d.mobile);
-    await sleep(400);
+    await sleep(500);
     const opened = await ctx.evaluate(`(function(){
       var row = document.querySelector('.chat-item[data-cid]');
       if (!row) return false;
       row.click();
       return true;
     })()`);
-    await sleep(900);
-    if (opened) await snap(`chat-${d.id}`, d);
+    /* на телефоне чат открывается отдельной панелью — дожидаемся её */
+    if (opened) await waitFor(ctx, `!document.getElementById('chatActive')?.hidden`, 8000);
+    /* демо проставляет «прочитано» по таймеру и догружает медиа — ждём,
+       иначе галочки и превью попадают в кадр в разном состоянии */
+    await sleep(2600);
+    if (opened) await snap(`chat-${d.id}`, d, { volatile: true });
     else console.log('  SKIP  экран чата: нет чатов в демо-данных');
   }
 
@@ -104,7 +140,7 @@ try {
   await ctx.device(1440, 900, false);
   await ctx.evaluate(`document.getElementById('settingsBtn')?.click()`);
   await sleep(700);
-  await snap('settings-desktop', { width: 1440, height: 900, mobile: false });
+  await snap('settings-desktop', { width: 1440, height: 900, mobile: false }, { volatile: true });
   await ctx.evaluate(`document.querySelector('#settingsOv [data-close]')?.click()`);
   await sleep(300);
 
@@ -126,7 +162,7 @@ let baseline = null;
 if (existsSync(BASE_FILE)) {
   try { baseline = JSON.parse(readFileSync(BASE_FILE, 'utf8')); } catch (e) { baseline = null; }
 }
-const map = Object.fromEntries(shots.map((s) => [s.name, s.hash]));
+const map = Object.fromEntries(shots.filter((s) => !s.volatile).map((s) => [s.name, s.hash]));
 
 if (UPDATE) {
   mkdirSync('scripts', { recursive: true });

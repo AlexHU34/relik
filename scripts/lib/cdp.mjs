@@ -56,11 +56,18 @@ export async function launch({ port = 9333, size = [1280, 900], keep = false } =
 
   let id = 0;
   const pending = new Map();
+  const listeners = new Map();
   ws.addEventListener('message', (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) {
       pending.get(m.id)(m.error ? { __error: m.error } : (m.result || {}));
       pending.delete(m.id);
+      return;
+    }
+    if (m.method && listeners.has(m.method)) {
+      for (const fn of listeners.get(m.method)) {
+        try { fn(m.params); } catch (err) { /* обработчик не должен ломать клиент */ }
+      }
     }
   });
 
@@ -97,6 +104,11 @@ export async function launch({ port = 9333, size = [1280, 900], keep = false } =
 
   return {
     send, evaluate, goto, screenshot, device,
+    /* подписка на события CDP: Runtime.exceptionThrown, Log.entryAdded, ... */
+    on(method, fn) {
+      if (!listeners.has(method)) listeners.set(method, []);
+      listeners.get(method).push(fn);
+    },
     close() {
       try { ws.close(); } catch (e) { /* ignore */ }
       try { child.kill(); } catch (e) { /* ignore */ }

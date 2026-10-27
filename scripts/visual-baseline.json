@@ -1,11 +1,7 @@
 {
-  "app-desktop": "e4b83d6166ea5136",
-  "app-tablet": "a0221a75e1494d58",
-  "app-phone": "698b4586ee11a9ab",
-  "chat-desktop": "c94decfbfd72f8c4",
-  "chat-tablet": "79eb7a6c4282da87",
-  "chat-phone": "897661dc53ed5923",
-  "settings-desktop": "beb9105727dec226",
-  "app-light-desktop": "cac5b24ae225c63c",
-  "app-light-phone": "872232f79a31f65b"
+  "app-desktop": "25968026e40c8f1a",
+  "app-tablet": "eeb2f166dd7d801d",
+  "app-phone": "b64ca8f2415fb417",
+  "app-light-desktop": "f044cecd842ed4f9",
+  "app-light-phone": "de5ad88abca9bd88"
 }
