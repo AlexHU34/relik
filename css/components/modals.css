@@ -450,4 +450,14 @@ html[data-device="phone"] .decrypt-bar{margin:0 6px 6px}
 #settingsOv .modal{width:min(520px,100%)}
 .field-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-start}
 .field-actions .btn{width:auto}
-.m-head .icon-btn{width:40px;height:40px}
+.m-head .icon-btn{width:44px;height:44px}
+
+/* Настройки: быстрая навигация по разделам */
+.sec-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:2px}
+.sec-nav button{
+  font:inherit;font-size:11.5px;font-weight:600;color:var(--tx-2);
+  background:var(--surface-2);border:1px solid var(--line-2);border-radius:var(--r-full);
+  padding:6px 12px;cursor:pointer;transition:background var(--t-fast),color var(--t-fast),border-color var(--t-fast);
+}
+.sec-nav button:hover{background:var(--surface-3);color:var(--tx)}
+@media (hover:none){.sec-nav button{min-height:40px}}

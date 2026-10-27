@@ -132,6 +132,11 @@ export function initModals() {
 
 /* ── настройки ── */
   $('#saveProfile').addEventListener('click', saveProfile);
+  $('#secNav')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-target]');
+    if (!b) return;
+    document.querySelector(b.dataset.target)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
   ['#nameInput', '#usernameInput'].forEach((sel) => {
     $(sel)?.addEventListener('input', paintProfileDirty);
   });

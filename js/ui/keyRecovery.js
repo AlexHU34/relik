@@ -85,6 +85,7 @@ export async function openKeyPanel() {
       <button class="btn btn-ghost" id="keyRestoreBtn" type="button">${esc(t('key.restore'))}</button>
     </div>
     <p class="field-hint">${esc(t('key.explain'))}</p>
+    <p class="field-hint">${esc(t('key.lostDevice'))}</p>
   `);
 
   const ov = document.getElementById('keyOv');
@@ -198,21 +199,24 @@ export async function maybePromptBackup() {
   if (blob) { promptShown = true; return; }
   promptShown = true;
 
-  const ov = open('backupPromptOv', t('key.promptTitle'), `
-    <p class="field-hint">${esc(t('key.promptText'))}</p>
-    <div class="key-actions">
-      <button class="btn" id="bpNow" type="button">${esc(t('key.promptNow'))}</button>
-      <button class="btn btn-ghost" id="bpLater" type="button">${esc(t('key.promptLater'))}</button>
-    </div>
-  `);
+  /* нижняя плашка вместо модалки: не перекрывает ввод и не крадёт фокус */
+  const bar = document.createElement('div');
+  bar.className = 'backup-bar';
+  bar.setAttribute('role', 'status');
+  bar.innerHTML = `<span class="bb-text">${esc(t('key.promptText'))}</span>`
+    + '<span class="bb-actions">'
+    + `<button class="btn" type="button" id="bpNow">${esc(t('key.promptNow'))}</button>`
+    + `<button class="btn btn-ghost" type="button" id="bpLater">${esc(t('key.promptLater'))}</button>`
+    + '</span>';
+  document.body.appendChild(bar);
 
-  ov.querySelector('#bpNow').addEventListener('click', () => {
-    close('backupPromptOv');
+  bar.querySelector('#bpNow').addEventListener('click', () => {
+    bar.remove();
     openKeyPanel().then(() => makePhrase()).catch(() => {});
   });
-  ov.querySelector('#bpLater').addEventListener('click', () => {
+  bar.querySelector('#bpLater').addEventListener('click', () => {
     try { localStorage.setItem('relik.backupPrompt.' + S.me.id, 'off'); } catch (e) { /* ignore */ }
-    close('backupPromptOv');
+    bar.remove();
   });
 }
 

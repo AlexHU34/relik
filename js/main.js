@@ -22,6 +22,7 @@ import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
 import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
 import { initDevice } from './ui/device.js';
+import { maybeShowIosHint } from './ui/iosHint.js';
 import { sb } from './backend/supabaseClient.js';
 import { signUp, signIn, signOut, restoreSession, updateLastSeen, verifySignupCode, saveAvatar, isValidUsername, isUsernameTaken, authHealth, authErrorMessage } from './backend/auth.js';
 import { retryPendingProfile } from './backend/auth.js';
@@ -905,6 +906,7 @@ async function boot() {
   initNetBar();
   initServiceWorker();
   scheduleStorageUpkeep();
+  maybeShowIosHint();
 
   /* Весь UI собираем сразу, не дожидаясь сети */
   initSidebar();

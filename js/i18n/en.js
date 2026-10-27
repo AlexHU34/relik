@@ -465,6 +465,11 @@ export default {
   'settings.secSecurity': 'Security',
   'settings.secData': 'Data',
   'settings.unsaved': 'Unsaved changes',
+
+  'ios.hint': 'iPhone: add Relik to your Home Screen (Share → Add to Home Screen) to enable push notifications.',
+  'ios.ok': 'Got it',
+
+  'key.lostDevice': 'Lost your device? Sign in with your password on the new one — the key comes from the backup. No password? Use the 12 words or the key file.',
   'settings.name': 'Name',
   'settings.save': 'Save',
   'settings.saved': 'Profile saved',

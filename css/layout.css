@@ -149,8 +149,8 @@ html[data-device="phone"] .auth-card{width:min(420px,100%);padding:20px;border:1
 html[data-device="phone"] .panel{padding:22px 16px 32px;align-content:start;gap:18px}
 
 /* Телефон: шапка, лента и композер не должны уезжать за край экрана */
-html[data-device="phone"] .chat-head{gap:4px;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:var(--bg)}
-html[data-device="phone"] .chat-head .icon-btn{width:40px;height:40px;flex:none}
+html[data-device="phone"] .chat-head{gap:2px;padding:calc(8px + env(safe-area-inset-top)) 8px 8px;background:var(--bg)}
+html[data-device="phone"] .chat-head .icon-btn{width:44px;height:44px;flex:none}
 html[data-device="phone"] #shareBtn,
 html[data-device="phone"] #infoBtn{display:none!important}
 html[data-device="phone"] .chat-head .who{padding:2px 4px;gap:8px}
@@ -159,8 +159,8 @@ html[data-device="phone"] .chat-head .who .s{font-size:11px}
 html[data-device="phone"] .msgs{padding:12px 10px 8px}
 html[data-device="phone"] .composer{padding:8px 10px calc(10px + env(safe-area-inset-bottom))}
 html[data-device="phone"] .composer-row{gap:2px;padding:6px 7px;border-radius:18px;min-height:48px}
-html[data-device="phone"] .composer-row .icon-btn{width:40px;height:40px}
-html[data-device="phone"] .send-btn{width:42px;height:42px}
+html[data-device="phone"] .composer-row .icon-btn{width:44px;height:44px}
+html[data-device="phone"] .send-btn{width:44px;height:44px}
 html[data-device="phone"] .attach-menu{max-width:calc(100vw - 32px)}
 html[data-device="phone"] .empty::before{width:320px;height:320px}
 

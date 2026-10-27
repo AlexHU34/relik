@@ -175,6 +175,30 @@ html[data-textsize="large"] #textSizeSeg [data-size="large"]{
 
 /* Крупные зоны нажатия на сенсорных экранах */
 @media (hover:none){
-  .icon-btn{min-width:40px;min-height:40px}
+  .icon-btn{width:44px;height:44px}
   .msg .tools button{min-width:38px;min-height:38px}
 }
+
+/* Подсказка «добавьте на экран Домой» (iOS) */
+.ios-hint{
+  position:fixed;top:calc(10px + env(safe-area-inset-top));left:50%;translate:-50% 0;z-index:1200;
+  display:flex;align-items:center;gap:10px;max-width:min(560px,calc(100vw - 24px));
+  padding:10px 12px;border-radius:14px;border:1px solid var(--line-2);
+  background:var(--surface-2);box-shadow:var(--sh-2);
+  font-size:12.5px;line-height:1.4;color:var(--tx-2);
+}
+.ios-hint .btn{padding:7px 12px;font-size:12px;flex:none}
+
+/* Напоминание о бэкапе ключа: нижняя плашка, не мешает вводу */
+.backup-bar{
+  position:fixed;bottom:calc(12px + env(safe-area-inset-bottom));left:50%;translate:-50% 0;z-index:900;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+  max-width:min(640px,calc(100vw - 24px));
+  padding:12px 14px;border-radius:16px;border:1px solid var(--line-2);
+  background:var(--surface-2);box-shadow:var(--sh-2);
+}
+.backup-bar .bb-text{font-size:12.5px;line-height:1.45;color:var(--tx-2)}
+.backup-bar .bb-actions{display:flex;gap:8px;flex:none}
+.backup-bar .btn{padding:8px 14px;font-size:12.5px}
+html[data-device="phone"] .backup-bar{align-items:flex-start;flex-direction:column;gap:10px}
+html[data-device="phone"] .backup-bar .bb-actions{justify-content:flex-start}
