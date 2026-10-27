@@ -35,6 +35,20 @@ const DEVICES = [
 
 mkdirSync(OUT, { recursive: true });
 
+/* Без живого сервера Chrome покажет свой экран ошибки, а мы снимем его как
+   «регресс». Лучше упасть сразу и понятно. */
+try {
+  const probe = await fetch(BASE, { cache: 'no-store' });
+  /* тело обязательно дочитываем: иначе undici ловит битый keep-alive
+     от python http.server и падает с AssertionError уже после проверки */
+  await probe.text().catch(() => '');
+  if (!probe.ok) throw new Error(`HTTP ${probe.status}`);
+} catch (err) {
+  console.error(`Сервер не отвечает: ${BASE} (${err?.message || err})`);
+  console.error('Запустите: cd relik; py -m http.server 8096');
+  process.exit(2);
+}
+
 const hash = (buf) => createHash('sha256').update(buf).digest('hex').slice(0, 16);
 
 const ctx = await launch({ port: 9334, size: [1440, 900] });
@@ -107,6 +121,11 @@ async function loadDemo() {
   await waitFor(ctx, `!document.getElementById('appView')?.hidden`, 25000, 500);
   /* первый запуск демо — даём сиду и анимациям устояться */
   await sleep(1200);
+  const ok = await ctx.evaluate(`!document.getElementById('appView')?.hidden`);
+  if (!ok) {
+    const why = await ctx.evaluate(`document.querySelector('.toast')?.innerText || document.getElementById('authErr')?.innerText || ''`);
+    throw new Error('вход в демо не выполнен: ' + String(why).slice(0, 160));
+  }
 }
 
 try {

@@ -613,6 +613,8 @@ export async function retryMessage(m, opts = {}) {
       delete m.error;
       await idb.put('messages', m);
       ok = true;
+      /* дубликат значит «сообщение уже лежит на сервере» — считаем доставленным */
+      logEvent('send_dup', { attempts: Number(m.attempts) || 1 });
     } else {
       console.error('Retry message error:', err);
       m.status = 'error';
@@ -667,7 +669,13 @@ export async function retryOutbox() {
       }
       const list = S.messages[m.chatId] || (S.messages[m.chatId] = []);
       if (!list.some((x) => x.id === m.id)) list.push(m);
-      await retryMessage(m, { silent: true });
+      const ok = await retryMessage(m, { silent: true });
+      /* Счётчики надёжности: по ним видно, реально ли «ничего не теряется»,
+         не читая переписку. Только метаданные, без текста. */
+      logEvent(ok ? 'outbox_delivered' : 'outbox_failed', {
+        attempts: Number(m.attempts) || 1,
+        ageMin: Math.max(0, Math.round((Date.now() - (Number(m.ts) || Date.now())) / 60000)),
+      });
     }
     if (queue.length) renderSidebar();
   } catch (err) {

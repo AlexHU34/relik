@@ -198,6 +198,7 @@ export function initModals() {
 
   /* ── хранилище ── */
   $('#storageClearBtn')?.addEventListener('click', clearStorageCache);
+  $('#storageCompactBtn')?.addEventListener('click', compactHistory);
   $('#storagePersistBtn')?.addEventListener('click', askPersistentStorage);
 
   document.addEventListener('relik:lang', () => {
@@ -671,6 +672,29 @@ async function clearStorageCache() {
   if (!ok) return;
   await clearMediaCache();
   toast(t('storage.cleared'), { type: 'success' });
+  paintStorage();
+}
+
+/* Сжатие истории: сообщения в IndexedDB раньше росли вечно и упирались
+   в квоту браузера. Серверная история остаётся — она догружается страницами. */
+async function compactHistory() {
+  const { messageStats, compactMessages, KEEP_PER_CHAT, OLDER_THAN_DAYS } =
+    await import('../db/compaction.js');
+  const stats = await messageStats().catch(() => ({ total: 0, chats: 0 }));
+  const ok = await confirmAction({
+    title: t('storage.compactTitle'),
+    text: t('storage.compactText')
+      .replace('{n}', String(stats.total))
+      .replace('{keep}', String(KEEP_PER_CHAT))
+      .replace('{days}', String(OLDER_THAN_DAYS)),
+    ok: t('storage.compactOk'),
+    iconName: 'hardDrive',
+  });
+  if (!ok) return;
+  const { removed } = await compactMessages().catch(() => ({ removed: 0 }));
+  toast(removed
+    ? t('storage.compactDone').replace('{n}', String(removed))
+    : t('storage.compactNothing'), { type: removed ? 'success' : undefined });
   paintStorage();
 }
 

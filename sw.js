@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.24.1';
+const VER = 'relik-v1.25.0';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css', './css/fonts.css',
@@ -14,7 +14,7 @@ const ASSETS = [
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
   './js/ui/themes.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
   './js/ui/prefs.js', './js/ui/menu.js', './js/ui/dialog.js', './js/ui/richText.js', './js/ui/install.js', './js/ui/export.js', './js/ui/pin.js',
-  './js/ui/palette.js', './js/ui/recovery.js', './js/ui/msgWindow.js', './js/db/mediaCache.js',
+  './js/ui/palette.js', './js/ui/recovery.js', './js/ui/msgWindow.js', './js/db/mediaCache.js', './js/db/compaction.js',
   './js/backend/supabaseClient.js', './js/backend/auth.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/turn.js', './js/backend/contacts.js', './js/backend/blocks.js', './js/backend/telemetry.js', './js/backend/push.js',
   './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js', './js/crypto/fingerprint.js', './js/crypto/recovery.js', './js/crypto/v2/protocol.js',
   './js/vendor/bip39-wordlist.js',
