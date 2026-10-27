@@ -172,3 +172,9 @@ html[data-textsize="large"] #textSizeSeg [data-size="large"]{
 
 /* Только для скринридеров */
 .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* Крупные зоны нажатия на сенсорных экранах */
+@media (hover:none){
+  .icon-btn{min-width:40px;min-height:40px}
+  .msg .tools button{min-width:38px;min-height:38px}
+}

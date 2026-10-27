@@ -9,7 +9,7 @@ import { icon } from './ui/icons.js';
 import { toast } from './ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
-import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime } from './ui/modals.js';
+import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, closeTransientOverlays } from './ui/modals.js';
 import { setReencryptPassword, openRecoveryFlow, maybePromptBackup } from './ui/keyRecovery.js';
 import { sweepExpired } from './backend/expiry.js';
 import { initPalette, openPalette } from './ui/palette.js';
@@ -341,7 +341,7 @@ async function enterApp(welcomeKey) {
   showApp();
   armPin();
   if (isRealBackend) {
-    reloadChats().then(() => retryOutbox()).catch((err) => console.error('Load chats error:', err));
+    reloadChats().then(() => { S.chatsLoading = false; renderSidebar(true); retryOutbox(); }).catch(() => { S.chatsLoading = false; });
   }
   renderSidebar();
   showChat();
@@ -574,6 +574,15 @@ function initChrome() {
   $('#requestsBtn').addEventListener('click', openRequests);
   $('#emptyNewChat').addEventListener('click', openNewChat);
   $('#emptySettings').addEventListener('click', openSettings);
+  $('#emptyInvite')?.addEventListener('click', async () => {
+    const link = `${location.origin}${location.pathname.replace(/index\.html$/, '')}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast(t('chat.inviteCopied'), { type: 'success' });
+    } catch (e) {
+      toast(link, { duration: 0 });
+    }
+  });
   $('#ncList').addEventListener('click', contactClicked);
   $('#sideLogo').addEventListener('click', () => { location.hash = '#/app'; S.active = null; showChat(); });
   $('#meChip').addEventListener('click', openSettings);
@@ -919,8 +928,9 @@ async function boot() {
     refreshBar();
   });
 
-  /* при возврате к пустому состоянию — повторить приветствие */
+  /* при смене чата/экрана закрываем открытые окна (как в Telegram) */
   window.addEventListener('hashchange', () => {
+    closeTransientOverlays();
     if (location.hash === '#/app' || location.hash === '' || location.hash === '#/') {
       setTimeout(animateWelcome, 60);
     }
@@ -949,16 +959,19 @@ async function boot() {
 
     if (S.me) {
       S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
+      S.chatsLoading = !S.chats.length;
       showApp();
       armPin();
-      renderSidebar();
+      renderSidebar(true);
       startGlobalRealtime();
       initCalls();
       syncPrefsFromCloud().catch(() => {});
       if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
       maybeDemo();
       handlePwaAction();
-      reloadChats().catch(() => {});
+      reloadChats()
+        .then(() => { S.chatsLoading = false; renderSidebar(true); })
+        .catch(() => { S.chatsLoading = false; renderSidebar(true); });
     } else {
       showAuth();
     }

@@ -120,13 +120,7 @@ export function initModals() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (!$('#lightbox').hidden) closeLightbox();
-    else {
-      closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
-      closeOv($('#pollOv')); closeOv($('#profileOv'));
-      closeOv($('#groupOv')); closeOv($('#readOv'));
-      closeOv($('#peopleOv')); closeOv($('#reqOv')); closeOv($('#gsOv'));
-      closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#schedListOv')); closeOv($('#fwdOv'));
-    }
+    else closeTransientOverlays();
   });
   document.addEventListener('keydown', (e) => {
     if ($('#lightbox').hidden) return;
@@ -136,8 +130,11 @@ export function initModals() {
   $('#lbPrev')?.addEventListener('click', () => stepLightbox(-1));
   $('#lbNext')?.addEventListener('click', () => stepLightbox(1));
 
-  /* ── настройки ── */
+/* ── настройки ── */
   $('#saveProfile').addEventListener('click', saveProfile);
+  ['#nameInput', '#usernameInput'].forEach((sel) => {
+    $(sel)?.addEventListener('input', paintProfileDirty);
+  });
   $('#langSeg').addEventListener('click', (e) => {
     const b = e.target.closest('[data-lang]');
     if (b) setLang(b.dataset.lang);
@@ -516,6 +513,7 @@ function downloadLightbox() {
 export function openSettings() {
   $('#nameInput').value = S.me?.name || '';
   $('#usernameInput').value = S.me?.username || '';
+  paintProfileDirty();
   $('#verStr').textContent = `v${APP.version} · ${APP.phase}`;
   paintLangSeg();
   paintThemes();
@@ -793,14 +791,35 @@ async function handleAvatar(e) {
   e.target.value = '';
 }
 
+/* Закрыть все «мимолётные» окна: Esc и любая навигация по хешу */
+export function closeTransientOverlays() {
+  closeOv($('#settingsOv')); closeOv($('#ncOv')); closeOv($('#gcOv'));
+  closeOv($('#pollOv')); closeOv($('#profileOv'));
+  closeOv($('#groupOv')); closeOv($('#readOv'));
+  closeOv($('#peopleOv')); closeOv($('#reqOv')); closeOv($('#gsOv'));
+  closeOv($('#mediaOv')); closeOv($('#scheduleOv')); closeOv($('#schedListOv')); closeOv($('#fwdOv'));
+  closeOv($('#keyOv')); closeOv($('#keyPhraseOv'));
+}
+
 function paintLangSeg() {
   document.querySelectorAll('#langSeg [data-lang]').forEach((b) => {
     b.classList.toggle('on', b.dataset.lang === lang);
   });
 }
 
+function paintProfileDirty() {
+  const btn = $('#saveProfile');
+  if (!btn) return;
+  const name = ($('#nameInput').value || '').trim();
+  const uname = normalizeUsername($('#usernameInput').value || '');
+  const dirty = name !== (S.me?.name || '')
+    || uname !== String(S.me?.username || '').toLowerCase();
+  btn.disabled = !dirty || !name;
+  const hint = $('#saveState');
+  if (hint) hint.textContent = dirty ? t('settings.unsaved') : '';
+}
+
 async function saveProfile() {
-  const name = $('#nameInput').value.trim();
   if (!name) { toast(t('auth.needName')); return; }
 
   const rawUsername = $('#usernameInput').value.trim();

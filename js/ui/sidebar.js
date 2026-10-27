@@ -85,6 +85,21 @@ export function renderSidebar(force = false) {
     b.classList.toggle('on', b.dataset.folder === folder);
   });
 
+  /* Первая загрузка: показываем скелетоны вместо пустого списка */
+  if (S.chatsLoading && !rows.length && !q) {
+    if (list.dataset.skel !== '1') {
+      list.dataset.skel = '1';
+      list.innerHTML = Array.from({ length: 7 }).map(() => (
+        '<div class="chat-skel" aria-hidden="true">'
+        + '<span class="sk-av"></span>'
+        + '<span class="sk-main"><span class="sk-line sk-l1"></span><span class="sk-line sk-l2"></span></span>'
+        + '</div>'
+      )).join('');
+    }
+    return;
+  }
+  if (list.dataset.skel === '1') { list.dataset.skel = ''; list.innerHTML = ''; }
+
   /* Перерисовываем список только если данные реально изменились:
      раньше каждые 10 секунд пересобирался весь innerHTML. */
   const signature = [

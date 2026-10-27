@@ -440,3 +440,14 @@ html[data-device="phone"] .decrypt-bar{margin:0 6px 6px}
 /* Жалоба: выбор причины */
 .report-reasons{display:grid;gap:6px;margin:8px 0}
 .report-reasons .contact{padding:10px 12px}
+
+/* Настройки: заголовки разделов */
+.set-sec{
+  margin:24px 0 4px;padding-top:14px;border-top:1px solid var(--line);
+  font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--tx-2);
+}
+.set-sec:first-child{margin-top:2px;padding-top:0;border-top:0}
+#settingsOv .modal{width:min(520px,100%)}
+.field-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-start}
+.field-actions .btn{width:auto}
+.m-head .icon-btn{width:40px;height:40px}

@@ -345,7 +345,8 @@
             <span class="chip" data-i18n="chat.demoText"></span>
           </div>
           <div class="welcome-actions">
-            <button class="btn" type="button" id="emptyNewChat" data-i18n="side.newChat">Новый чат</button>
+            <button class="btn" type="button" id="emptyInvite" data-i18n="chat.invite">Пригласить по ссылке</button>
+            <button class="btn btn-ghost" type="button" id="emptyNewChat" data-i18n="side.newChat">Новый чат</button>
             <button class="btn btn-ghost" type="button" id="emptySettings" data-i18n="side.settings">Настройки</button>
           </div>
         </div>
@@ -450,6 +451,7 @@
         <button class="icon-btn" data-close></button>
       </header>
       <div class="m-body">
+        <div class="set-sec" data-i18n="settings.secProfile">Профиль</div>
         <div class="field">
           <span data-i18n="settings.avatar">Аватар</span>
           <div class="avatar-row">
@@ -470,7 +472,11 @@
           </div>
           <span class="field-hint" data-i18n="settings.usernameHint">Латиница, цифры и _, 3–32 символа</span>
         </div>
-        <button class="btn btn-ghost" id="saveProfile" data-i18n="settings.save">Сохранить</button>
+        <div class="field-actions">
+          <button class="btn btn-ghost" id="saveProfile" data-i18n="settings.save" disabled>Сохранить</button>
+          <span class="field-hint" id="saveState"></span>
+        </div>
+        <div class="set-sec" data-i18n="settings.secSecurity">Безопасность</div>
         <div class="field" id="keyField">
           <span data-i18n="key.title">Ключи и восстановление</span>
           <div class="avatar-row">
@@ -488,6 +494,7 @@
             <li data-i18n="sec.5">Фраза из 12 слов и файл ключа дают полный доступ к истории — храните их как пароль.</li>
           </ul>
         </div>
+        <div class="set-sec" data-i18n="settings.secLook">Внешний вид</div>
         <div class="field">
           <span data-i18n="settings.theme">Тема</span>
           <div class="theme-grid" id="themeGrid"></div>
@@ -568,6 +575,7 @@
           <button class="btn btn-ghost" type="button" id="pinLockBtn" hidden data-i18n="settings.pinLockNow">Заблокировать сейчас</button>
           <span class="field-hint" data-i18n="settings.pinHint">Код хранится только на этом устройстве и не заменяет пароль.</span>
         </div>
+        <div class="set-sec" data-i18n="settings.secData">Данные</div>
         <div class="field" id="storageField">
           <span data-i18n="storage.title">Хранилище</span>
           <div class="storage-card">

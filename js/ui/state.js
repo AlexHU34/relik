@@ -20,6 +20,7 @@ export const S = {
   reqIn: [],         // входящие заявки в контакты [{id, from, to, status, ts}]
   reqOut: [],        // исходящие заявки
   contacts: [],      // принятые контакты [{userId, reqId}]
+  chatsLoading: false, // первая загрузка списка чатов — показываем скелетоны
   blocked: [],       // кого заблокировал я
   blockedBy: [],     // кто заблокировал меня
 };
