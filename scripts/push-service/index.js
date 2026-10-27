@@ -1,10 +1,25 @@
-/* Relik push sender (pull-модель).
+/* Relik push sender (pull-модель) + мониторинг.
    Сервис сам опрашивает public.push_queue через service_role и рассылает
    беззвучные уведомления участникам чата. Входящий HTTPS не нужен.
 
    Переменные окружения (/etc/relik-push.env):
      SUPABASE_URL, SUPABASE_SERVICE_KEY, VAPID_PUBLIC, VAPID_PRIVATE,
-     VAPID_SUBJECT, PORT (для /healthz) */
+     VAPID_SUBJECT, PORT (для /healthz)
+
+   Мониторинг (всё опционально, по умолчанию включён):
+     MONITOR=0                — выключить проверки
+     MONITOR_INTERVAL=60000   — период проверок, мс
+     MONITOR_FRONT=https://alexhu34.github.io/relik/index.html
+     MONITOR_VERSION_URL=https://alexhu34.github.io/relik/version.json
+     SUPABASE_ANON_KEY=...    — если задан, проверки идут от anon (как у клиента)
+     TELEGRAM_BOT_TOKEN=...   — алерты в Telegram
+     TELEGRAM_CHAT_ID=...     — куда слать (личный chat_id или -100...)
+     ALERT_AFTER=2            — сколько подряд неудач считать сбоем
+
+   Что пишет:
+     service_status  — последний срез (приложение читает в tools/status.html);
+     service_samples — история раз в 5 минут для процента доступности.
+   Если таблицы service_samples нет, сервис просто работает без истории. */
 'use strict';
 
 const http = require('node:http');
@@ -21,15 +36,27 @@ const {
   VAPID_SUBJECT = 'mailto:admin@relik.local',
   PORT = '8099',
   INTERVAL = '3000',
+  MONITOR = '1',
+  MONITOR_INTERVAL = '60000',
+  MONITOR_FRONT = 'https://alexhu34.github.io/relik/index.html',
+  MONITOR_VERSION_URL = 'https://alexhu34.github.io/relik/version.json',
+  SUPABASE_ANON_KEY = '',
+  TELEGRAM_BOT_TOKEN = '',
+  TELEGRAM_CHAT_ID = '',
+  ALERT_AFTER = '2',
 } = process.env;
 
 const ready = Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY && VAPID_PUBLIC && VAPID_PRIVATE);
 if (ready) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-const stats = { started: Date.now(), processed: 0, sent: 0, errors: 0, lastAt: null };
+/* Ключ для проверок: лучше anon — тогда видно и поломку RLS. */
+const PROBE_KEY = SUPABASE_ANON_KEY || SUPABASE_SERVICE_KEY;
+const AGENT_VERSION = '1.2.0';
 
-async function sb(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}${path}`, {
+const stats = { started: Date.now(), processed: 0, sent: 0, errors: 0, lastAt: null, queueDepth: null };
+
+async function sb(pathname, opts = {}) {
+  const res = await fetch(`${SUPABASE_URL}${pathname}`, {
     ...opts,
     headers: {
       apikey: SUPABASE_SERVICE_KEY,
@@ -95,6 +122,7 @@ async function tick() {
   if (!ready) return;
   try {
     const jobs = await sb('/rest/v1/push_queue?select=id,chat_id,from_user,tries&order=id.asc&limit=20');
+    stats.queueDepth = (jobs || []).length;
     for (const job of jobs || []) {
       let ok = false;
       try {
@@ -126,11 +154,7 @@ async function tick() {
 setInterval(tick, Number(INTERVAL));
 tick();
 
-/* ── Состояние сервера в Supabase ───────────────────────────
-   Раз в минуту пишем агрегаты в service_status: приложение читает их
-   и показывает, жив ли VPS, TURN и когда был последний бэкап. */
-const STATUS_INTERVAL = 60_000;
-const BACKUP_DIR = '/var/backups/relik';
+/* ── Инструменты проверок ─────────────────────────────────── */
 
 function portOpen(host, port, timeout = 1500) {
   return new Promise((resolve) => {
@@ -145,7 +169,10 @@ function portOpen(host, port, timeout = 1500) {
 
 function backupAgeHours() {
   try {
-    const files = fs.readdirSync(BACKUP_DIR).filter((f) => f.endsWith('.dump.gz'));
+    /* ВАЖНО: backup-db.sh пишет .dump, более старые версии — .dump.gz.
+       Раньше здесь был только .dump.gz, поэтому статус всегда показывал
+       «бэкапов не найдено». */
+    const files = fs.readdirSync(BACKUP_DIR).filter((f) => /\.dump(\.gz)?$/.test(f));
     if (!files.length) return null;
     let newest = 0;
     for (const f of files) {
@@ -167,52 +194,315 @@ function diskFreeGb() {
   }
 }
 
-async function writeStatus() {
-  if (!ready) return;
-  let supabaseOk = false;
-  let supabaseMs = null;
+const BACKUP_DIR = '/var/backups/relik';
+
+async function probeHttp(name, url, { headers = {}, bodyCheck = false, timeout = 12000 } = {}, validate) {
+  const t0 = Date.now();
   try {
-    const t0 = Date.now();
-    await sb('/rest/v1/profiles?select=id&limit=1');
-    supabaseMs = Date.now() - t0;
-    supabaseOk = true;
-  } catch (e) {
-    supabaseOk = false;
+    const res = await fetch(url, {
+      headers,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeout),
+    });
+    const body = bodyCheck ? await res.text() : '';
+    const ms = Date.now() - t0;
+    const ok = res.ok && (!validate || validate(res, body));
+    return { name, ok, ms, status: res.status, error: ok ? null : `HTTP ${res.status}`, body };
+  } catch (err) {
+    return { name, ok: false, ms: Date.now() - t0, status: 0, error: (err && err.message) || 'fetch failed' };
   }
+}
 
-  let queueDepth = null;
+/* Проверка Realtime: реальный WebSocket-handshake, а не просто HTTP.
+   Именно здесь чаще всего «сообщения не приходят». */
+function probeRealtime(timeout = 12000) {
+  return new Promise((resolve) => {
+    if (typeof WebSocket !== 'function') return resolve({ name: 'realtime', ok: null, ms: null, error: 'node без WebSocket' });
+    const wsUrl = SUPABASE_URL.replace(/^http/, 'ws') + `/realtime/v1/websocket?apikey=${encodeURIComponent(PROBE_KEY)}&vsn=1.0.0`;
+    const t0 = Date.now();
+    let done = false;
+    let ws;
+    const finish = (ok, error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ws && ws.close(); } catch (e) { /* ignore */ }
+      resolve({ name: 'realtime', ok, ms: Date.now() - t0, error: error || null });
+    };
+    const timer = setTimeout(() => finish(false, 'timeout'), timeout);
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => finish(true);
+      ws.onerror = () => finish(false, 'ws error');
+      ws.onclose = () => finish(false, 'closed before open');
+    } catch (err) {
+      finish(false, (err && err.message) || 'ws throw');
+    }
+  });
+}
+
+async function probeFront() {
+  const page = await probeHttp('front', MONITOR_FRONT, {
+    bodyCheck: true,
+    timeout: 15000,
+  }, (res, body) => body.includes('Relik'));
+  const ver = await probeHttp('version', MONITOR_VERSION_URL, { bodyCheck: true, timeout: 15000 });
+  let version = null;
+  try { version = JSON.parse(ver.body).version || null; } catch (e) { /* ignore */ }
+  return { page, version, versionOk: ver.ok && !!version };
+}
+
+async function probeSupabase() {
+  const h = { apikey: PROBE_KEY, Authorization: `Bearer ${PROBE_KEY}` };
+  const [auth, rest, storage] = await Promise.all([
+    probeHttp('auth', `${SUPABASE_URL}/auth/v1/health`, { headers: h }),
+    probeHttp('rest', `${SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, { headers: h }),
+    probeHttp('storage', `${SUPABASE_URL}/storage/v1/bucket`, { headers: h }),
+  ]);
+  const realtime = await probeRealtime();
+  return { auth, rest, storage, realtime };
+}
+
+/* ── Состояние, алерты, история ───────────────────────────── */
+
+const CHECKS = ['front', 'auth', 'rest', 'storage', 'realtime', 'turn'];
+const state = new Map(); // check -> { ok, since, streak, lastAlertAt }
+const lastProbe = new Map();
+const ring = []; // { t, ok, checks }
+const RING_MAX = 288; // сутки при опросе раз в 5 минут
+
+function noteState(name, ok) {
+  const now = Date.now();
+  const prev = state.get(name) || { ok: null, since: now, streak: 0, lastAlertAt: 0 };
+  const threshold = Math.max(1, Number(ALERT_AFTER) || 2);
+  prev.streak = ok
+    ? (prev.streak > 0 ? prev.streak + 1 : 1)
+    : (prev.streak < 0 ? prev.streak - 1 : -1);
+
+  if (ok && prev.streak >= threshold && prev.ok !== true) {
+    const downMs = prev.ok === false ? now - prev.since : 0;
+    prev.ok = true;
+    prev.since = now;
+    state.set(name, prev);
+    alert(name, true, downMs).catch(() => {});
+    return;
+  }
+  if (!ok && prev.streak <= -threshold && prev.ok !== false) {
+    prev.ok = false;
+    prev.since = now;
+    state.set(name, prev);
+    alert(name, false, 0).catch(() => {});
+    return;
+  }
+  state.set(name, prev);
+}
+
+async function alert(name, up, downMs) {
+  const label = {
+    front: 'сайт (GitHub Pages)',
+    auth: 'вход (Supabase Auth)',
+    rest: 'база данных (Supabase REST)',
+    storage: 'файлы (Storage)',
+    realtime: 'realtime-доставка',
+    turn: 'TURN (звонки)',
+  }[name] || name;
+  const prev = state.get(name);
+  if (prev && Date.now() - (prev.lastAlertAt || 0) < 60_000) return;
+  if (prev) prev.lastAlertAt = Date.now();
+  const text = up
+    ? `🟢 Relik: ${label} снова работает${downMs > 60000 ? ` (сбой ${Math.round(downMs / 60000)} мин)` : ''}`
+    : `🔴 Relik: ${label} не отвечает`;
+  console.warn(text);
+  await sendTelegram(text);
+}
+
+async function sendTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
-    const rows = await sb('/rest/v1/push_queue?select=id');
-    queueDepth = Array.isArray(rows) ? rows.length : null;
-  } catch (e) { /* ignore */ }
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text,
+        disable_web_page_preview: true,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (err) {
+    console.warn('telegram alert failed:', err.message);
+  }
+}
 
-  const body = {
-    id: 1,
-    checked_at: new Date().toISOString(),
-    supabase_ok: supabaseOk,
-    supabase_ms: supabaseMs,
-    turn_ok: await portOpen('127.0.0.1', 3478),
-    disk_free_gb: diskFreeGb(),
-    backup_age_h: backupAgeHours(),
-    queue_depth: queueDepth,
-    push_ready: stats.errors === 0 || stats.sent > 0,
-    agent_version: '1.1.0',
-    note: stats.errors ? `errors: ${stats.errors}` : null,
+function uptimePercent(list) {
+  if (!list.length) return null;
+  const ok = list.filter((x) => x.ok).length;
+  return Math.round((ok / list.length) * 1000) / 10;
+}
+
+async function runMonitor() {
+  const started = Date.now();
+  const [frontRes, sbRes, turnOk] = await Promise.all([
+    probeFront(),
+    probeSupabase(),
+    portOpen('127.0.0.1', 3478),
+  ]);
+
+  const results = {
+    front: frontRes.page,
+    auth: sbRes.auth,
+    rest: sbRes.rest,
+    storage: sbRes.storage,
+    realtime: sbRes.realtime,
+    turn: { name: 'turn', ok: turnOk, ms: null, error: turnOk ? null : 'port 3478 closed' },
   };
 
+  for (const name of CHECKS) {
+    const r = results[name];
+    lastProbe.set(name, r);
+    noteState(name, r.ok === true);
+  }
+
+  const coreOk = results.front.ok && results.auth.ok && results.rest.ok;
+  ring.push({ t: started, ok: coreOk });
+  if (ring.length > RING_MAX) ring.splice(0, ring.length - RING_MAX);
+
+  return { results, coreOk, version: frontRes.version, versionOk: frontRes.versionOk };
+}
+
+/* ── Запись среза в Supabase ──────────────────────────────── */
+
+let lastStatus = null;
+let lastStatusAt = 0;
+let lastSampleAt = 0;
+let lastPruneAt = 0;
+let warnedHistory = false;
+
+function statusBody(snapshot) {
+  const r = snapshot.results;
+  return {
+    id: 1,
+    checked_at: new Date().toISOString(),
+    /* базовые поля — их читает tools/status.html с прошлых версий */
+    supabase_ok: r.rest.ok,
+    supabase_ms: r.rest.ms,
+    turn_ok: r.turn.ok === true,
+    disk_free_gb: diskFreeGb(),
+    backup_age_h: backupAgeHours(),
+    queue_depth: stats.queueDepth,
+    push_ready: stats.errors === 0 || stats.sent > 0,
+    agent_version: AGENT_VERSION,
+    note: stats.errors ? `errors: ${stats.errors}` : null,
+    /* расширенные (нужны service_status.sql / service_uptime.sql) */
+    front_ok: r.front.ok,
+    front_ms: r.front.ms,
+    front_version: snapshot.version,
+    auth_ok: r.auth.ok,
+    auth_ms: r.auth.ms,
+    storage_ok: r.storage.ok,
+    storage_ms: r.storage.ms,
+    realtime_ok: r.realtime.ok,
+    realtime_ms: r.realtime.ms,
+    uptime_24h: uptimePercent(ring),
+    checks: Object.fromEntries(CHECKS.map((n) => [n, {
+      ok: r[n].ok,
+      ms: r[n].ms,
+      error: r[n].error || undefined,
+    }])),
+  };
+}
+
+const CORE_FIELDS = ['id', 'checked_at', 'supabase_ok', 'supabase_ms', 'turn_ok', 'disk_free_gb',
+  'backup_age_h', 'queue_depth', 'push_ready', 'agent_version', 'note'];
+
+async function writeStatus(snapshot) {
+  const body = statusBody(snapshot);
   try {
     await sb('/rest/v1/service_status?on_conflict=id', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify(body),
     });
-  } catch (e) {
-    console.warn('status write failed:', e.message);
+    lastStatus = body;
+    lastStatusAt = Date.now();
+    return true;
+  } catch (err) {
+    /* Старая схема (без расширенных колонок) не должна ломать статус:
+       отступаем к базовому набору полей. */
+    try {
+      const core = {};
+      for (const k of CORE_FIELDS) core[k] = body[k];
+      await sb('/rest/v1/service_status?on_conflict=id', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(core),
+      });
+      lastStatus = core;
+      lastStatusAt = Date.now();
+      if (!writeStatus._warned) {
+        writeStatus._warned = true;
+        console.warn('расширенные поля статуса не приняты — выполните supabase/service_uptime.sql');
+      }
+      return true;
+    } catch (err2) {
+      console.warn('status write failed:', err.message, '/', err2.message);
+      return false;
+    }
   }
 }
 
-setInterval(writeStatus, STATUS_INTERVAL);
-writeStatus();
+async function writeSample(snapshot) {
+  if (Date.now() - lastSampleAt < 5 * 60_000) return;
+  lastSampleAt = Date.now();
+  try {
+    const down = CHECKS.filter((n) => snapshot.results[n].ok === false);
+    await sb('/rest/v1/service_samples', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        ok: snapshot.coreOk,
+        rest_ms: snapshot.results.rest.ms,
+        front_ms: snapshot.results.front.ms,
+        down,
+        ver: snapshot.version,
+      }),
+    });
+    if (!warnedHistory) {
+      warnedHistory = true;
+      console.log('история доступности пишется в service_samples');
+    }
+  } catch (err) {
+    if (!warnedHistory) {
+      warnedHistory = true;
+      console.warn('история недоступна (нет service_samples?) — выполните supabase/service_uptime.sql');
+    }
+  }
+  /* Чистка истории: раз в сутки, 30 дней */
+  if (Date.now() - lastPruneAt > 24 * 3600_000) {
+    lastPruneAt = Date.now();
+    const cutoff = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
+    await sb(`/rest/v1/service_samples?ts=lt.${cutoff}`, { method: 'DELETE' }).catch(() => {});
+  }
+}
+
+/* ── Цикл мониторинга ─────────────────────────────────────── */
+
+async function monitorTick() {
+  if (!ready || MONITOR === '0') return;
+  try {
+    const snapshot = await runMonitor();
+    await writeStatus(snapshot);
+    await writeSample(snapshot);
+  } catch (err) {
+    console.warn('monitor failed:', err.message);
+  }
+}
+
+if (MONITOR !== '0') {
+  const every = Math.max(30_000, Number(MONITOR_INTERVAL) || 60_000);
+  setInterval(monitorTick, every);
+  monitorTick();
+}
 
 /* ── Ночное обслуживание: чистка по расписанию ─────────────── */
 let lastMaintenance = 0;
@@ -230,10 +520,16 @@ async function maintenance() {
   }
 }
 setInterval(maintenance, 30 * 60_000);
-maintenance();
+
+/* ── /healthz ─────────────────────────────────────────────── */
 
 http.createServer((req, res) => {
   if (req.url === '/healthz') {
+    const checks = {};
+    for (const name of CHECKS) {
+      const r = lastProbe.get(name);
+      checks[name] = r ? { ok: r.ok, ms: r.ms, error: r.error || null } : null;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ok: true,
@@ -243,6 +539,9 @@ http.createServer((req, res) => {
       sent: stats.sent,
       errors: stats.errors,
       lastAt: stats.lastAt,
+      lastStatusAt: lastStatusAt ? new Date(lastStatusAt).toISOString() : null,
+      uptime24h: uptimePercent(ring),
+      checks,
     }));
     return;
   }

@@ -2,7 +2,9 @@
 import { idb } from '../db/idb.js';
 
 export const FONTS = [
-  { id: 'inter', name: 'Inter', stack: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', google: 'Inter:wght@400;500;600;700' },
+  /* Inter лежит локально (css/fonts.css, assets/fonts) — google не нужен:
+     это шрифт по умолчанию, и он не должен зависеть от доступности Google. */
+  { id: 'inter', name: 'Inter', stack: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
   { id: 'system', name: 'Системный', stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
   { id: 'roboto', name: 'Roboto', stack: '"Roboto", system-ui, sans-serif', google: 'Roboto:wght@400;500;700' },
   { id: 'opensans', name: 'Open Sans', stack: '"Open Sans", system-ui, sans-serif', google: 'Open+Sans:wght@400;500;600;700' },

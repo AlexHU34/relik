@@ -10,8 +10,6 @@
   <link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="icon" href="assets/icons/favicon-48.png" sizes="48x48" type="image/png">
   <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Supabase: убираем лишний TLS-хендшейк перед первым запросом -->
   <link rel="preconnect" href="https://sumaysqzahgesifdevxu.supabase.co" crossorigin>
   <link rel="dns-prefetch" href="https://sumaysqzahgesifdevxu.supabase.co">
@@ -22,9 +20,11 @@
   <link rel="modulepreload" href="js/ui/chatView.js">
   <link rel="modulepreload" href="js/backend/messages.js">
   <link rel="modulepreload" href="js/backend/auth.js">
-  <!-- Шрифт не блокирует первую отрисовку: если Google Fonts недоступен, страница всё равно покажется -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
-  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+  <!-- Шрифт локальный: без Google Fonts в критическом пути (в РФ он часто
+       медленный или недоступен). Файлы — assets/fonts, объявления — css/fonts.css -->
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="preload" href="assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <style>
     /* Мгновенный тёмный фон + заглушка загрузки: белого экрана не бывает никогда */
     html,body{background:#0b0e14;color:#e7eaf3}

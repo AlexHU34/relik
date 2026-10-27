@@ -89,3 +89,27 @@ node scripts/e2e.mjs
 
 Коды подтверждения/входа отправляет отдельный VPS-сервис:
 `scripts/mail-service/README.md` (Supabase Send Email Hook → Brevo, без домена).
+
+## Здоровье сервиса одной командой
+
+```powershell
+node scripts/relik-health.mjs            # сайт, config, Auth, REST, Storage, Realtime, TURN
+node scripts/relik-health.mjs --json     # то же в JSON (для крона/CI)
+node scripts/relik-health.mjs --telegram # плюс алерт в Telegram при сбое
+```
+
+Код возврата `1` — упало что-то критичное (`site`, `config`, `auth`, `rest`).
+Подробнее про мониторинг, алерты и план аварий: `OPS.md`.
+
+## Сервер
+
+| Скрипт | Что делает |
+|---|---|
+| `vps.sh` | coturn + firewall + swap + watchdog сервисов + keep-alive Supabase каждые 5 мин |
+| `push-service/` | push-рассылка **и** мониторинг: проверки раз в минуту, история в `service_samples`, алерты в Telegram |
+| `mirror-static.sh` | резервное зеркало сайта на своём домене (Caddy, обновление из GitHub каждые 5 мин) |
+| `Caddyfile.relik` | конфиг Caddy для зеркала (кэш, HSTS, без SPA-fallback) |
+| `backup-db.sh` | ежедневный дамп БД (restore-тест — раз в квартал) |
+| `fetch-fonts.mjs` | перекачать локальный Inter (обычно не нужен) |
+
+Мониторинг включается за 30 минут и без денег — пошагово в `OPS.md`, раздел 4.

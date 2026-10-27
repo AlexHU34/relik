@@ -118,6 +118,46 @@
     }
   }
 
+  /* Любой HTTP-ответ (даже 401/404) значит, что сервер жив:
+     для проверки доступности этого достаточно. */
+  async function touch(url, opts) {
+    var t0 = performance.now();
+    try {
+      var res = await timeFetch(url, opts);
+      return { ok: true, status: res.res.status, ms: res.ms };
+    } catch (e) {
+      return { ok: false, status: 0, ms: performance.now() - t0 };
+    }
+  }
+
+  /* Realtime проверяем настоящим WebSocket-handshake: именно здесь
+     чаще всего «сообщения не приходят», хотя HTTP отвечает 200. */
+  function probeRealtime(url, key) {
+    return new Promise(function (resolve) {
+      if (!('WebSocket' in window)) return resolve({ ok: null, ms: null });
+      var wsUrl = url.replace(/^http/, 'ws') + '/realtime/v1/websocket?apikey=' + encodeURIComponent(key) + '&vsn=1.0.0';
+      var t0 = performance.now();
+      var done = false;
+      var ws;
+      var finish = function (ok) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { ws && ws.close(); } catch (e) { /* ignore */ }
+        resolve({ ok: ok, ms: performance.now() - t0 });
+      };
+      var timer = setTimeout(function () { finish(false); }, 8000);
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = function () { finish(true); };
+        ws.onerror = function () { finish(false); };
+        ws.onclose = function () { finish(false); };
+      } catch (e) {
+        finish(false);
+      }
+    });
+  }
+
   async function run() {
     report.textContent = '—';
     sub.textContent = 'Проверяем…';
@@ -143,6 +183,19 @@
       set('site', 'ok', ms(r.ms), 'config.js загружен');
     } catch (e) {
       set('site', 'bad', '—', 'config.js недоступен');
+    }
+
+    /* Страница приложения (то, что реально открывает пользователь) */
+    try {
+      var t = await timeFetch('../index.html?ts=' + Date.now());
+      var html = await t.res.text();
+      var okHtml = t.res.ok && html.indexOf('Relik') >= 0;
+      set('front', okHtml ? (t.ms > 2500 ? 'warn' : 'ok') : 'bad', ms(t.ms),
+        okHtml
+          ? 'index.html отдан' + (t.ms > 2500 ? ' · медленно' : '') + ' · ' + Math.round(html.length / 1024) + ' КБ'
+          : 'HTTP ' + t.res.status + ' без разметки Relik');
+    } catch (e) {
+      set('front', 'bad', '—', 'страница не загрузилась');
     }
 
     /* Supabase REST */
@@ -174,6 +227,30 @@
       set('auth', 'warn', '—', 'демо-режим');
     }
 
+    /* Storage: проверяем, что сервис файлов вообще отвечает */
+    if (cfg.url && !demo) {
+      var st = await touch(cfg.url + '/storage/v1/bucket', {
+        headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+      });
+      set('storage', st.ok && st.status < 500 ? (st.ms > 3000 ? 'warn' : 'ok') : 'bad', ms(st.ms),
+        st.ok ? 'HTTP ' + st.status + (st.ms > 3000 ? ' · медленно' : '') : 'нет ответа');
+    } else {
+      set('storage', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
+    /* Realtime: настоящий websocket */
+    if (cfg.url && !demo) {
+      var rt = await probeRealtime(cfg.url, cfg.anon);
+      if (rt.ok === null) {
+        set('realtime', 'warn', '—', 'браузер без WebSocket');
+      } else {
+        set('realtime', rt.ok ? (rt.ms > 4000 ? 'warn' : 'ok') : 'bad', ms(rt.ms),
+          rt.ok ? 'канал открылся' + (rt.ms > 4000 ? ' · медленно' : '') : 'не открылся — сообщения не придут');
+      }
+    } else {
+      set('realtime', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
     /* TURN */
     if (cfg.turn.length) {
       set('turn', 'ok', cfg.turn.length + ' шт', cfg.turn.join(', '));
@@ -203,6 +280,7 @@
             ageMin + ' мин назад',
             'Supabase ' + (s.supabase_ms == null ? '—' : s.supabase_ms + ' мс') +
             ' · агент ' + (s.agent_version || '?') +
+            (s.front_version ? ' · сайт v' + s.front_version : '') +
             (s.queue_depth == null ? '' : ' · очередь ' + s.queue_depth));
           set('vpsTurn', s.turn_ok ? 'ok' : 'bad', s.turn_ok ? 'работает' : 'не отвечает',
             'coturn на сервере (порт 3478)');
@@ -221,6 +299,33 @@
       }
     } else {
       set('vps', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
+    /* История доступности: app читает срезы, которые пишет агент на VPS */
+    if (cfg.url && !demo) {
+      try {
+        var hs = await timeFetch(cfg.url + '/rest/v1/service_samples?select=ts,ok&order=ts.desc&limit=288', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+        });
+        if (!hs.res.ok) throw new Error('HTTP ' + hs.res.status);
+        var rowsH = await hs.res.json();
+        if (!Array.isArray(rowsH) || !rowsH.length) {
+          set('uptime', 'warn', '—', 'история пуста — выполните supabase/service_uptime.sql');
+        } else {
+          var okH = rowsH.filter(function (r) { return r.ok; }).length;
+          var pct = Math.round((okH / rowsH.length) * 1000) / 10;
+          var lastBad = null;
+          for (var i = 0; i < rowsH.length; i++) { if (!rowsH[i].ok) { lastBad = rowsH[i]; break; } }
+          set('uptime', pct >= 99 ? 'ok' : (pct >= 95 ? 'warn' : 'bad'), pct + '%',
+            rowsH.length + ' срезов' + (lastBad
+              ? ' · последний сбой ' + new Date(lastBad.ts).toLocaleString('ru-RU')
+              : ' · сбоев не было'));
+        }
+      } catch (e) {
+        set('uptime', 'warn', '—', 'история недоступна (нужен supabase/service_uptime.sql)');
+      }
+    } else {
+      set('uptime', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
     }
 
     /* Service worker */
@@ -269,6 +374,9 @@
       online: navigator.onLine,
       supabase: rows.db.querySelector('.dt').textContent,
       auth: rows.auth.querySelector('.dt').textContent,
+      storage: rows.storage.querySelector('.dt').textContent,
+      realtime: rows.realtime.querySelector('.dt').textContent,
+      uptime24h: rows.uptime.querySelector('.val').textContent,
       turn: cfg.turn,
       stun: cfg.stun,
       sw: rows.sw.querySelector('.dt').textContent,
@@ -277,14 +385,18 @@
   }
 
   add('site', 'Сайт и версия', 'проверяем…');
+  add('front', 'Страница приложения', 'проверяем…');
   add('db', 'База данных (Supabase REST)', 'проверяем…');
   add('auth', 'Авторизация (Supabase Auth)', 'проверяем…');
+  add('storage', 'Файлы (Storage)', 'проверяем…');
+  add('realtime', 'Realtime-доставка', 'проверяем…');
   add('turn', 'TURN для звонков', 'проверяем…');
   add('stun', 'STUN', 'проверяем…');
   add('vps', 'Сервер (VPS)', 'проверяем…');
   add('vpsTurn', 'TURN на сервере', 'проверяем…');
   add('vpsBackup', 'Бэкап БД', 'проверяем…');
   add('vpsDisk', 'Диск сервера', 'проверяем…');
+  add('uptime', 'Доступность за 24 часа', 'проверяем…');
   add('sw', 'Service Worker и кэш', 'проверяем…');
   add('idb', 'Локальное хранилище', 'проверяем…');
   add('net', 'Сеть', 'проверяем…');
