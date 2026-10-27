@@ -40,8 +40,8 @@
 ## 3. Что уже настроено
 
 - `scripts/vps.sh` — coturn, firewall, swap, **watchdog** (раз в минуту поднимает
-  упавшие `coturn`/`relik-push`) и **keep-alive Supabase каждые 5 минут** с логом
-  `/var/log/relik-keepalive.log`.
+  упавшие `coturn`/`relik-push`) и **keep-alive Supabase каждые 5 минут**
+  (в `/var/log/relik-keepalive.log` попадают только сбои).
 - `scripts/push-service` — push + мониторинг: раз в минуту проверяет сайт, Auth,
   REST, Storage, Realtime и TURN; раз в 5 минут пишет срез в `service_samples`;
   при сбое двух проверок подряд присылает алерт в Telegram и второй — когда
