@@ -1700,6 +1700,9 @@ function renderHeader() {
   } else {
     st.textContent = t('chat.members').replace('{n}', String((chat.members?.length || 0) + 1));
   }
+  /* Кнопка шапки — единственный элемент без текстовой подписи для диктора */
+  const whoBtn = $('#chatWho');
+  if (whoBtn) whoBtn.setAttribute('aria-label', `${chatTitle(chat)}, ${st.textContent}`);
 }
 
 /* ── лента ─────────────────────────────────────────────────── */

@@ -313,7 +313,11 @@ async function runDemo() {
       })()`);
       await sleep(2500);
     }
-    record('вход в демо', Boolean(await ctx.evaluate(`!document.getElementById('appView').hidden`)));
+      record('вход в демо', Boolean(await ctx.evaluate(`!document.getElementById('appView').hidden`)));
+
+    /* демо-данные сеются асинхронно: на холодном GitHub Pages список чатов
+       появляется позже, чем экран приложения — ждём его, иначе шаг «плавает» */
+    await waitFor(ctx, `document.querySelectorAll('.chat-item').length > 0`, 15000);
 
     await ctx.evaluate(`document.querySelector('.chat-item')?.click()`);
     const opened = await waitFor(ctx, `!document.getElementById('chatActive').hidden`, 8000);
