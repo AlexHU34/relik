@@ -280,11 +280,14 @@ function noteState(name, ok) {
     : (prev.streak < 0 ? prev.streak - 1 : -1);
 
   if (ok && prev.streak >= threshold && prev.ok !== true) {
-    const downMs = prev.ok === false ? now - prev.since : 0;
+    const wasDown = prev.ok === false;
+    const downMs = wasDown ? now - prev.since : 0;
     prev.ok = true;
     prev.since = now;
     state.set(name, prev);
-    alert(name, true, downMs).catch(() => {});
+    /* Первый успех после старта — это не «восстановление»: иначе каждый
+       перезапуск сервиса слал бы по шесть зелёных сообщений. */
+    if (wasDown) alert(name, true, downMs).catch(() => {});
     return;
   }
   if (!ok && prev.streak <= -threshold && prev.ok !== false) {
@@ -377,6 +380,7 @@ let lastStatusAt = 0;
 let lastSampleAt = 0;
 let lastPruneAt = 0;
 let warnedHistory = false;
+let loggedHistoryOk = false;
 
 function statusBody(snapshot) {
   const r = snapshot.results;
@@ -452,7 +456,9 @@ async function writeStatus(snapshot) {
 }
 
 async function writeSample(snapshot) {
-  if (Date.now() - lastSampleAt < 5 * 60_000) return;
+  /* 4.5 мин, а не ровно 5: опрос идёт раз в минуту, и при пороге «ровно 5 мин»
+     фактический интервал получается 6 минут из-за дрейфа таймера. */
+  if (Date.now() - lastSampleAt < 4.5 * 60_000) return;
   lastSampleAt = Date.now();
   try {
     const down = CHECKS.filter((n) => snapshot.results[n].ok === false);
@@ -467,8 +473,8 @@ async function writeSample(snapshot) {
         ver: snapshot.version,
       }),
     });
-    if (!warnedHistory) {
-      warnedHistory = true;
+    if (!loggedHistoryOk) {
+      loggedHistoryOk = true;
       console.log('история доступности пишется в service_samples');
     }
   } catch (err) {

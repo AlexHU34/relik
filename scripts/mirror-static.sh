@@ -135,8 +135,10 @@ systemctl reload caddy 2>/dev/null || systemctl restart caddy
 sleep 1
 
 say "Проверка"
-CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: ${DOMAIN}" "https://127.0.0.1/index.html" || echo 000)"
-echo "локально: HTTP $CODE"
+# Проверяем именно так, как придут люди: с правильным SNI (--resolve),
+# иначе Caddy не знает, какой сертификат отдать, и соединение рвётся.
+CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/index.html" || true)"
+echo "локально: HTTP ${CODE}"
 
 if [ "$CODE" != "200" ]; then
   warn "Caddy не отдал страницу. Проверьте: journalctl -u caddy -n 40 --no-pager"
