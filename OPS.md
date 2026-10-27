@@ -253,6 +253,12 @@ Self-host Postgres для приватного мессенджера почти
 # весь сервис одной командой (код возврата 1, если что-то критичное упало)
 node scripts/relik-health.mjs
 
+# целостность офлайн-оболочки: ASSETS, 404, импорты, утечка secret-ключей
+node scripts/check-assets.mjs
+
+# паритет переводов RU/EN
+node scripts/check-i18n.mjs
+
 # JSON для крона/CI
 node scripts/relik-health.mjs --json
 

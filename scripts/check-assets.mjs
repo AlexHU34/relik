@@ -100,7 +100,27 @@ if (verMatch && appVer && verMatch[1] !== appVer) {
   warnings.push(`sw.js VER = relik-v${verMatch[1]}, а js/config.js version = ${appVer} — при изменении ассетов VER нужно поднимать`);
 }
 
-/* ── 7. Прочие страницы, на которые ссылается приложение ──── */
+/* ── 7. Секреты не должны попадать в клиент ─────────────────
+   service_role / sb_secret_ в браузерном коде = полный доступ к базе
+   у любого, кто откроет DevTools. Ловим до деплоя. */
+const SECRET_PATTERNS = [
+  /sb_secret_[A-Za-z0-9_-]{10,}/,
+  /service_role['"\s:=]{1,6}[A-Za-z0-9._-]{20,}/,
+  /SUPABASE_SERVICE_(KEY|ROLE)\s*[:=]\s*['"][^'"]{10,}/,
+];
+for (const file of [...modules, 'index.html', 'sw.js']) {
+  const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  for (const re of SECRET_PATTERNS) {
+    if (re.test(text)) errors.push(`${file}: похоже на секретный ключ (service_role) — так нельзя`);
+  }
+}
+const cfgText = fs.readFileSync(path.join(ROOT, 'js', 'config.js'), 'utf8');
+const anon = (cfgText.match(/anonKey:\s*'([^']+)'/) || [])[1] || '';
+if (anon && !/^(sb_publishable_|eyJ)/.test(anon)) {
+  warnings.push('js/config.js: anonKey не похож на publishable/anon ключ — проверьте, не вставлен ли secret');
+}
+
+/* ── 8. Прочие страницы, на которые ссылается приложение ──── */
 for (const page of ['legal.html', 'welcome.html', 'manifest.json', 'version.json', '.nojekyll']) {
   if (!exists(page)) warnings.push(`${page} отсутствует`);
 }
