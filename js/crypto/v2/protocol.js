@@ -222,7 +222,7 @@ export async function x3dhInitiate(identityPrivateJwk, bundle, opkId = null) {
     identity: bundle.identityKey,
     spkId: bundle.signedPrekeyId,
     opkId: otp?.id ?? null,
-    ad: concatBytes([publicRaw(await exportPublic(ephemeral)), publicRaw(bundle.identityKey)]),
+    ad: concatBytes([publicRaw(identityPrivateJwk), publicRaw(bundle.identityKey)]),
   };
 }
 
@@ -252,7 +252,10 @@ export async function x3dhRespond({
   const sk = await hkdf(concatBytes(parts), ZERO_SALT, X3DH_INFO, 32);
   return {
     sk,
-    ad: concatBytes([publicRaw(initiatorEphemeralJwk), publicRaw(initiatorIdentityJwk)]),
+    /* AD по спецификации X3DH: identity инициатора || identity ответчика.
+       Раньше инициатор подставлял сюда эфемерный ключ, поэтому AD двух сторон
+       не совпадал (ловится тестом v2-protocol). */
+    ad: concatBytes([publicRaw(initiatorIdentityJwk), publicRaw(identityPrivateJwk)]),
   };
 }
 

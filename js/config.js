@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.25.0',
+  version: '1.25.1',
   phase: 'Приватный мессенджер',
 };
 
@@ -37,8 +37,9 @@ export const RELAY = {
   stunUrls: [
     'stun:62.113.99.46:3478',
   ],
-  username: 'relik',
-  credential: 'NxMgeplZdnCJKJoO',
+  /* Статические креды удалены: TURN выдаёт короткоживущие через RPC turn_creds()
+     (supabase/turn.sql + coturn use-auth-secret). Без username/credential
+     js/backend/turn.js работает в режиме STUN, пока RPC не ответил. */
 };
 
 /* Web Push. publicKey — VAPID (публичная часть). Рассылку делает сервис на VPS:

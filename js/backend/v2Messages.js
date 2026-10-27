@@ -20,6 +20,7 @@ import {
   importEcdhPublic,
 } from '../crypto/v2/protocol.js';
 
+let multiDeviceWarned = false;
 const sessions = new Map(); // `${chatId}:${remoteDevice}` -> { state, remoteDevice }
 const sessionId = (chatId, deviceId) => `ratchet:${chatId}:${deviceId}`;
 
@@ -71,6 +72,16 @@ export async function encryptV2Dm({ chatId, peerUserId, senderId, text, messageI
   if (!local) return null;
 
   const bundles = await loadDeviceBundles(peerUserId).catch(() => []);
+  /* Конверт v2 адресуется ОДНОМУ устройству получателя. Если у собеседника
+     их несколько, остальные увидят «недоступное сообщение». Пока нет fan-out
+     (отдельная строка на каждое устройство) — честно откатываемся в v1. */
+  if (bundles.length > 1) {
+    if (!multiDeviceWarned) {
+      multiDeviceWarned = true;
+      console.warn('v2: у собеседника несколько устройств — сообщения идут через v1');
+    }
+    return null;
+  }
   const peer = bundles[0];
   if (!peer?.signedPrekey) return null;
 

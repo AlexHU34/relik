@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b0e14">
   <!-- CSP: сборка без внешних CDN. Inline-скрипты разрешены по хешам —
        их проверяет scripts/check-csp.mjs, чтобы правка не «убила» запуск. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-HyPOztq64u/rzTaze98jLGXCIUmWIrFTkiUM88lq27A=' 'sha256-CpV3SDxMB7yPhe/CHD+L2ZoXTke1saQHnwfUm8s0GUc='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gyd8lVuxIG16k81U9PlY+pBsEUiO6pWGiVp/dWI3Jzs=' 'sha256-CpV3SDxMB7yPhe/CHD+L2ZoXTke1saQHnwfUm8s0GUc='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'">
   <meta name="description" content="Relik — приватный мессенджер, которому можно доверять">
   <title>Relik</title>
   <link rel="manifest" href="manifest.json">
@@ -50,6 +50,10 @@
        Код намеренно на ES5, чтобы работал даже в старых браузерах и встроенных webview. */
     (function () {
       function q(id) { return document.getElementById(id); }
+      /* CSP запрещает inline-обработчики (onclick=), поэтому кнопку
+         «Обновить» подключаем здесь, в разрешённом по хешу скрипте. */
+      var retryBtn = q('bsRetry');
+      if (retryBtn) retryBtn.addEventListener('click', function () { location.reload(); });
       function fail(msg, detail) {
         if (window.__relikLoaded) return;
         var hint = q('bsHint');
@@ -159,7 +163,7 @@
     <div class="bs-spin" id="bsSpin"></div>
     <p class="bs-hint" id="bsHint">Загружаем приложение…</p>
     <p class="bs-code" id="bsCode" style="display:none"></p>
-    <button class="bs-retry" id="bsRetry" type="button" style="display:none" onclick="location.reload()">Обновить</button>
+    <button class="bs-retry" id="bsRetry" type="button" style="display:none">Обновить</button>
     <a class="bs-link" id="bsCheck" href="tools/health.html" style="display:none">Проверить, какие файлы не загрузились</a>
     <a class="bs-link" id="bsReset" href="?reset=1" style="display:none">Сбросить кэш и обновить</a>
   </div>
