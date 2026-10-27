@@ -49,6 +49,12 @@
   }
   .note{margin-top:22px;color:var(--tx3);font-size:12px}
   .note a{color:var(--accent)}
+  /* Полоса доступности: 24 часа срезов, по одному прямоугольнику на срез */
+  .up-bar{display:flex;gap:2px;height:26px;align-items:stretch;padding:2px;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  .up-bar i{flex:1 1 0;min-width:2px;border-radius:2px;background:var(--ok);opacity:.8}
+  .up-bar i.bad{background:var(--bad);opacity:1}
+  .up-bar i:hover{opacity:1;outline:1px solid rgba(255,255,255,.35)}
 </style>
 </head>
 <body>
@@ -320,6 +326,22 @@
             rowsH.length + ' срезов' + (lastBad
               ? ' · последний сбой ' + new Date(lastBad.ts).toLocaleString('ru-RU')
               : ' · сбоев не было'));
+
+          /* Полоса: слева самые старые срезы, справа свежие. Наведение — время. */
+          var bar = document.getElementById('upBar');
+          if (!bar) {
+            bar = document.createElement('div');
+            bar.className = 'up-bar';
+            bar.id = 'upBar';
+            rows.uptime.after(bar);
+          }
+          bar.innerHTML = '';
+          rowsH.slice().reverse().forEach(function (r) {
+            var seg = document.createElement('i');
+            seg.className = r.ok ? '' : 'bad';
+            seg.title = new Date(r.ts).toLocaleString('ru-RU') + ' — ' + (r.ok ? 'ок' : 'сбой');
+            bar.appendChild(seg);
+          });
         }
       } catch (e) {
         set('uptime', 'warn', '—', 'история недоступна (нужен supabase/service_uptime.sql)');

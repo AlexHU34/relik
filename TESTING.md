@@ -11,6 +11,18 @@
 - [ ] Разрешение на микрофон выдано (иконка замка в адресной строке)
 - [ ] Демо-вход выполнен (любой email + пароль от 6 символов)
 
+### Автоматические проверки (до ручного чек-листа)
+
+```powershell
+node scripts/check-assets.mjs   # офлайн-оболочка, 404, утечка секретов
+node scripts/check-i18n.mjs     # паритет RU/EN
+node scripts/e2e.mjs --demo     # вход, чат, отправка + UI-смоук (11 шагов)
+node scripts/relik-health.mjs   # боевой сервис: сайт, Auth, REST, Storage, Realtime, TURN
+```
+
+Последние две можно запускать с `--url https://alexhu34.github.io/relik/` — тогда
+проверяется бой, а не локальная копия.
+
 ---
 
 ## 1. Инструмент диагностики (`tools/diagnostics.html`)
