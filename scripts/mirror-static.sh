@@ -79,15 +79,17 @@ exec 9>/run/relik-mirror.lock
 flock -n 9 || exit 0
 
 cd "\$SRC"
+# -q: не засоряем лог строкой «From github» на каждый тик таймера
 for i in 1 2 3; do
-  git fetch --depth 1 origin "\$BRANCH" >>"\$LOG" 2>&1 && break
+  git fetch -q --depth 1 origin "\$BRANCH" 2>>"\$LOG" && break
+  echo "\$(date -Iseconds) fetch failed (try \$i)" >>"\$LOG"
   sleep \$((i * 5))
 done
 LOCAL=\$(git rev-parse HEAD)
 REMOTE=\$(git rev-parse "origin/\$BRANCH" 2>/dev/null || echo "\$LOCAL")
 [ "\$LOCAL" = "\$REMOTE" ] && exit 0
 
-git reset --hard "\$REMOTE" >>"\$LOG" 2>&1
+git reset --hard -q "\$REMOTE" >>"\$LOG" 2>&1
 mkdir -p "\$DST"
 rsync -a --delete --exclude '.git' --exclude 'mobile' --exclude 'relik-desktop' "\$SRC/" "\$DST/"
 echo "\$(date -Iseconds) updated to \$(git rev-parse --short HEAD)" >>"\$LOG"
