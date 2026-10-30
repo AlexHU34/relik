@@ -6,6 +6,7 @@ import { loadChats } from './sidebar.js';
 import { joinConversation } from '../backend/chats.js';
 import { SUPABASE } from '../config.js';
 import { currentDevice } from './device.js';
+import { markTiming } from '../backend/telemetry.js';
 
 export function showAuth(on = true) {
   $('#authView').hidden = !on;
@@ -41,8 +42,12 @@ export function route() {
   if (h.startsWith('#/chat/')) {
     const id = decodeURIComponent(h.slice(7));
     if (currentDevice() === 'phone') $('#appView').classList.add('pane-chat');
-    if (S.active !== id) openChat(id);
-    else showChat();
+    if (S.active !== id) {
+      const t0 = performance.now();
+      Promise.resolve(openChat(id))
+        .then(() => markTiming('open_chat', performance.now() - t0))
+        .catch(() => {});
+    } else showChat();
   } else {
     if (currentDevice() === 'phone') $('#appView').classList.remove('pane-chat');
     showChat();

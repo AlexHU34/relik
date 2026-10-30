@@ -33,6 +33,12 @@ jobs:
       - name: Паритет переводов RU/EN
         run: node scripts/check-i18n.mjs
 
+      - name: Бюджет производительности (KPI)
+        run: node scripts/kpi.mjs --check
+
+      - name: Лимит размера модулей (400 строк)
+        run: node scripts/check-size.mjs
+
       - name: CSP и хеши inline-скриптов
         run: node scripts/check-csp.mjs
 

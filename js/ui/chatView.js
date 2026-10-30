@@ -25,7 +25,7 @@ import { ensureDmMember } from '../backend/chats.js';
 import { isBlocked, blockUser, unblockUser } from '../backend/blocks.js';
 import { confirmAction } from './dialog.js';
 import { sb } from '../backend/supabaseClient.js';
-import { logEvent } from '../backend/telemetry.js';
+import { logEvent, markTiming } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
 import { registerExpiry, clearExpiry } from '../backend/expiry.js';
@@ -1707,6 +1707,7 @@ function renderHeader() {
 
 /* ── лента ─────────────────────────────────────────────────── */
 export function renderMessages(opts = {}) {
+  const __t0 = performance.now();
   const chat = chatById(S.active);
   if (!chat) return;
   const raw = S.messages[S.active] || [];
@@ -1799,6 +1800,7 @@ export function renderMessages(opts = {}) {
 
   els.msgs.innerHTML = html;
   paintDecryptBar();
+  markTiming('render_messages', performance.now() - __t0, { n: visible.length });
 
   /* на телефоне панель действий не должна пропадать после перерисовки */
   if (toolsOpen) {

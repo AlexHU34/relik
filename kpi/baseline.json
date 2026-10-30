@@ -1,0 +1,19 @@
+{
+  "version": "1.27.0",
+  "generatedAt": "2026-10-30T19:21:28.963Z",
+  "modules": 67,
+  "loc": 19076,
+  "jsBytes": 740291,
+  "jsGzip": 195500,
+  "bootModules": 66,
+  "bootBytes": 749407,
+  "bootGzip": 199758,
+  "bootMissing": [],
+  "vendorEagerBytes": 218252,
+  "vendorEagerGzip": 55586,
+  "cssBytes": 102392,
+  "cssGzip": 22818,
+  "maxFile": "js/ui/chatView.js",
+  "maxFileLines": 2840,
+  "assets": 92
+}
