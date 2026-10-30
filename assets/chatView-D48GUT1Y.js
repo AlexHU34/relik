@@ -19,7 +19,7 @@ import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs, getChatTtl, getChatTtlSince, setChatTtl } from './prefs.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
-import { loadMessages, loadMessagesPage, loadOlderMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia, encodeRead, encodeTtl } from '../backend/messages.js';
+import { loadMessages, loadMessagesPage, loadOlderMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia } from '../backend/messages.js';
 import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 import { ensureDmMember } from '../backend/chats.js';
@@ -29,9 +29,33 @@ import { sb } from '../backend/supabaseClient.js';
 import { logEvent, markTiming } from '../backend/telemetry.js';
 import { notifyPush } from '../backend/push.js';
 import { fingerprintForPair } from '../crypto/fingerprint.js';
-import { registerExpiry, clearExpiry } from '../backend/expiry.js';
+
 import { openRecoveryFlow } from './keyRecovery.js';
 import { PAGE_SIZE, mergeMessages, windowOf, oldestTs } from './msgWindow.js';
+import {
+  changeChatTtl, clearTtlForChat, clearTtlTimers, clearTtlTimer, scheduleTtlForChat,
+  applyTtlFromHistory, paintTtl, bindTtlHooks,
+} from './chat/ttl.js';
+
+/* TTL-модуль не должен импортировать chatView (циклическая зависимость),
+   поэтому отдаём ему только нужные функции. */
+bindTtlHooks({ renderMessages, renderPin });
+export { clearTtlTimers };
+
+import {
+  applyReadState, sendReadUpto, scheduleDemoRead, openReadInfo,
+  refreshMessageStatus, bindReadHooks,
+} from './chat/receipts.js';
+
+bindReadHooks({
+  getEls: () => els,
+  ticksHtml: (m, mine) => ticksHtml(m, mine),
+  metaHtml: (m, mine) => metaHtml(m, mine),
+  showTools: (el) => showTools(el),
+  isToolsOpen: (id) => toolsOpen === id,
+  escapeId: (id) => nonzeroEscape(id),
+});
+export { refreshMessageStatus };
 
 let els = {};
 const playing = new Map(); // msgId -> {timer, i, bars}
@@ -53,8 +77,6 @@ let selectMode = false;         // режим выбора нескольких 
 const selectedMsgs = new Set(); // id выбранных сообщений
 let autoScrolling = false;
 let showLocked = false;         // показывать недоступные (нерасшифрованные) сообщения
-const readMarks = new Map();    // chatId -> { upto, at } — последняя отправленная отметка
-const demoReads = new Set();    // сообщения, для которых демо уже «прочитало»
 let groupMigrationWarned = false;
 const FP_KEY = 'relik.fp.v1';
 let profileFp = null;          // { chatId, peerId, fullHex, display, changed }
@@ -663,181 +685,6 @@ function closeReact() {
 
 /* ── «Живая» лента: Realtime + тихий опрос на случай сбоя сокета ── */
 
-/* ── Прочтение: скрытые read-события, без новых таблиц и RLS ── */
-function readUptos(raw) {
-  const map = new Map();
-  for (const x of raw) {
-    if (x.type !== 'read' || !x.read) continue;
-    if (x.sender === 'u_me' || x.sender === S.me?.id) continue;
-    const upto = Number(x.read.upto) || 0;
-    if (upto > (map.get(x.sender) || 0)) map.set(x.sender, upto);
-  }
-  return map;
-}
-
-function requiredReaders(chat) {
-  if (!chat) return [];
-  if (chat.kind === 'group') return [...new Set((chat.members || []).filter(Boolean))];
-  return chat.userId ? [chat.userId] : [];
-}
-
-/* Пересчитать галочки у своих сообщений по последним read-событиям */
-function applyReadState(chatId) {
-  const chat = chatById(chatId);
-  if (!chat) return;
-  const raw = S.messages[chatId] || [];
-  const reads = readUptos(raw);
-  const req = requiredReaders(chat);
-  if (!req.length) return;
-
-  /* в группе достаточно одного прочитавшего (по ответу в опросе) */
-  let upto = 0;
-  for (const uid of req) upto = Math.max(upto, reads.get(uid) || 0);
-
-  const changed = [];
-  for (const m of raw) {
-    if (m.sender !== 'u_me' || m.hidden || m.deleted) continue;
-    if (m.status === 'sending' || m.status === 'error') continue;
-    const desired = upto > 0 && m.ts <= upto ? 'read' : 'sent';
-    if (m.status !== desired) {
-      m.status = desired;
-      changed.push(m);
-      refreshTicks(m);
-    }
-  }
-  if (changed.length) idb.bulkPut('messages', changed).catch(() => {});
-  if (changed.length) scheduleTtlForChat(chatId);
-}
-
-function refreshTicks(m) {
-  if (S.active !== m.chatId) return;
-  const el = els.msgs?.querySelector(`[data-mid="${nonzeroEscape(m.id)}"]`);
-  if (!el) return;
-  const meta = el.querySelector('.msg-meta');
-  if (!meta) return;
-  const html = ticksHtml(m, true);
-  const old = meta.querySelector('.ticks');
-  if (html) {
-    if (old) old.outerHTML = html;
-    else meta.insertAdjacentHTML('beforeend', html);
-  } else if (old) {
-    old.remove();
-  }
-}
-
-/* Точечно обновить статус отправки (часики → галочки) без перерисовки
-   всей ленты. Раньше каждое подтверждение сервера пересобирало 240 сообщений. */
-export function refreshMessageStatus(m) {
-  if (!m || S.active !== m.chatId) return;
-  const el = els.msgs?.querySelector(`[data-mid="${nonzeroEscape(m.id)}"]`);
-  if (!el) return;
-  const meta = el.querySelector('.msg-meta');
-  if (meta) meta.outerHTML = metaHtml(m, m.sender === 'u_me');
-  if (toolsOpen === m.id) {
-    el.querySelectorAll(':scope > .bubble > .tools').forEach((t) => t.remove());
-    showTools(el);
-  }
-}
-
-/* Кто прочитал конкретное сообщение (по скрытым read-событиям) */
-function readersFor(m) {
-  const raw = S.messages[S.active] || [];
-  const map = new Map();
-  for (const x of raw) {
-    if (x.type !== 'read' || !x.read || x.sender === 'u_me') continue;
-    const upto = Number(x.read.upto) || 0;
-    if (upto < m.ts) continue;
-    map.set(x.sender, Math.max(map.get(x.sender) || 0, upto));
-  }
-  return [...map.keys()].map((uid) => user(uid));
-}
-
-function openReadInfo(m) {
-  const list = readersFor(m);
-  const wrap = $('#readList');
-  if (!wrap) return;
-  wrap.innerHTML = list.length
-    ? list.map((u) => `<div class="member-row">
-        ${avatarHtml(u, { sm: true, online: u.seen === 'online' })}
-        <span class="info">
-          <span class="n">${esc(u.name)}</span>
-          <span class="s">${u.username ? '@' + esc(u.username) : t('msg.read')}</span>
-        </span>
-        <span class="read-mark">${icon('check2', 16)}</span>
-      </div>`).join('')
-    : `<div class="nc-hint">${t('msg.noReads')}</div>`;
-  $('#readOv').hidden = false;
-}
-
-/* Сообщить другим, что мы дочитали до upto (не чаще раза в ~1,5 с) */
-function sendReadUpto(chatId) {
-  if (!(SUPABASE.url && SUPABASE.anonKey)) return;
-  const chat = chatById(chatId);
-  if (!chat) return;
-  const list = (S.messages[chatId] || []).filter((m) => !m.hidden && !m.deleted);
-  const last = list[list.length - 1];
-  const upto = last?.ts || 0;
-  if (!upto) return;
-
-  const prev = readMarks.get(chatId) || { upto: 0, at: 0, timer: 0 };
-  if (upto <= prev.upto) return;
-
-  const now = Date.now();
-  const wait = 1400 - (now - prev.at);
-  if (wait > 0) {
-    clearTimeout(prev.timer);
-    prev.timer = setTimeout(() => sendReadUpto(chatId), wait);
-    readMarks.set(chatId, prev);
-    return;
-  }
-
-  readMarks.set(chatId, { upto, at: now, timer: 0 });
-  const event = {
-    id: newId(), chatId, sender: 'u_me', ts: now,
-    type: 'read', hidden: true, read: { upto }, text: '', reactions: [], status: 'sending',
-  };
-  S.messages[chatId] = S.messages[chatId] || [];
-  S.messages[chatId].push(event);
-  idb.put('messages', event).catch(() => {});
-
-  sendMessage(chatId, encodeRead(upto), null, chat.kind, chat.publicKey, event.id, chat.userId || null)
-    .then(() => { event.status = 'sent'; idb.put('messages', event).catch(() => {}); })
-    .catch((err) => {
-      console.warn('Read receipt error:', err);
-      S.messages[chatId] = (S.messages[chatId] || []).filter((x) => x.id !== event.id);
-      idb.del('messages', event.id).catch(() => {});
-      readMarks.delete(chatId);
-    });
-}
-
-/* В демо нет второго устройства — имитируем прочтение, чтобы было видно ✓✓ */
-function scheduleDemoRead(chatId, msg) {
-  if (SUPABASE.url && SUPABASE.anonKey) return;
-  if (!msg || msg.sender !== 'u_me' || msg.hidden || msg.type === 'read') return;
-  if (demoReads.has(msg.id)) return;
-  demoReads.add(msg.id);
-  const chat = chatById(chatId);
-  if (!chat) return;
-  const readers = chat.kind === 'group'
-    ? [...new Set((chat.members || []).filter(Boolean))]
-    : (chat.userId ? [chat.userId] : []);
-  if (!readers.length) return;
-
-  setTimeout(() => {
-    if (!chatById(chatId)) return;
-    if (!(S.messages[chatId] || []).some((x) => x.id === msg.id)) return;
-    for (const uid of readers) {
-      const ev = {
-        id: newId(), chatId, sender: uid, ts: Date.now(),
-        type: 'read', hidden: true, read: { upto: msg.ts }, text: '', reactions: [], status: 'sent',
-      };
-      S.messages[chatId] = S.messages[chatId] || [];
-      S.messages[chatId].push(ev);
-      idb.put('messages', ev).catch(() => {});
-    }
-    applyReadState(chatId);
-  }, 2400 + Math.random() * 900);
-}
 
 function stopActiveSync() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
@@ -1373,141 +1220,6 @@ async function toggleProfileQr() {
   }
 }
 
-/* ── исчезающие сообщения ─────────────────────────────────── */
-const ttlTimers = new Map(); // messageId -> timeout
-const ttlChat = new Map();   // messageId -> chatId
-
-function clearTtlTimer(messageId) {
-  const timer = ttlTimers.get(messageId);
-  if (timer) clearTimeout(timer);
-  ttlTimers.delete(messageId);
-  ttlChat.delete(messageId);
-}
-
-function clearTtlForChat(chatId) {
-  for (const [id, cid] of [...ttlChat]) {
-    if (cid === chatId) clearTtlTimer(id);
-  }
-}
-
-export function clearTtlTimers() {
-  for (const timer of ttlTimers.values()) clearTimeout(timer);
-  ttlTimers.clear();
-}
-
-function ttlWindow(m) {
-  if (!m || m.hidden || m.deleted || m.expired) return 0;
-  const seconds = getChatTtl(m.chatId);
-  if (!seconds) return 0;
-  const since = getChatTtlSince(m.chatId);
-  if ((m.ts || 0) < since) return 0;
-  return seconds * 1000;
-}
-
-function scheduleTtlForChat(chatId) {
-  const list = S.messages[chatId] || [];
-  const now = Date.now();
-  const alive = new Set(list.map((m) => m.id));
-  for (const [id, timer] of [...ttlTimers]) {
-    if (!alive.has(id)) { clearTimeout(timer); ttlTimers.delete(id); }
-  }
-
-  for (const m of list) {
-    const ttl = ttlWindow(m);
-    if (!ttl) { clearTtlTimer(m.id); continue; }
-
-    let started = Number(m.ttlStartedAt) || 0;
-    if (!started) {
-      /* Отправитель ждёт прочтения; получатель — открытия чата. */
-      if (m.sender === 'u_me') {
-        if (m.status !== 'read') continue;
-      } else if (S.active !== chatId) {
-        continue;
-      }
-      started = now;
-      m.ttlStartedAt = now;
-      idb.put('messages', m).catch(() => {});
-    }
-
-    const left = started + ttl - now;
-    registerExpiry(m.id, chatId, started + ttl);
-    if (left <= 0) { expireTtlMessage(chatId, m); continue; }
-    clearTtlTimer(m.id);
-    ttlTimers.set(m.id, setTimeout(() => expireTtlMessage(chatId, m), Math.min(left, 2147483647)));
-    ttlChat.set(m.id, chatId);
-  }
-}
-
-function expireTtlMessage(chatId, m) {
-  clearTtlTimer(m.id);
-  if (!m || m.hidden || m.expired) return;
-  m.expired = true;
-  m.hidden = true;
-  m.localDeleted = true;
-  if (m.sender === 'u_me' && SUPABASE.url && SUPABASE.anonKey) {
-    deleteMessageBackend(m.id).catch(() => {});
-  }
-  idb.put('messages', m).catch(() => {});
-
-  const chat = chatById(chatId);
-  if (chat) {
-    if (chat.pin?.id === m.id) {
-      delete chat.pin;
-      idb.del('settings', 'pin:' + chat.id).catch(() => {});
-      renderPin();
-    }
-    const last = (S.messages[chatId] || []).filter((x) => !x.hidden && !x.expired).pop();
-    chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
-    idb.put('chats', chat).catch(() => {});
-  }
-  if (S.active === chatId) renderMessages();
-  renderSidebar();
-}
-
-function paintTtl(chat) {
-  if (!chat) return;
-  const current = getChatTtl(chat.id);
-  document.querySelectorAll('#ttlSeg [data-ttl]').forEach((b) => {
-    b.classList.toggle('on', Number(b.dataset.ttl) === current);
-  });
-}
-
-function applyTtlFromHistory(chatId) {
-  const events = (S.messages[chatId] || []).filter((m) => m.type === 'ttl' && m.ttl);
-  if (!events.length) return;
-  const last = events.reduce((a, b) => ((b.ts || 0) > (a.ts || 0) ? b : a), events[0]);
-  const sec = Number(last.ttl.sec) || 0;
-  if ((last.ts || 0) > getChatTtlSince(chatId)) {
-    setChatTtl(chatId, sec, last.ts || Date.now());
-  }
-}
-
-async function changeChatTtl(chat, seconds) {
-  if (!chat) return;
-  const sec = Number(seconds) || 0;
-  setChatTtl(chat.id, sec);
-  paintTtl(chat);
-  scheduleTtlForChat(chat.id);
-  if (!sec) clearExpiry(chat.id).catch(() => {});
-
-  if (SUPABASE.url && SUPABASE.anonKey) {
-    const event = {
-      id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
-      type: 'ttl', hidden: true, ttl: { sec }, text: '', reactions: [], status: 'sending',
-    };
-    S.messages[chat.id] = S.messages[chat.id] || [];
-    S.messages[chat.id].push(event);
-    idb.put('messages', event).catch(() => {});
-    sendMessage(chat.id, encodeTtl(sec), null, chat.kind, chat.publicKey, event.id, chat.userId || null)
-      .then(() => { event.status = 'sent'; idb.put('messages', event).catch(() => {}); })
-      .catch((err) => {
-        console.warn('TTL signal error:', err);
-        S.messages[chat.id] = (S.messages[chat.id] || []).filter((x) => x.id !== event.id);
-        idb.del('messages', event.id).catch(() => {});
-      });
-  }
-  toast(t('ttl.saved'), { type: 'success' });
-}
 
 /* ── жалоба на сообщение ───────────────────────────────────── */
 const REPORT_REASONS = [
