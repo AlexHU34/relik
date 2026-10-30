@@ -1,7 +1,7 @@
 {
-  "version": "1.32.0",
+  "version": "1.33.0",
   "released": "2026-10-30",
-  "notes": "1.32.0: +6 тестов на слияние сообщений (91 всего), новый DEPLOY.md под сборку, e2e с ретраем Chrome.",
+  "notes": "1.33.0: modals.js 1759 -> 1283 — настройки и лайтбокс вынесены в отдельные модули, e2e зелёный.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }
