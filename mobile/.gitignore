@@ -1,5 +1,0 @@
-www/
-node_modules/
-android/
-*.keystore
-.env
