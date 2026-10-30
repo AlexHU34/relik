@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Relik — панель модерации</title>
+<link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14161f; --surface2:#181b26; --line:#242836; --line2:#2e3344;
+    --tx:#eef0f7; --tx2:#b7bccd; --tx3:#7d8398;
+    --ok:#38b98a; --warn:#e0a23c; --bad:#e0575d; --accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 70px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .mark{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800}
+  h1{font-size:18px;margin:0}
+  .sp{flex:1}
+  .badge{font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--tx2)}
+  .badge.admin{color:#aab3ff;border-color:rgba(91,108,249,.5);background:rgba(91,108,249,.14)}
+  .badge.bad{color:#ef8b8f;border-color:rgba(224,87,93,.4);background:rgba(224,87,93,.12)}
+  .badge.ok{color:#62d3a6;border-color:rgba(56,185,138,.4);background:rgba(56,185,138,.12)}
+  .tabs{display:flex;gap:6px;margin:14px 0 16px;flex-wrap:wrap}
+  .tab{font:inherit;font-size:13px;color:var(--tx2);background:transparent;border:1px solid var(--line2);border-radius:10px;padding:7px 13px;cursor:pointer}
+  .tab.on{color:var(--tx);background:var(--surface2);border-color:rgba(91,108,249,.45)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+  .row{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+  .grow{flex:1;min-width:200px}
+  .nm{font-weight:600;font-size:14px}
+  .sub{font-size:12px;color:var(--tx3);margin-top:2px}
+  .acts{display:flex;gap:6px;flex-wrap:wrap}
+  button{font:inherit;font-size:12.5px;color:var(--tx);background:var(--surface2);border:1px solid var(--line2);border-radius:9px;padding:6px 11px;cursor:pointer}
+  button:hover{background:#1f2432}
+  button.primary{background:linear-gradient(135deg,#5b6cf9,#8a5cf6);border-color:transparent}
+  button.danger{color:#ffb3b6;border-color:rgba(224,87,93,.45)}
+  input,select{font:inherit;font-size:13px;color:var(--tx);background:#0f121a;border:1px solid var(--line2);border-radius:9px;padding:8px 11px;outline:none;max-width:100%}
+  input:focus,select:focus{border-color:var(--accent)}
+  .empty{color:var(--tx3);font-size:13px;padding:10px 2px}
+  pre{white-space:pre-wrap;word-break:break-word;font-size:11.5px;color:var(--tx3);margin:6px 0 0}
+  .login{max-width:340px;margin:60px auto;display:grid;gap:10px}
+  .login h2{font-size:17px;margin:0 0 4px}
+  .err{color:#ef8b8f;font-size:12.5px;min-height:18px}
+  .stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+  .stat div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .stat b{display:block;font-size:20px}
+  .stat span{font-size:11px;color:var(--tx3)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--tx3);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- вход -->
+  <div id="loginView" class="login">
+    <div class="mark">R</div>
+    <h2>Relik · модерация</h2>
+    <div class="sub" style="margin-bottom:8px">Панель модерации. Нужен аккаунт модерации.</div>
+    <input id="email" type="email" placeholder="email" autocomplete="username">
+    <input id="pass" type="password" placeholder="пароль" autocomplete="current-password">
+    <button class="primary" id="loginBtn">Войти</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+
+  <!-- панель -->
+  <div id="panel" hidden>
+    <header>
+      <div class="mark">R</div>
+      <div>
+        <h1>Relik · модерация</h1>
+        <div class="sub" id="who">—</div>
+      </div>
+      <div class="sp"></div>
+      <span class="badge admin">МОДЕРАЦИЯ</span>
+      <button id="refresh">Обновить</button>
+      <button id="logout">Выйти</button>
+    </header>
+
+    <div class="stat" id="stats"></div>
+
+    <div id="gate" hidden></div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-tab="reports">Жалобы</button>
+      <button class="tab" data-tab="users">Пользователи</button>
+      <button class="tab" data-tab="events">Ошибки</button>
+      <button class="tab" data-tab="log">Журнал</button>
+    </div>
+
+    <div id="tab-reports"></div>
+    <div id="tab-users" hidden></div>
+    <div id="tab-events" hidden></div>
+    <div id="tab-log" hidden></div>
+  </div>
+</div>
+
+<script src="js/vendor/supabase.js"></script>
+<script>
+(function () {
+  var sb = null;
+  var me = null;
+  var cfg = { url: '', anon: '' };
+  var cache = { reports: [], users: [], bans: [], events: [], log: [] };
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function dt(v) {
+    if (!v) return '—';
+    try { return new Date(v).toLocaleString('ru-RU'); } catch (e) { return String(v); }
+  }
+
+  async function loadConfig() {
+    var t = await (await fetch('js/config.js?ts=' + Date.now(), { cache: 'no-store' })).text();
+    var u = t.match(/url:\s*'([^']+)'/); if (u) cfg.url = u[1];
+    var k = t.match(/anonKey:\s*'([^']+)'/); if (k) cfg.anon = k[1];
+    if (!cfg.url || !cfg.anon) throw new Error('Supabase не настроен (демо-режим)');
+    sb = window.supabase.createClient(cfg.url, cfg.anon);
+  }
+
+  async function login() {
+    $('loginErr').textContent = '';
+    try {
+      if (!sb) await loadConfig();
+      var email = $('email').value.trim();
+      var pass = $('pass').value;
+      var r = await sb.auth.signInWithPassword({ email: email, password: pass });
+      if (r.error) throw r.error;
+      await enter();
+    } catch (e) {
+      $('loginErr').textContent = e.message || String(e);
+    }
+  }
+
+  async function enter() {
+    var u = await sb.auth.getUser();
+    if (!u.data || !u.data.user) throw new Error('Не вошли');
+    var p = await sb.from('profiles').select('id, display_name, username, role').eq('id', u.data.user.id).maybeSingle();
+    if (p.error) throw p.error;
+    if (!p.data || p.data.role !== 'admin') throw new Error('У этого аккаунта нет роли admin');
+    me = p.data;
+    $('loginView').hidden = true;
+    $('panel').hidden = false;
+    $('who').textContent = me.display_name + (me.username ? ' · @' + me.username : '');
+    await gate();
+  }
+
+  /* ── Второй фактор панели: пароль + TOTP ──────────────────
+     Первый фактор — обычный вход Supabase. Здесь проверяем
+     пароль панели (PBKDF2) и 6-значный код (TOTP, окно ±30 с).
+     Секрет и хэш лежат в public.admin_access под RLS (только admin). */
+
+  var gateState = { mode: 'unlock', secret: '', row: null, unlocked: false };
+
+  function unb64(s) {
+    return Uint8Array.from(atob(String(s || '')), function (c) { return c.charCodeAt(0); });
+  }
+  function b64(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i += 1) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+  function randomBytes(n) {
+    var a = new Uint8Array(n);
+    crypto.getRandomValues(a);
+    return a;
+  }
+  var B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  function base32Encode(bytes) {
+    var bits = 0, value = 0, out = '';
+    for (var i = 0; i < bytes.length; i += 1) {
+      value = (value << 8) | bytes[i];
+      bits += 8;
+      while (bits >= 5) {
+        out += B32[(value >>> (bits - 5)) & 31];
+        bits -= 5;
+      }
+    }
+    if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+    return out;
+  }
+  function base32Decode(str) {
+    var clean = String(str || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+    var bits = 0, value = 0;
+    var out = [];
+    for (var i = 0; i < clean.length; i += 1) {
+      var idx = B32.indexOf(clean[i]);
+      if (idx < 0) continue;
+      value = (value << 5) | idx;
+      bits += 5;
+      if (bits >= 8) {
+        out.push((value >>> (bits - 8)) & 255);
+        bits -= 8;
+      }
+    }
+    return new Uint8Array(out);
+  }
+
+  async function pbkdf2(password, saltBytes, iter) {
+    var base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+    var bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: saltBytes, iterations: iter, hash: 'SHA-256' }, base, 256,
+    );
+    return new Uint8Array(bits);
+  }
+
+  async function totp(secretB32, at) {
+    var counter = Math.floor((at || Date.now()) / 30000);
+    var buf = new ArrayBuffer(8);
+    var dv = new DataView(buf);
+    dv.setUint32(0, Math.floor(counter / 4294967296));
+    dv.setUint32(4, counter >>> 0);
+    var key = await crypto.subtle.importKey('raw', base32Decode(secretB32), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    var sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new Uint8Array(buf)));
+    var off = sig[sig.length - 1] & 15;
+    var code = ((sig[off] & 127) << 24 | sig[off + 1] << 16 | sig[off + 2] << 8 | sig[off + 3]) % 1000000;
+    return String(code).padStart(6, '0');
+  }
+
+  async function totpValid(secretB32, code) {
+    var c = String(code || '').replace(/\D/g, '');
+    if (c.length !== 6) return false;
+    var now = Date.now();
+    for (var d = -1; d <= 1; d += 1) {
+      if (await totp(secretB32, now + d * 30000) === c) return true;
+    }
+    return false;
+  }
+
+  function setLocked(locked) {
+    $('stats').hidden = locked;
+    $('tabs').hidden = locked;
+    ['reports', 'users', 'events', 'log'].forEach(function (t) {
+      var el = $('tab-' + t);
+      if (el) el.hidden = locked || !el.dataset.active;
+    });
+    $('gate').hidden = !locked;
+    gateState.unlocked = !locked;
+  }
+
+  function gateErr(msg) { $('gateErr').textContent = msg || ''; }
+
+  async function loadAccessRow() {
+    var r = await sb.from('admin_access')
+      .select('user_id, pass_salt, pass_hash, iter, totp_secret, totp_enabled, failed_count, locked_until')
+      .eq('user_id', me.id).maybeSingle();
+    if (r.error) {
+      if (/does not exist|schema cache|relation/i.test(r.error.message || '')) return { missingTable: true };
+      throw r.error;
+    }
+    return r.data || null;
+  }
+
+  function gateShell(inner) {
+    $('gate').innerHTML = '<div class="card" style="max-width:440px;margin:20px auto">' + inner + '</div>';
+  }
+
+  function renderGate() {
+    setLocked(true);
+    if (gateState.mode === 'enroll') return renderEnroll();
+
+    gateShell(
+      '<div class="nm">Второй фактор</div>' +
+      '<div class="sub" style="margin-bottom:10px">Пароль панели и код из приложения-аутентификатора.</div>' +
+      '<div style="display:grid;gap:8px">' +
+        '<input id="gatePass" type="password" placeholder="Пароль панели" autocomplete="current-password">' +
+        '<input id="gateCode" inputmode="numeric" maxlength="6" placeholder="6 цифр" autocomplete="one-time-code">' +
+        '<button class="primary" id="gateGo">Разблокировать</button>' +
+      '</div>' +
+      '<div class="err" id="gateErr"></div>' +
+      '<div class="sub">Забыли пароль панели? Удалите строку из <code>admin_access</code> в SQL Editor — панель предложит настроить 2FA заново.</div>'
+    );
+    $('gateGo').addEventListener('click', unlock);
+    $('gateCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') unlock(); });
+    $('gatePass').focus();
+  }
+
+  function renderEnroll() {
+    if (!gateState.secret) gateState.secret = base32Encode(randomBytes(20));
+    var uri = 'otpauth://totp/Relik%20moderation:' + encodeURIComponent(me.username || me.id)
+      + '?secret=' + gateState.secret + '&issuer=Relik&period=30&digits=6';
+    gateShell(
+      '<div class="nm">Настройка 2FA</div>' +
+      '<div class="sub" style="margin-bottom:10px">Второй фактор ещё не настроен. Придумайте пароль панели и добавьте секрет в аутентификатор (Google Authenticator, Aegis, 1Password).</div>' +
+      '<div style="display:grid;gap:8px">' +
+        '<input id="gatePass" type="password" placeholder="Новый пароль панели (мин. 10 символов)" autocomplete="new-password">' +
+        '<input id="gatePass2" type="password" placeholder="Повторите пароль" autocomplete="new-password">' +
+        '<div class="card" style="background:#0f121a"><div class="sub">Секрет для аутентификатора</div>' +
+          '<div style="font-family:ui-monospace,Consolas,monospace;font-size:13px;word-break:break-all;margin-top:4px">' + gateState.secret + '</div>' +
+          '<div class="sub" style="margin-top:6px;word-break:break-all">' + uri + '</div></div>' +
+        '<input id="gateCode" inputmode="numeric" maxlength="6" placeholder="Код из приложения" autocomplete="one-time-code">' +
+        '<button class="primary" id="gateGo">Включить 2FA и войти</button>' +
+      '</div>' +
+      '<div class="err" id="gateErr"></div>'
+    );
+    $('gateGo').addEventListener('click', enroll);
+  }
+
+  async function unlock() {
+    gateErr('');
+    var row = gateState.row;
+    if (!row) { try { row = await loadAccessRow(); } catch (e) { gateErr(e.message); return; } }
+    if (!row || row.missingTable) {
+      gateErr('Нет таблицы admin_access. Выполните supabase/admin_access.sql.');
+      return;
+    }
+    if (row.locked_until && new Date(row.locked_until) > new Date()) {
+      gateErr('Панель заблокирована до ' + dt(row.locked_until));
+      return;
+    }
+    var pass = $('gatePass').value;
+    var code = $('gateCode').value;
+    if (!pass || !code) { gateErr('Введите пароль и код'); return; }
+    var hash = await pbkdf2(pass, unb64(row.pass_salt), row.iter || 310000);
+    var okPass = b64(hash) === row.pass_hash;
+    var okCode = row.totp_enabled && await totpValid(row.totp_secret, code);
+    if (!okPass || !okCode) {
+      var fails = (row.failed_count || 0) + 1;
+      var lock = fails >= 5 ? new Date(Date.now() + 10 * 60000).toISOString() : null;
+      await sb.from('admin_access').update({ failed_count: fails, locked_until: lock }).eq('user_id', me.id);
+      gateErr(okPass ? 'Неверный код' : 'Неверный пароль панели');
+      if (lock) gateErr('Слишком много попыток. Панель заблокирована на 10 минут.');
+      return;
+    }
+    await sb.from('admin_access').update({ failed_count: 0, locked_until: null, updated_at: new Date().toISOString() }).eq('user_id', me.id);
+    unlocked();
+  }
+
+  async function enroll() {
+    gateErr('');
+    var p1 = $('gatePass').value;
+    var p2 = $('gatePass2').value;
+    var code = $('gateCode').value;
+    if (p1.length < 10) { gateErr('Пароль панели — минимум 10 символов'); return; }
+    if (p1 !== p2) { gateErr('Пароли не совпадают'); return; }
+    if (!(await totpValid(gateState.secret, code))) { gateErr('Неверный код из приложения'); return; }
+    var salt = randomBytes(16);
+    var hash = await pbkdf2(p1, salt, 310000);
+    var r = await sb.from('admin_access').insert({
+      user_id: me.id,
+      pass_salt: b64(salt),
+      pass_hash: b64(hash),
+      iter: 310000,
+      totp_secret: gateState.secret,
+      totp_enabled: true,
+    });
+    if (r.error) { gateErr(r.error.message); return; }
+    await writeLog('panel_enroll', me.id, {});
+    unlocked();
+  }
+
+  async function gate() {
+    var row = null;
+    try { row = await loadAccessRow(); } catch (e) { gateErr(e.message); }
+    if (row && row.missingTable) {
+      setLocked(true);
+      gateShell('<div class="nm">Панель без 2FA</div><div class="sub">Таблица admin_access не найдена — выполните <code>supabase/admin_access.sql</code>.</div>' +
+        '<div class="err">Пока таблицы нет, панель не открывается: это защита от входа по одному паролю.</div>');
+      return;
+    }
+    gateState.row = row;
+    if (!row) { gateState.mode = 'enroll'; setLocked(true); renderEnroll(); return; }
+    gateState.mode = 'unlock';
+    renderGate();
+  }
+
+  function unlocked() {
+    setLocked(false);
+    $('gate').hidden = true;
+    $('gate').innerHTML = '';
+    var active = document.querySelector('.tab.on');
+    var t = active ? active.dataset.tab : 'reports';
+    ['reports', 'users', 'events', 'log'].forEach(function (x) {
+      var el = $('tab-' + x);
+      if (el) { el.hidden = x !== t; el.dataset.active = x === t ? '1' : ''; }
+    });
+    refreshAll();
+  }
+
+  async function refreshAll() {
+    await Promise.all([loadReports(), loadUsers(), loadEvents(), loadLog()]);
+    paintStats();
+  }
+
+  async function loadReports() {
+    var r = await sb.from('reports')
+      .select('id, chat_id, message_id, reporter_id, sender_id, message_ts, reason, status, created_at')
+      .order('created_at', { ascending: false }).limit(100);
+    cache.reports = r.data || [];
+    if (r.error) cache.reportsError = r.error.message;
+  }
+
+  async function loadUsers() {
+    var r = await sb.from('profiles').select('id, display_name, username, role, last_seen, created_at').order('display_name').limit(300);
+    cache.users = r.data || [];
+    var b = await sb.from('bans').select('user_id, until, reason, created_at');
+    cache.bans = b.data || [];
+  }
+
+  async function loadEvents() {
+    var r = await sb.from('client_events')
+      .select('id, user_id, kind, data, app_version, created_at')
+      .order('created_at', { ascending: false }).limit(200);
+    cache.events = r.data || [];
+    if (r.error) cache.eventsError = r.error.message;
+  }
+
+  async function loadLog() {
+    var r = await sb.from('admin_log')
+      .select('id, admin_id, action, target, details, created_at')
+      .order('created_at', { ascending: false }).limit(100);
+    cache.log = r.data || [];
+  }
+
+  function userName(id) {
+    var u = cache.users.find(function (x) { return x.id === id; });
+    return u ? (u.display_name + (u.username ? ' (@' + u.username + ')' : '')) : (id ? id.slice(0, 8) + '…' : '—');
+  }
+
+  function banOf(id) {
+    return cache.bans.find(function (b) { return b.user_id === id; }) || null;
+  }
+
+  function activeBan(b) {
+    if (!b) return false;
+    return !b.until || new Date(b.until) > new Date();
+  }
+
+  function paintStats() {
+    var open = cache.reports.filter(function (r) { return r.status === 'open'; }).length;
+    var banned = cache.bans.filter(activeBan).length;
+    var errs = cache.events.filter(function (e) { return /error|fail|reject/i.test(e.kind); }).length;
+    var day = Date.now() - 864e5;
+    var week = Date.now() - 7 * 864e5;
+    var newWeek = cache.users.filter(function (u) { return u.created_at && new Date(u.created_at).getTime() > week; }).length;
+    var repDay = cache.reports.filter(function (r) { return r.created_at && new Date(r.created_at).getTime() > day; }).length;
+    $('stats').innerHTML =
+      '<div><b>' + open + '</b><span>открытых жалоб</span></div>' +
+      '<div><b>' + repDay + '</b><span>жалоб за 24 ч</span></div>' +
+      '<div><b>' + cache.users.length + '</b><span>пользователей</span></div>' +
+      '<div><b>' + newWeek + '</b><span>новых за 7 дней</span></div>' +
+      '<div><b>' + banned + '</b><span>забанено</span></div>' +
+      '<div><b>' + errs + '</b><span>ошибок в событиях</span></div>';
+  }
+
+  var REASON_LABELS = {
+    'user_report:spam': 'спам / реклама',
+    'user_report:scam': 'мошенничество',
+    'user_report:threat': 'угрозы / травля',
+    'user_report:illegal': 'незаконный контент',
+    'user_report:other': 'другое',
+    'user_report': 'без категории',
+  };
+  function reasonLabel(code) {
+    return REASON_LABELS[code] || code || '—';
+  }
+
+  function paintReports() {
+    var box = $('tab-reports');
+    if (cache.reportsError) { box.innerHTML = '<div class="card">Жалобы недоступны: ' + esc(cache.reportsError) + '</div>'; return; }
+    if (!cache.reports.length) { box.innerHTML = '<div class="card empty">Жалоб нет</div>'; return; }
+    box.innerHTML = cache.reports.map(function (r) {
+      var st = r.status === 'open' ? 'bad' : (r.status === 'resolved' ? 'ok' : '');
+      return '<div class="card"><div class="row">' +
+        '<div class="grow">' +
+          '<div class="nm">Жалоба на ' + esc(userName(r.sender_id)) + ' <span class="badge ' + st + '">' + esc(r.status) + '</span>' +
+            ' <span class="badge">' + esc(reasonLabel(r.reason)) + '</span></div>' +
+          '<div class="sub">от ' + esc(userName(r.reporter_id)) + ' · ' + dt(r.created_at) + '</div>' +
+          '<div class="sub">сообщение: ' + esc(r.message_id ? r.message_id.slice(0, 8) + '…' : 'удалено') +
+          (r.message_ts ? ' · ' + dt(r.message_ts) : '') + ' · чат ' + esc(r.chat_id ? r.chat_id.slice(0, 8) + '…' : '—') + '</div>' +
+        '</div>' +
+        '<div class="acts">' +
+          (r.message_id ? '<button data-del-msg="' + esc(r.message_id) + '">Удалить сообщение</button>' : '') +
+          (r.sender_id ? '<button class="danger" data-ban="' + esc(r.sender_id) + '">Забанить автора</button>' : '') +
+          (r.status === 'open' ? '<button data-resolve="' + esc(r.id) + '">Закрыть</button><button data-reject="' + esc(r.id) + '">Отклонить</button>' : '') +
+        '</div>' +
+      '</div></div>';
+    }).join('');
+  }
+
+  function paintUsers() {
+    var q = ($('userSearch') && $('userSearch').value || '').trim().toLowerCase();
+    var list = cache.users.filter(function (u) {
+      if (!q) return true;
+      return (u.display_name || '').toLowerCase().includes(q) || (u.username || '').toLowerCase().includes(q);
+    });
+    $('tab-users').innerHTML =
+      '<div class="card"><input id="userSearch" placeholder="Поиск по имени или @username" value="' + esc(q) + '"></div>' +
+      list.map(function (u) {
+        var b = banOf(u.id);
+        var banned = activeBan(b);
+        return '<div class="card"><div class="row">' +
+          '<div class="grow"><div class="nm">' + esc(u.display_name || '—') +
+            (u.username ? ' <span class="sub">@' + esc(u.username) + '</span>' : '') +
+            (u.role === 'admin' ? ' <span class="badge admin">ADMIN</span>' : '') +
+            (banned ? ' <span class="badge bad">BAN</span>' : '') + '</div>' +
+            '<div class="sub">' + (banned ? ('до ' + (b.until ? dt(b.until) : 'навсегда') + ' · ' + esc(b.reason || '')) : 'активен') + '</div></div>' +
+          '<div class="acts">' +
+            (banned ? '<button data-unban="' + esc(u.id) + '">Снять бан</button>' : '<button class="danger" data-ban="' + esc(u.id) + '">Забанить</button>') +
+          '</div>' +
+        '</div></div>';
+      }).join('') || '<div class="card empty">Никого не найдено</div>';
+  }
+
+  function paintEvents() {
+    if (cache.eventsError) { $('tab-events').innerHTML = '<div class="card">Недоступно: ' + esc(cache.eventsError) + '</div>'; return; }
+    if (!cache.events.length) { $('tab-events').innerHTML = '<div class="card empty">Событий нет (таблица client_events пуста)</div>'; return; }
+    $('tab-events').innerHTML = '<div class="card"><table><tr><th>Время</th><th>Тип</th><th>Версия</th><th>Данные</th></tr>' +
+      cache.events.map(function (e) {
+        return '<tr><td>' + dt(e.created_at) + '</td><td>' + esc(e.kind) + '</td><td>' + esc(e.app_version || '—') + '</td><td><pre>' +
+          esc(JSON.stringify(e.data).slice(0, 260)) + '</pre></td></tr>';
+      }).join('') + '</table></div>';
+  }
+
+  function paintLog() {
+    if (!cache.log.length) { $('tab-log').innerHTML = '<div class="card empty">Журнал пуст</div>'; return; }
+    $('tab-log').innerHTML = '<div class="card"><table><tr><th>Время</th><th>Действие</th><th>Цель</th><th>Детали</th></tr>' +
+      cache.log.map(function (l) {
+        return '<tr><td>' + dt(l.created_at) + '</td><td>' + esc(l.action) + '</td><td>' + esc(l.target || '—') + '</td><td><pre>' +
+          esc(JSON.stringify(l.details || {}).slice(0, 200)) + '</pre></td></tr>';
+      }).join('') + '</table></div>';
+  }
+
+  async function writeLog(action, target, details) {
+    try {
+      await sb.from('admin_log').insert({ admin_id: me ? me.id : null, action: action, target: target, details: details || {} });
+    } catch (e) { /* журнал не должен ломать действие */ }
+  }
+
+  async function deleteMsg(id) {
+    if (!confirm('Удалить сообщение для всех?')) return;
+    var r = await sb.from('messages').update({ deleted: true }).eq('id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('message_delete', id, {});
+    await refreshAll();
+  }
+
+  async function banUser(id) {
+    var days = prompt('Бан на сколько дней? (0 = навсегда)', '7');
+    if (days === null) return;
+    var n = parseInt(days, 10);
+    var until = n > 0 ? new Date(Date.now() + n * 864e5).toISOString() : null;
+    var reason = prompt('Причина (видна в журнале)', 'нарушение правил') || '';
+    var r = await sb.from('bans').upsert({ user_id: id, until: until, reason: reason, admin_id: me.id });
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('ban', id, { until: until, reason: reason });
+    await refreshAll();
+  }
+
+  async function unbanUser(id) {
+    var r = await sb.from('bans').delete().eq('user_id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('unban', id, {});
+    await refreshAll();
+  }
+
+  async function resolveReport(id, status) {
+    var r = await sb.from('reports').update({
+      status: status, resolved_at: new Date().toISOString(), resolved_by: me.id,
+    }).eq('id', id);
+    if (r.error) { alert(r.error.message); return; }
+    await writeLog('report_' + status, id, {});
+    await refreshAll();
+  }
+
+  function bind() {
+    $('loginBtn').addEventListener('click', login);
+    $('pass').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
+    $('refresh').addEventListener('click', refreshAll);
+    $('logout').addEventListener('click', async function () { await sb.auth.signOut(); location.reload(); });
+
+    $('tabs').addEventListener('click', function (e) {
+      if (!gateState.unlocked) return;
+      var b = e.target.closest('[data-tab]');
+      if (!b) return;
+      [].forEach.call(document.querySelectorAll('.tab'), function (t) { t.classList.toggle('on', t === b); });
+      ['reports', 'users', 'events', 'log'].forEach(function (t) {
+        $('tab-' + t).hidden = t !== b.dataset.tab;
+      });
+    });
+
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest('button');
+      if (!t) return;
+      if (t.dataset.delMsg) deleteMsg(t.dataset.delMsg);
+      else if (t.dataset.ban) banUser(t.dataset.ban);
+      else if (t.dataset.unban) unbanUser(t.dataset.unban);
+      else if (t.dataset.resolve) resolveReport(t.dataset.resolve, 'resolved');
+      else if (t.dataset.reject) resolveReport(t.dataset.reject, 'rejected');
+    });
+
+    document.addEventListener('input', function (e) {
+      if (e.target && e.target.id === 'userSearch') {
+        var val = e.target.value;
+        paintUsers();
+        var inp = $('userSearch');
+        if (inp) { inp.value = val; inp.focus(); }
+      }
+    });
+  }
+
+  /* рендер после каждой загрузки */
+  var origRefresh = refreshAll;
+  refreshAll = async function () {
+    await origRefresh();
+    paintReports(); paintUsers(); paintEvents(); paintLog();
+  };
+
+  bind();
+
+  /* авто-вход, если сессия уже есть */
+  (async function () {
+    try {
+      await loadConfig();
+      var s = await sb.auth.getSession();
+      if (s.data && s.data.session) await enter();
+    } catch (e) { /* покажем форму входа */ }
+  })();
+})();
+</script>
+</body>
+</html>

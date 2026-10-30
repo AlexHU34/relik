@@ -1,0 +1,37 @@
+# Внешняя проверка Relik: GitHub Actions ходит на боевой адрес каждые 15 минут.
+#
+# Зачем: агент на VPS не может сообщить, что упал сам VPS, а UptimeRobot и
+# подобные сервисы требуют отдельного аккаунта. GitHub Actions уже есть у
+# репозитория и работает с чужой инфраструктуры — если что-то не отвечает,
+# запуск падает, и GitHub присылает письмо владельцу репозитория.
+#
+# Проверяет: сайт (index.html), config.js, version.json, Auth, REST, Storage,
+# Realtime (WebSocket) и TURN. Код возврата 1 = критичный сбой.
+name: Health
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: health
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Проверить боевой сервис
+        run: node scripts/relik-health.mjs
+
+      - name: Резервное зеркало (если включено)
+        continue-on-error: true
+        run: node scripts/relik-health.mjs --url https://relik.62-113-99-46.nip.io/

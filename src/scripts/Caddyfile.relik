@@ -1,0 +1,45 @@
+# Relik — резервное зеркало статики на своём VPS (Caddy).
+#
+# Зачем: GitHub Pages в РФ обычно быстрый, но это чужой домен. Если он
+# замедлился или недоступен у провайдера, переключаем DNS на этот сервер —
+# и приложение продолжает открываться. Бэкенд (Supabase) остаётся общим,
+# поэтому данные и сообщения те же.
+#
+# Установка:  scripts/mirror-static.sh  (он подставит домен и включит сайт)
+# Или вручную: положить в /etc/caddy/relik.caddy и добавить в основной
+# Caddyfile строку:  import /etc/caddy/relik.caddy
+#
+# Важно: замени relik.example.ru на свой домен (A-запись → IP этого VPS).
+
+relik.example.ru {
+	root * /var/www/relik
+	encode zstd gzip
+
+	# HTML и SW не кэшируем: после деплоя люди должны получить новую версию.
+	@noCache path /index.html /sw.js /version.json /manifest.json
+	header @noCache Cache-Control "no-cache"
+
+	# Код и стили — короткий кэш, как на GitHub Pages.
+	@code path /js/* /css/*
+	header @code Cache-Control "public, max-age=600"
+
+	# Шрифты и иконки — можно надолго.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=604800, immutable"
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Никакого SPA-fallback: маршруты живут в #hash, а отсутствующий .js
+	# должен отдавать 404, а не HTML (иначе модуль падает с непонятной ошибкой).
+	file_server
+
+	log {
+		output file /var/log/caddy/relik.log
+		format console
+	}
+}

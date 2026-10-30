@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relik — приватный мессенджер со сквозным шифрованием</title>
+<meta name="description" content="Relik — небольшой независимый мессенджер: сквозное шифрование, звонки через свой TURN, без рекламы и трекеров.">
+<link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32">
+<style>
+  :root{
+    --bg:#0b0c12;--surface:#14161f;--line:#242836;--line2:#2e3344;
+    --tx:#eef0f7;--tx2:#b7bccd;--tx3:#7d8398;--accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;color:var(--tx);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:
+      radial-gradient(1000px 600px at 80% -10%, rgba(91,108,249,.22), transparent 60%),
+      radial-gradient(800px 500px at 0% 20%, rgba(138,92,246,.14), transparent 55%),
+      var(--bg);
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:26px 20px 80px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:60px}
+  .mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800}
+  header b{font-size:18px;letter-spacing:-.02em}
+  .sp{flex:1}
+  header a{font-size:13px;color:var(--tx2);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:7px 14px}
+  header a:hover{background:var(--surface)}
+  h1{font-size:clamp(30px,5vw,52px);line-height:1.08;letter-spacing:-.03em;margin:0 0 16px;max-width:18ch}
+  .lead{font-size:17px;color:var(--tx2);max-width:60ch;margin:0 0 28px}
+  .cta{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:56px}
+  .btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:12px;border:1px solid var(--line2);color:var(--tx)}
+  .btn.primary{background:linear-gradient(135deg,#5b6cf9,#8a5cf6);border-color:transparent;box-shadow:0 14px 30px -14px rgba(91,108,249,.9)}
+  .btn:hover{filter:brightness(1.08)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px 19px}
+  .card h3{margin:0 0 6px;font-size:15.5px}
+  .card p{margin:0;font-size:13.5px;color:var(--tx2)}
+  .note{margin-top:44px;padding:16px 18px;border:1px dashed var(--line2);border-radius:14px;font-size:13px;color:var(--tx3)}
+  footer{margin-top:36px;font-size:12.5px;color:var(--tx3);display:flex;gap:14px;flex-wrap:wrap}
+  footer a{color:var(--tx3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">R</div>
+    <b>Relik</b>
+    <div class="sp"></div>
+    <a href="./">Открыть приложение</a>
+  </header>
+
+  <h1>Переписка, которой доверяют</h1>
+  <p class="lead">
+    Небольшой независимый мессенджер. Тексты, фото и файлы шифруются на устройстве —
+    сервер хранит только шифротекст. Без рекламы, аналитики и сторонних трекеров.
+  </p>
+
+  <div class="cta">
+    <a class="btn primary" href="./">Войти или зарегистрироваться</a>
+    <a class="btn" href="?demo=1">Посмотреть демо без регистрации</a>
+    <a class="btn" href="legal.html">Условия и конфиденциальность</a>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Сквозное шифрование</h3>
+      <p>ECDH P-256 + AES-GCM. Ключ создаётся в браузере и не покидает устройство; сервер видит только набор байт.</p>
+    </div>
+    <div class="card">
+      <h3>Свои звонки</h3>
+      <p>Собственный TURN-сервер, поэтому звонки проходят и через мобильный интернет, а не только в одной Wi-Fi сети.</p>
+    </div>
+    <div class="card">
+      <h3>Честные ограничения</h3>
+      <p>Метаданные (кто, когда, с кем) серверу видны. Нет perfect forward secrecy. PIN — только блокировка экрана. Всё описано в <a href="legal.html" style="color:var(--accent)">политике</a>.</p>
+    </div>
+    <div class="card">
+      <h3>Без лишнего</h3>
+      <p>Нет рекламы, сбора аналитики, рекомендаций и «умных лент». Только чаты, звонки и файлы.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    Регистрация по инвайт-коду: проект семейный и не позиционируется как публичный сервис.
+    Сайт работает как PWA — приложение можно установить на телефон и на компьютер.
+    Есть отдельные сборки для Windows: <strong>Relik.exe</strong> и панель модерации <strong>Relik (Admin).exe</strong>.
+  </div>
+
+  <footer>
+    <span>Relik · независимый проект</span>
+    <a href="legal.html">Условия и конфиденциальность</a>
+    <a href="tools/status.html">Статус сервиса</a>
+    <a href="https://github.com/AlexHU34/relik">Исходный код</a>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,104 @@
+/* ============================================================
+   Relik — композер: поле ввода, вложения, эмодзи, запись голоса
+   ============================================================ */
+.composer{padding:10px max(20px, calc((100% - 920px)/2)) calc(16px + env(safe-area-inset-bottom));display:grid;gap:10px;min-width:0;background:linear-gradient(transparent,var(--bg) 34%)}
+
+/* Плашка ответа/редактирования */
+.reply-edit-bar{
+  display:none;align-items:center;gap:10px;padding:8px 10px;
+  border-radius:14px;background:var(--surface-2);border:1px solid var(--line);
+  animation:fade-up .2s var(--ease);
+}
+.reply-edit-bar.on{display:flex}
+.reb-ic{width:34px;height:34px;border-radius:10px;background:var(--accent-soft);color:var(--indigo);display:grid;place-items:center;flex:none}
+.reb-main{flex:1;display:grid;gap:2px;min-width:0}
+.reb-label{font-size:var(--fs-2xs);font-weight:700;color:var(--indigo)}
+.reb-text{font-size:var(--fs-sm);color:var(--tx-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Ряд ввода */
+.composer-row{
+  display:flex;align-items:flex-end;gap:6px;min-width:0;
+  background:var(--surface-2);border:1px solid var(--line);
+  border-radius:22px;padding:8px 10px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03),0 14px 34px -26px rgba(0,0,0,.95);
+  transition:border-color var(--t-fast),box-shadow var(--t-fast),background var(--t-fast);
+}
+.composer-row:focus-within{border-color:var(--accent-glow);box-shadow:0 0 0 3px var(--accent-soft),0 14px 34px -26px rgba(0,0,0,.95)}
+.composer-row.recording{border-color:rgba(249,106,106,.6);background:rgba(249,106,106,.06)}
+
+/* Вложения */
+.attach{position:relative}
+.attach-menu{
+  position:absolute;bottom:50px;left:0;min-width:200px;z-index:var(--z-pop,60);
+  background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-lg);
+  box-shadow:var(--sh-pop);padding:6px;display:grid;gap:2px;animation:pop .15s var(--ease);
+}
+.attach-menu button{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:11px;font-size:var(--fs-sm);color:var(--tx-2);text-align:left;transition:background var(--t-fast),color var(--t-fast)}
+.attach-menu button:hover{background:var(--surface-3);color:var(--tx)}
+.attach-menu .amb{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none}
+.attach-menu .c-photo{color:#9f5cf6;background:rgba(159,92,246,.15)}
+.attach-menu .c-file{color:#4e7fff;background:rgba(78,127,255,.15)}
+.attach-menu .c-poll{color:#3ecf8e;background:rgba(62,207,142,.15)}
+
+/* Текстовое поле */
+#ta{flex:1 1 0;width:0;min-width:0;resize:none;border:0;outline:0;background:none;padding:8px 6px;max-height:140px;font-size:var(--fs-md);line-height:1.5}
+#ta::placeholder{color:var(--tx-3)}
+
+/* Эмодзи */
+.emoji-wrap{position:relative}
+.emoji-pop{
+  position:absolute;bottom:50px;right:0;width:min(360px,94vw);z-index:var(--z-pop,60);
+  background:var(--raise);border:1px solid var(--line-2);border-radius:var(--r-lg);
+  box-shadow:var(--sh-pop);display:flex;flex-direction:column;overflow:hidden;
+  animation:pop .15s var(--ease);max-height:min(360px,62vh);
+}
+.emoji-tabs{
+  display:flex;gap:2px;padding:6px;border-bottom:1px solid var(--line);
+  overflow-x:auto;scrollbar-width:none;flex:none;
+}
+.emoji-tabs::-webkit-scrollbar{display:none}
+.emoji-tab{
+  font-size:17px;line-height:1;padding:5px 6px;border-radius:9px;opacity:.6;flex:none;
+  transition:background var(--t-fast),opacity var(--t-fast),transform var(--t-fast);
+}
+.emoji-tab:hover{opacity:1;background:var(--surface-3)}
+.emoji-tab.on{opacity:1;background:var(--accent-soft)}
+.emoji-group-title{font-size:var(--fs-2xs);font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx-3);padding:7px 12px 2px}
+.emoji-grid{
+  display:grid;grid-template-columns:repeat(8,1fr);gap:1px;
+  padding:2px 6px 8px;overflow-y:auto;min-height:80px;
+}
+.emoji-grid button{font-size:20px;line-height:1;padding:6px 2px;border-radius:9px;transition:background var(--t-fast),transform var(--t-fast)}
+.emoji-grid button:hover{background:var(--surface-3);transform:scale(1.18)}
+
+/* Отправка / микрофон */
+.send-btn{
+  width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:var(--grad);color:var(--on-accent);box-shadow:0 6px 18px -6px var(--accent-glow);
+  transition:transform var(--t-fast),filter var(--t-fast);
+}
+.send-btn:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.send-btn:active{transform:scale(.88)}
+.send-btn.mic{background:var(--surface-3);color:var(--tx-2);box-shadow:none}
+
+/* Запись (демо) */
+.rec-ui{display:flex;align-items:center;gap:8px;padding:8px 10px;color:var(--bad)}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:var(--bad);animation:blink 1s infinite}
+.rec-time{font-size:var(--fs-sm);font-weight:600;font-variant-numeric:tabular-nums}
+
+.attach-menu .c-album{color:#f59e0b;background:rgba(245,158,11,.15)}
+.attach-menu .c-video{color:#f0566e;background:rgba(240,86,110,.15)}
+.attach-menu .c-circle{color:#2dd4bf;background:rgba(45,212,191,.15)}
+.attach-menu .c-later{color:#22c55e;background:rgba(34,197,94,.15)}
+.sched-preview{padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);
+  font-size:var(--fs-sm);color:var(--tx-2);max-height:110px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+
+/* Список отложенных сообщений */
+.sched-list{display:grid;gap:8px;max-height:52vh;overflow:auto}
+.sched-empty{padding:24px 10px;text-align:center;color:var(--tx-3);font-size:var(--fs-sm)}
+.sched-item{display:grid;gap:7px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.sched-item .si-top{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--fs-xs);color:var(--tx-3)}
+.sched-item .si-chat{color:var(--tx-2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sched-item .si-text{font-size:var(--fs-sm);color:var(--tx);white-space:pre-wrap;word-break:break-word;max-height:76px;overflow:hidden}
+.sched-item .si-actions{display:flex;gap:6px;justify-content:flex-end}
+.sched-item .btn{padding:5px 10px;font-size:var(--fs-xs);min-height:0}

@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relik — статус сервиса</title>
+<link rel="icon" href="../assets/icons/favicon-32.png" sizes="32x32">
+<style>
+  :root{
+    --bg:#0b0c12; --surface:#14161f; --line:#242836; --line2:#2e3344;
+    --tx:#eef0f7; --tx2:#b7bccd; --tx3:#7d8398;
+    --ok:#38b98a; --warn:#e0a23c; --bad:#e0575d; --accent:#5b6cf9;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:26px 18px 70px;background:
+      radial-gradient(800px 420px at 85% -10%, rgba(91,108,249,.18), transparent 60%),
+      var(--bg);
+    color:var(--tx);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  .wrap{max-width:820px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#5b6cf9,#8a5cf6);display:grid;place-items:center;font-weight:800}
+  h1{font-size:20px;margin:0;letter-spacing:-.02em}
+  .sub{color:var(--tx3);font-size:12.5px;margin:2px 0 20px}
+  .grid{display:grid;gap:10px}
+  .row{
+    display:grid;grid-template-columns:10px 1fr auto;gap:12px;align-items:center;
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px 15px;
+  }
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--tx3)}
+  .dot.ok{background:var(--ok);box-shadow:0 0 10px rgba(56,185,138,.55)}
+  .dot.warn{background:var(--warn)}
+  .dot.bad{background:var(--bad);box-shadow:0 0 10px rgba(224,87,93,.5)}
+  .nm{font-weight:600;font-size:14px}
+  .dt{color:var(--tx3);font-size:12px;margin-top:2px;word-break:break-word}
+  .val{font-variant-numeric:tabular-nums;color:var(--tx2);font-size:12.5px;white-space:nowrap}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 22px}
+  button{
+    font:inherit;font-size:13px;color:var(--tx);background:var(--surface);
+    border:1px solid var(--line2);border-radius:10px;padding:8px 14px;cursor:pointer;
+  }
+  button:hover{background:#1b1f2c}
+  button.primary{background:linear-gradient(135deg,#5b6cf9,#8a5cf6);border-color:transparent}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--tx3);margin:24px 0 8px}
+  pre{
+    background:#0f121a;border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+    font-size:12px;line-height:1.5;color:var(--tx2);overflow:auto;max-height:320px;white-space:pre-wrap;
+  }
+  .note{margin-top:22px;color:var(--tx3);font-size:12px}
+  .note a{color:var(--accent)}
+  /* Полоса доступности: 24 часа срезов, по одному прямоугольнику на срез */
+  .up-bar{display:flex;gap:2px;height:26px;align-items:stretch;padding:2px;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  .up-bar i{flex:1 1 0;min-width:2px;border-radius:2px;background:var(--ok);opacity:.8}
+  .up-bar i.bad{background:var(--bad);opacity:1}
+  .up-bar i:hover{opacity:1;outline:1px solid rgba(255,255,255,.35)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">R</div>
+    <div>
+      <h1>Статус сервиса</h1>
+      <div class="sub" id="sub">Проверяем соединения…</div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <button class="primary" id="run">Проверить снова</button>
+    <button id="copy">Скопировать отчёт</button>
+    <button id="back">← В приложение</button>
+  </div>
+
+  <div class="grid" id="list"></div>
+
+  <h2>Отчёт</h2>
+  <pre id="report">—</pre>
+
+  <p class="note">
+    Проверяется только доступность и конфигурация — содержимое сообщений и ключи здесь не читаются.
+    TURN проверяется по конфигурации; фактическое соединение видно в <a href="diagnostics.html">диагностике звонков</a>.
+  </p>
+</div>
+
+<script>
+(function () {
+  var out = document.getElementById('list');
+  var report = document.getElementById('report');
+  var sub = document.getElementById('sub');
+  var rows = {};
+
+  function add(id, name, detail) {
+    var el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML = '<span class="dot"></span><div><div class="nm"></div><div class="dt"></div></div><span class="val"></span>';
+    el.querySelector('.nm').textContent = name;
+    el.querySelector('.dt').textContent = detail || '';
+    out.appendChild(el);
+    rows[id] = el;
+    return el;
+  }
+
+  function set(id, state, value, detail) {
+    var el = rows[id];
+    if (!el) return;
+    el.querySelector('.dot').className = 'dot ' + state;
+    if (value != null) el.querySelector('.val').textContent = value;
+    if (detail != null) el.querySelector('.dt').textContent = detail;
+  }
+
+  function ms(n) { return Math.round(n) + ' мс'; }
+
+  async function timeFetch(url, opts) {
+    var ctrl = new AbortController();
+    var to = setTimeout(function () { ctrl.abort(); }, 8000);
+    var t0 = performance.now();
+    try {
+      var res = await fetch(url, Object.assign({ cache: 'no-store', signal: ctrl.signal }, opts || {}));
+      return { res: res, ms: performance.now() - t0 };
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  /* Любой HTTP-ответ (даже 401/404) значит, что сервер жив:
+     для проверки доступности этого достаточно. */
+  async function touch(url, opts) {
+    var t0 = performance.now();
+    try {
+      var res = await timeFetch(url, opts);
+      return { ok: true, status: res.res.status, ms: res.ms };
+    } catch (e) {
+      return { ok: false, status: 0, ms: performance.now() - t0 };
+    }
+  }
+
+  /* Realtime проверяем настоящим WebSocket-handshake: именно здесь
+     чаще всего «сообщения не приходят», хотя HTTP отвечает 200. */
+  function probeRealtime(url, key) {
+    return new Promise(function (resolve) {
+      if (!('WebSocket' in window)) return resolve({ ok: null, ms: null });
+      var wsUrl = url.replace(/^http/, 'ws') + '/realtime/v1/websocket?apikey=' + encodeURIComponent(key) + '&vsn=1.0.0';
+      var t0 = performance.now();
+      var done = false;
+      var ws;
+      var finish = function (ok) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { ws && ws.close(); } catch (e) { /* ignore */ }
+        resolve({ ok: ok, ms: performance.now() - t0 });
+      };
+      var timer = setTimeout(function () { finish(false); }, 8000);
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onopen = function () { finish(true); };
+        ws.onerror = function () { finish(false); };
+        ws.onclose = function () { finish(false); };
+      } catch (e) {
+        finish(false);
+      }
+    });
+  }
+
+  async function run() {
+    report.textContent = '—';
+    sub.textContent = 'Проверяем…';
+    try {
+      await runChecks();
+    } catch (e) {
+      sub.textContent = 'Проверка прервана: ' + (e.message || e);
+    }
+  }
+
+  async function runChecks() {
+    var demo = /[?&]demo=1/.test(location.search);
+    var cfgText = '';
+    var cfg = { url: '', anon: '', turn: [], stun: [], version: '?' };
+    try {
+      var r = await timeFetch('../js/config.js?ts=' + Date.now());
+      cfgText = await r.res.text();
+      var m = cfgText.match(/version:\s*'([^']+)'/); if (m) cfg.version = m[1];
+      m = cfgText.match(/url:\s*'([^']+)'/); if (m) cfg.url = m[1];
+      m = cfgText.match(/anonKey:\s*'([^']+)'/); if (m) cfg.anon = m[1];
+      cfg.turn = (cfgText.match(/'turn:[^']+'/g) || []).map(function (s) { return s.slice(1, -1); });
+      cfg.stun = (cfgText.match(/'stun:[^']+'/g) || []).map(function (s) { return s.slice(1, -1); });
+      set('site', 'ok', ms(r.ms), 'config.js загружен');
+    } catch (e) {
+      set('site', 'bad', '—', 'config.js недоступен');
+    }
+
+    /* Страница приложения (то, что реально открывает пользователь) */
+    try {
+      var t = await timeFetch('../index.html?ts=' + Date.now());
+      var html = await t.res.text();
+      var okHtml = t.res.ok && html.indexOf('Relik') >= 0;
+      set('front', okHtml ? (t.ms > 2500 ? 'warn' : 'ok') : 'bad', ms(t.ms),
+        okHtml
+          ? 'index.html отдан' + (t.ms > 2500 ? ' · медленно' : '') + ' · ' + Math.round(html.length / 1024) + ' КБ'
+          : 'HTTP ' + t.res.status + ' без разметки Relik');
+    } catch (e) {
+      set('front', 'bad', '—', 'страница не загрузилась');
+    }
+
+    /* Supabase REST */
+    if (!cfg.url || demo) {
+      set('db', 'warn', '—', demo ? 'демо-режим: база не используется' : 'Supabase не настроен');
+    } else {
+      try {
+        var t = await timeFetch(cfg.url + '/rest/v1/profiles?select=id&limit=1', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+        });
+        var body = await t.res.text();
+        set('db', t.res.ok ? 'ok' : 'bad', ms(t.ms), 'HTTP ' + t.res.status + ' · ' + (body || '').slice(0, 60));
+      } catch (e) {
+        set('db', 'bad', '—', 'нет соединения с Supabase');
+      }
+    }
+
+    /* Auth */
+    if (cfg.url && !demo) {
+      try {
+        var a = await timeFetch(cfg.url + '/auth/v1/settings', { headers: { apikey: cfg.anon } });
+        var slow = a.ms > 3000;
+        set('auth', a.res.ok ? (slow ? 'warn' : 'ok') : 'warn', ms(a.ms),
+          'HTTP ' + a.res.status + (slow ? ' · медленный ответ' : ''));
+      } catch (e) {
+        set('auth', 'bad', '—', 'auth недоступен');
+      }
+    } else {
+      set('auth', 'warn', '—', 'демо-режим');
+    }
+
+    /* Storage: проверяем, что сервис файлов вообще отвечает */
+    if (cfg.url && !demo) {
+      var st = await touch(cfg.url + '/storage/v1/bucket', {
+        headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+      });
+      set('storage', st.ok && st.status < 500 ? (st.ms > 3000 ? 'warn' : 'ok') : 'bad', ms(st.ms),
+        st.ok ? 'HTTP ' + st.status + (st.ms > 3000 ? ' · медленно' : '') : 'нет ответа');
+    } else {
+      set('storage', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
+    /* Realtime: настоящий websocket */
+    if (cfg.url && !demo) {
+      var rt = await probeRealtime(cfg.url, cfg.anon);
+      if (rt.ok === null) {
+        set('realtime', 'warn', '—', 'браузер без WebSocket');
+      } else {
+        set('realtime', rt.ok ? (rt.ms > 4000 ? 'warn' : 'ok') : 'bad', ms(rt.ms),
+          rt.ok ? 'канал открылся' + (rt.ms > 4000 ? ' · медленно' : '') : 'не открылся — сообщения не придут');
+      }
+    } else {
+      set('realtime', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
+    /* TURN */
+    if (cfg.turn.length) {
+      set('turn', 'ok', cfg.turn.length + ' шт', cfg.turn.join(', '));
+    } else {
+      set('turn', 'warn', 'нет', 'TURN не настроен — звонки только в одной сети');
+    }
+    if (cfg.stun.length) {
+      set('stun', 'ok', cfg.stun.length + ' шт', cfg.stun.join(', '));
+    } else {
+      set('stun', 'warn', 'нет', 'используются внешние STUN');
+    }
+
+    /* Сервер (VPS) — данные пишет сам сервис на VPS в Supabase */
+    if (cfg.url && !demo) {
+      try {
+        var sv = await timeFetch(cfg.url + '/rest/v1/service_status?select=*&id=eq.1', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+        });
+        var rowsSrv = await sv.res.json();
+        var s = Array.isArray(rowsSrv) ? rowsSrv[0] : null;
+        if (!s) {
+          set('vps', 'warn', '—', 'сервер ещё не присылал метрики');
+        } else {
+          var ageMin = Math.round((Date.now() - new Date(s.checked_at).getTime()) / 60000);
+          set('vps',
+            s.supabase_ok ? (ageMin > 10 ? 'warn' : 'ok') : 'bad',
+            ageMin + ' мин назад',
+            'Supabase ' + (s.supabase_ms == null ? '—' : s.supabase_ms + ' мс') +
+            ' · агент ' + (s.agent_version || '?') +
+            (s.front_version ? ' · сайт v' + s.front_version : '') +
+            (s.queue_depth == null ? '' : ' · очередь ' + s.queue_depth));
+          set('vpsTurn', s.turn_ok ? 'ok' : 'bad', s.turn_ok ? 'работает' : 'не отвечает',
+            'coturn на сервере (порт 3478)');
+          var bh = s.backup_age_h;
+          set('vpsBackup',
+            bh == null ? 'warn' : (bh <= 30 ? 'ok' : 'bad'),
+            bh == null ? 'нет' : bh + ' ч',
+            bh == null ? 'бэкапов не найдено' : 'возраст последнего дампа');
+          set('vpsDisk',
+            s.disk_free_gb == null ? 'warn' : (s.disk_free_gb < 1 ? 'bad' : 'ok'),
+            s.disk_free_gb == null ? '—' : s.disk_free_gb + ' ГБ',
+            'свободно на сервере');
+        }
+      } catch (e) {
+        set('vps', 'warn', '—', 'метрики сервера недоступны');
+      }
+    } else {
+      set('vps', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
+    /* История доступности: app читает срезы, которые пишет агент на VPS */
+    if (cfg.url && !demo) {
+      try {
+        var hs = await timeFetch(cfg.url + '/rest/v1/service_samples?select=ts,ok&order=ts.desc&limit=288', {
+          headers: { apikey: cfg.anon, Authorization: 'Bearer ' + cfg.anon },
+        });
+        if (!hs.res.ok) throw new Error('HTTP ' + hs.res.status);
+        var rowsH = await hs.res.json();
+        if (!Array.isArray(rowsH) || !rowsH.length) {
+          set('uptime', 'warn', '—', 'история пуста — выполните supabase/service_uptime.sql');
+        } else {
+          var okH = rowsH.filter(function (r) { return r.ok; }).length;
+          var pct = Math.round((okH / rowsH.length) * 1000) / 10;
+          var lastBad = null;
+          for (var i = 0; i < rowsH.length; i++) { if (!rowsH[i].ok) { lastBad = rowsH[i]; break; } }
+          set('uptime', pct >= 99 ? 'ok' : (pct >= 95 ? 'warn' : 'bad'), pct + '%',
+            rowsH.length + ' срезов' + (lastBad
+              ? ' · последний сбой ' + new Date(lastBad.ts).toLocaleString('ru-RU')
+              : ' · сбоев не было'));
+
+          /* Полоса: слева самые старые срезы, справа свежие. Наведение — время. */
+          var bar = document.getElementById('upBar');
+          if (!bar) {
+            bar = document.createElement('div');
+            bar.className = 'up-bar';
+            bar.id = 'upBar';
+            rows.uptime.after(bar);
+          }
+          bar.innerHTML = '';
+          rowsH.slice().reverse().forEach(function (r) {
+            var seg = document.createElement('i');
+            seg.className = r.ok ? '' : 'bad';
+            seg.title = new Date(r.ts).toLocaleString('ru-RU') + ' — ' + (r.ok ? 'ок' : 'сбой');
+            bar.appendChild(seg);
+          });
+        }
+      } catch (e) {
+        set('uptime', 'warn', '—', 'история недоступна (нужен supabase/service_uptime.sql)');
+      }
+    } else {
+      set('uptime', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
+    }
+
+    /* Service worker */
+    try {
+      if ('serviceWorker' in navigator) {
+        var reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          var cacheNames = await caches.keys();
+          var active = reg.active && reg.active.state;
+          set('sw', 'ok', active || '—', 'кэши: ' + (cacheNames.join(', ') || 'нет'));
+        } else {
+          set('sw', 'warn', 'нет', 'service worker не зарегистрирован');
+        }
+      } else {
+        set('sw', 'warn', '—', 'браузер без service worker');
+      }
+    } catch (e) {
+      set('sw', 'warn', '—', String(e.message || e));
+    }
+
+    /* IndexedDB */
+    try {
+      var dbs = indexedDB.databases ? await indexedDB.databases() : [];
+      set('idb', dbs.length ? 'ok' : 'warn', dbs.map(function (d) { return d.name; }).join(', ') || '—',
+        dbs.length ? 'базы доступны' : 'IndexedDB пуста');
+    } catch (e) {
+      set('idb', 'warn', '—', 'нет доступа к IndexedDB');
+    }
+
+    /* Сеть */
+    set('net', navigator.onLine ? 'ok' : 'bad', navigator.onLine ? 'online' : 'offline',
+      'тип: ' + ((navigator.connection && navigator.connection.effectiveType) || 'неизвестно'));
+
+    /* Приложение */
+    set('app', 'ok', 'v' + cfg.version, location.origin + location.pathname);
+
+    var okc = out.querySelectorAll('.dot.ok').length;
+    var badc = out.querySelectorAll('.dot.bad').length;
+    sub.textContent = badc ? badc + ' проблем(ы) — см. ниже' : okc + ' проверок пройдено, проблем нет';
+
+    report.textContent = JSON.stringify({
+      time: new Date().toISOString(),
+      version: cfg.version,
+      url: location.href,
+      ua: navigator.userAgent,
+      online: navigator.onLine,
+      supabase: rows.db.querySelector('.dt').textContent,
+      auth: rows.auth.querySelector('.dt').textContent,
+      storage: rows.storage.querySelector('.dt').textContent,
+      realtime: rows.realtime.querySelector('.dt').textContent,
+      uptime24h: rows.uptime.querySelector('.val').textContent,
+      turn: cfg.turn,
+      stun: cfg.stun,
+      sw: rows.sw.querySelector('.dt').textContent,
+      idb: rows.idb.querySelector('.val').textContent,
+    }, null, 2);
+  }
+
+  add('site', 'Сайт и версия', 'проверяем…');
+  add('front', 'Страница приложения', 'проверяем…');
+  add('db', 'База данных (Supabase REST)', 'проверяем…');
+  add('auth', 'Авторизация (Supabase Auth)', 'проверяем…');
+  add('storage', 'Файлы (Storage)', 'проверяем…');
+  add('realtime', 'Realtime-доставка', 'проверяем…');
+  add('turn', 'TURN для звонков', 'проверяем…');
+  add('stun', 'STUN', 'проверяем…');
+  add('vps', 'Сервер (VPS)', 'проверяем…');
+  add('vpsTurn', 'TURN на сервере', 'проверяем…');
+  add('vpsBackup', 'Бэкап БД', 'проверяем…');
+  add('vpsDisk', 'Диск сервера', 'проверяем…');
+  add('uptime', 'Доступность за 24 часа', 'проверяем…');
+  add('sw', 'Service Worker и кэш', 'проверяем…');
+  add('idb', 'Локальное хранилище', 'проверяем…');
+  add('net', 'Сеть', 'проверяем…');
+  add('app', 'Приложение', 'проверяем…');
+
+  document.getElementById('run').addEventListener('click', run);
+  document.getElementById('copy').addEventListener('click', function () {
+    navigator.clipboard.writeText(report.textContent).then(function () {
+      document.getElementById('copy').textContent = 'Скопировано';
+      setTimeout(function () { document.getElementById('copy').textContent = 'Скопировать отчёт'; }, 1500);
+    });
+  });
+  document.getElementById('back').addEventListener('click', function () { location.href = '../'; });
+
+  run();
+})();
+</script>
+</body>
+</html>

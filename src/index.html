@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0e14">
+  <!-- CSP: сборка без внешних CDN. Inline-скрипты разрешены по хешам —
+       их проверяет scripts/check-csp.mjs, чтобы правка не «убила» запуск. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gyd8lVuxIG16k81U9PlY+pBsEUiO6pWGiVp/dWI3Jzs=' 'sha256-CpV3SDxMB7yPhe/CHD+L2ZoXTke1saQHnwfUm8s0GUc='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'">
+  <meta name="description" content="Relik — приватный мессенджер, которому можно доверять">
+  <title>Relik</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="assets/icons/favicon-48.png" sizes="48x48" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <!-- Supabase: убираем лишний TLS-хендшейк перед первым запросом -->
+  <link rel="preconnect" href="https://sumaysqzahgesifdevxu.supabase.co" crossorigin>
+  <link rel="dns-prefetch" href="https://sumaysqzahgesifdevxu.supabase.co">
+  <!-- Критичные модули грузим параллельно, чтобы не ждать цепочку импортов -->
+  <link rel="modulepreload" href="js/main.js">
+  <link rel="modulepreload" href="js/config.js">
+  <link rel="modulepreload" href="js/ui/state.js">
+  <link rel="modulepreload" href="js/ui/chatView.js">
+  <link rel="modulepreload" href="js/backend/messages.js">
+  <link rel="modulepreload" href="js/backend/auth.js">
+  <!-- Шрифт локальный: без Google Fonts в критическом пути (в РФ он часто
+       медленный или недоступен). Файлы — assets/fonts, объявления — css/fonts.css -->
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="preload" href="assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    /* Мгновенный тёмный фон + заглушка загрузки: белого экрана не бывает никогда */
+    html,body{background:#0b0e14;color:#e7eaf3}
+    #bootSplash{position:fixed;inset:0;z-index:9999;display:grid;place-content:center;justify-items:center;gap:12px;
+      background:#0b0e14;padding:24px;text-align:center;
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+    #bootSplash img{width:64px;height:64px;border-radius:20px;box-shadow:0 22px 60px -22px rgba(91,108,249,.85)}
+    #bootSplash .bs-title{font-size:19px;font-weight:800;letter-spacing:-.02em}
+    #bootSplash .bs-spin{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.14);border-top-color:#5b6cf9;animation:bsSpin .8s linear infinite}
+    #bootSplash .bs-hint{max-width:36ch;font-size:13px;line-height:1.6;color:#9aa4bb}
+    #bootSplash .bs-code{max-width:52ch;font-size:11px;line-height:1.5;color:#6c7590;word-break:break-word}
+    #bootSplash .bs-link{font-size:12px;color:#8b9bff;text-decoration:none;border-bottom:1px solid rgba(139,155,255,.35);padding-bottom:1px}
+    #bootSplash .bs-retry{margin-top:4px;padding:11px 22px;border-radius:14px;border:0;cursor:pointer;font-weight:600;font-size:14px;
+      color:#fff;background:linear-gradient(135deg,#5b6cf9,#9f5cf6)}
+    @keyframes bsSpin{to{transform:rotate(360deg)}}
+    @media (prefers-reduced-motion:reduce){#bootSplash .bs-spin{animation:none}}
+  </style>
+  <script>
+    /* Страховка запуска: если модули не загрузились или упали — показываем понятную ошибку вместо пустого экрана.
+       Код намеренно на ES5, чтобы работал даже в старых браузерах и встроенных webview. */
+    (function () {
+      function q(id) { return document.getElementById(id); }
+      /* CSP запрещает inline-обработчики (onclick=), поэтому кнопку
+         «Обновить» подключаем здесь, в разрешённом по хешу скрипте. */
+      var retryBtn = q('bsRetry');
+      if (retryBtn) retryBtn.addEventListener('click', function () { location.reload(); });
+      function fail(msg, detail) {
+        if (window.__relikLoaded) return;
+        var hint = q('bsHint');
+        if (!hint) return;
+        window.__relikFail = true;
+        var spin = q('bsSpin'), code = q('bsCode'), btn = q('bsRetry'), check = q('bsCheck');
+        var resetLink = q('bsReset');
+        if (spin) spin.style.display = 'none';
+        hint.textContent = (navigator.onLine === false)
+          ? 'Нет подключения к интернету. Проверьте сеть и нажмите «Обновить».'
+          : (msg || 'Не удалось загрузить Relik. Нажмите «Обновить».');
+        if (code) {
+          if (detail) { code.textContent = String(detail).slice(0, 400); code.style.display = 'block'; }
+          else code.style.display = 'none';
+        }
+        if (btn) btn.style.display = 'inline-block';
+        if (check) check.style.display = 'inline-block';
+        if (resetLink) resetLink.style.display = 'inline-block';
+      }
+      function showActions() {
+        var btn = q('bsRetry'), check = q('bsCheck'), reset = q('bsReset');
+        if (btn) btn.style.display = 'inline-block';
+        if (check) check.style.display = 'inline-block';
+        if (reset) reset.style.display = 'inline-block';
+      }
+      window.relikBoot = {
+        done: function () {
+          window.__relikLoaded = true;
+          clearTimeout(window.__relikWatch);
+          clearTimeout(window.__relikHint);
+          var s = q('bootSplash');
+          if (s && s.parentNode) s.parentNode.removeChild(s);
+        },
+        fail: fail
+      };
+      /* сброс кэша и service worker: ссылка с ?reset — выход из «залипшего» состояния */
+      window.__relikReset = function () {
+        var hint = q('bsHint');
+        if (hint) hint.textContent = 'Сбрасываем кэш и обновляем…';
+        var jobs = [];
+        try {
+          if (window.caches && caches.keys) {
+            jobs.push(caches.keys().then(function (keys) {
+              return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+            }).catch(function () {}));
+          }
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+              return Promise.all(regs.map(function (r) { return r.unregister(); }));
+            }).catch(function () {}));
+          }
+        } catch (e) { /* ignore */ }
+        Promise.all(jobs).then(function () {
+          var url = location.href.replace(/([?&])reset=1(&|$)/, '$1').replace(/[?&]$/, '');
+          url += (url.indexOf('?') >= 0 ? '&' : '?') + 'fresh=' + Date.now();
+          location.replace(url);
+        });
+      };
+      /* если грузится долго — честно сообщаем и сразу даём кнопки */
+      window.__relikHint = setTimeout(function () {
+        if (window.__relikLoaded) return;
+        var h = q('bsHint');
+        if (h) h.textContent = 'Медленная сеть — всё ещё загружаем…';
+        showActions();
+      }, 7000);
+      window.__relikWatch = setTimeout(function () {
+        if (window.__relikLoaded) return;
+        fail('Приложение долго не загружается', 'Скрипты не ответили за 15 секунд. Проверьте связь, попробуйте «Обновить» или откройте ссылку в обычном браузере (Chrome / Safari), а не во встроенном.');
+      }, 15000);
+      window.addEventListener('error', function (e) {
+        if (e && e.target && e.target.tagName === 'SCRIPT') {
+          var src = e.target.src || '';
+          if (src.indexOf('supabase') >= 0) {
+            fail('Не удалось загрузить SDK Supabase',
+              src + '\nФайла нет на сайте (404) или сеть его блокирует. Проверьте деплой: js/vendor/supabase.js должен быть загружен.');
+          } else {
+            fail('Не удалось загрузить скрипты', src);
+          }
+          return;
+        }
+        if (e && e.message) fail('Ошибка при запуске приложения', e.message);
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e && e.reason;
+        fail('Ошибка при запуске приложения', (r && (r.message || r)) || '');
+      });
+      window.addEventListener('offline', function () { fail('Нет подключения к интернету'); });
+
+      /* ?reset=1 — сбросить service worker и кэш (выход из «залипшего» состояния) */
+      if (/(^|[?&])reset=1(&|$)/.test(location.search)) setTimeout(window.__relikReset, 200);
+    })();
+  </script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components/chat.css">
+  <link rel="stylesheet" href="css/components/composer.css">
+  <link rel="stylesheet" href="css/components/modals.css">
+  <link rel="stylesheet" href="css/components/call.css">
+</head>
+<body>
+
+  <!-- ══════════ ЗАГЛУШКА ЗАГРУЗКИ (убирается после старта) ══════════ -->
+  <div id="bootSplash" role="status" aria-live="polite">
+    <img src="assets/icons/icon-192.png" alt="">
+    <div class="bs-title">Relik</div>
+    <div class="bs-spin" id="bsSpin"></div>
+    <p class="bs-hint" id="bsHint">Загружаем приложение…</p>
+    <p class="bs-code" id="bsCode" style="display:none"></p>
+    <button class="bs-retry" id="bsRetry" type="button" style="display:none">Обновить</button>
+    <a class="bs-link" id="bsCheck" href="tools/health.html" style="display:none">Проверить, какие файлы не загрузились</a>
+    <a class="bs-link" id="bsReset" href="?reset=1" style="display:none">Сбросить кэш и обновить</a>
+  </div>
+
+  <noscript>
+    <div style="position:fixed;inset:0;z-index:10000;display:grid;place-content:center;padding:24px;text-align:center;background:#0b0e14;color:#e7eaf3;font-family:system-ui,sans-serif">
+      <b style="font-size:18px">Relik</b>
+      <p style="margin-top:10px;max-width:36ch;color:#9aa4bb;font-size:13px;line-height:1.6">
+        Для работы приложения нужен JavaScript. Включите его в настройках браузера и обновите страницу.
+      </p>
+    </div>
+  </noscript>
+
+  <!-- ══════════ ЭКРАН ВХОДА ══════════ -->
+  <div id="authView" class="auth" hidden>
+    <div class="auth-shell">
+      <aside class="brand">
+        <div class="brand-aurora"></div>
+        <div class="brand-inner">
+          <div class="brand-mark">
+            <img src="assets/icons/icon-192.png" alt="Relik">
+            <span>Relik</span>
+          </div>
+          <h1 class="brand-title" data-i18n="auth.headline">Переписка, которой доверяют.</h1>
+          <p class="brand-sub" data-i18n="auth.brandSub">Сквозное шифрование. Без рекламы и слежки. Только вы и ваши люди.</p>
+          <ul class="brand-feats">
+            <li>
+              <span class="bf-ic" id="bf1"></span>
+              <div>
+                <b data-i18n="auth.f1t">Только для вас</b>
+                <span data-i18n="auth.f1s">Сервер видит лишь шифротекст, а не текст сообщений</span>
+              </div>
+            </li>
+            <li>
+              <span class="bf-ic" id="bf2"></span>
+              <div>
+                <b data-i18n="auth.f2t">Бесплатно по-настоящему</b>
+                <span data-i18n="auth.f2s">Без подписок, рекламы и скрытых лимитов</span>
+              </div>
+            </li>
+            <li>
+              <span class="bf-ic" id="bf3"></span>
+              <div>
+                <b data-i18n="auth.f3t">Ключи остаются у вас</b>
+                <span data-i18n="auth.f3s">Даже мы не сможем прочитать вашу переписку</span>
+              </div>
+            </li>
+          </ul>
+          <div class="brand-foot" data-i18n="auth.brandFoot">Relik · приватность по умолчанию</div>
+        </div>
+      </aside>
+
+      <section class="panel">
+        <div class="auth-mobile-brand">
+          <img src="assets/icons/icon-192.png" alt="">
+          <div>
+            <span>Relik</span>
+            <em data-i18n="auth.headlineShort">Переписка, которой доверяют</em>
+          </div>
+        </div>
+        <div class="auth-card" id="authCard">
+          <div class="auth-tabs">
+            <button type="button" class="auth-tab on" data-mode="login" data-i18n="auth.tabLogin">Вход</button>
+            <button type="button" class="auth-tab" data-mode="signup" data-i18n="auth.tabSignup">Регистрация</button>
+          </div>
+          <p class="auth-welcome" id="authWelcome"></p>
+          <form class="auth-form" id="authForm" autocomplete="off">
+            <div class="field" id="nameField" hidden>
+              <span data-i18n="auth.name">Имя</span>
+              <div class="input-wrap">
+                <span class="in-ic" id="nameIc"></span>
+                <input class="input" id="authName" placeholder="" data-i18n-ph="auth.namePh">
+              </div>
+            </div>
+            <div class="field" id="usernameField" hidden>
+              <span data-i18n="auth.username">@username</span>
+              <div class="input-wrap">
+                <span class="in-ic" id="usernameIc"></span>
+                <input class="input" id="authUsername" placeholder="" data-i18n-ph="auth.usernamePh" autocomplete="off" spellcheck="false">
+              </div>
+              <span class="field-hint" data-i18n="auth.usernameHint">По нему вас найдут в поиске контактов</span>
+            </div>
+            <div class="field">
+              <span data-i18n="auth.email">Email</span>
+              <div class="input-wrap">
+                <span class="in-ic" id="emailIc"></span>
+                <input class="input" id="authEmail" type="email" placeholder="" data-i18n-ph="auth.emailPh">
+              </div>
+            </div>
+            <div class="field">
+              <span data-i18n="auth.password">Пароль</span>
+              <div class="input-wrap">
+                <span class="in-ic" id="passIc"></span>
+                <input class="input" id="authPass" type="password" placeholder="" data-i18n-ph="auth.passwordPh">
+                <button type="button" class="pass-toggle" id="passToggle" aria-label=""></button>
+              </div>
+            </div>
+            <div class="consent" id="consentField" hidden>
+              <label class="consent-row">
+                <input type="checkbox" id="authConsent">
+                <span data-i18n="auth.consent">Я принимаю условия и даю согласие на обработку персональных данных</span>
+              </label>
+              <a class="auth-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
+            </div>
+            <button class="btn btn-lg auth-cta" type="submit" id="authGo" data-i18n="auth.login">Войти</button>
+            <span class="auth-server" id="authServer" hidden></span>
+            <button type="button" class="auth-forgot" id="forgotBtn" data-i18n="auth.forgot">Забыли пароль?</button>
+          </form>
+          <div class="auth-trust">
+            <span class="trust-ic" id="trustIc"></span>
+            <span data-i18n="auth.trust">Мы не можем прочитать ваши сообщения — и это не маркетинг.</span>
+          </div>
+          <a class="auth-demo" href="?demo=1">
+            <span class="ad-ic" id="demoIc"></span>
+            <span data-i18n="auth.demo">Посмотреть демо без регистрации</span>
+            <span class="ad-arrow">→</span>
+          </a>
+          <p class="auth-note" data-i18n="auth.note">Демо-режим: данные хранятся только в этом браузере</p>
+          <a class="auth-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ══════════ ПРИЛОЖЕНИЕ ══════════ -->
+  <div id="appView" class="app" hidden>
+
+    <!-- Сайдбар -->
+    <aside class="sidebar">
+      <div class="side-head">
+        <div class="side-logo" id="sideLogo">
+          <img src="assets/icons/icon-192.png" alt="">
+          <b>Relik</b>
+        </div>
+        <div class="side-actions">
+          <button class="icon-btn" id="peopleBtn" title=""></button>
+          <button class="icon-btn has-badge" id="requestsBtn" title="">
+            <span class="dot-badge" id="reqBadge" hidden>0</span>
+          </button>
+          <button class="icon-btn" id="newChatBtn" title=""></button>
+        </div>
+      </div>
+      <div class="side-search">
+        <input class="input" id="searchInput" placeholder="" data-i18n-ph="side.search">
+        <button class="search-ic-btn" type="button" id="searchOpenPalette" data-open-palette aria-label="">
+          <span class="search-ic" id="searchIc"></span>
+        </button>
+        <button class="search-kbd" type="button" id="paletteBtn" data-open-palette title="Ctrl K">Ctrl K</button>
+      </div>
+      <div class="folder-row" id="folderRow">
+        <button class="folder-chip" type="button" data-folder="all" data-i18n="folder.all">Все</button>
+        <button class="folder-chip" type="button" data-folder="dm" data-i18n="folder.dm">Личные</button>
+        <button class="folder-chip" type="button" data-folder="group" data-i18n="folder.groups">Группы</button>
+        <button class="folder-chip" type="button" data-folder="work" data-i18n="folder.work">Работа</button>
+        <button class="folder-chip" type="button" data-folder="archive" data-i18n="folder.archive">Архив</button>
+      </div>
+      <nav class="side-list" id="sideList"></nav>
+      <div class="side-foot">
+        <button class="me-chip" id="meChip">
+          <span id="meAvatar"></span>
+          <span class="info">
+            <span class="name" id="meName"></span>
+            <span class="mail" id="meMail"></span>
+          </span>
+        </button>
+        <button class="icon-btn" id="settingsBtn" title=""></button>
+        <button class="icon-btn" id="logoutBtn" title=""></button>
+      </div>
+    </aside>
+
+    <!-- Область чата -->
+    <main class="chat" id="chatPane">
+      <!-- Пустое состояние -->
+      <section class="empty" id="chatEmpty">
+        <div class="welcome">
+          <span class="welcome-ic">
+            <svg class="ic" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="11" width="16" height="10" rx="3"></rect>
+              <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+            </svg>
+          </span>
+          <h2 class="welcome-title"><i>Welcome to Relik!</i></h2>
+          <p data-i18n="chat.selectSub"></p>
+          <div class="chips" id="emptyChips">
+            <span class="chip" data-i18n="chat.demoTitle">Демо-режим</span>
+            <span class="chip" data-i18n="chat.demoText"></span>
+          </div>
+          <div class="welcome-actions">
+            <button class="btn" type="button" id="emptyInvite" data-i18n="chat.invite">Пригласить по ссылке</button>
+            <button class="btn btn-ghost" type="button" id="emptyNewChat" data-i18n="side.newChat">Новый чат</button>
+            <button class="btn btn-ghost" type="button" id="emptySettings" data-i18n="side.settings">Настройки</button>
+          </div>
+        </div>
+      </section>
+      <!-- Активный чат -->
+      <section class="chat-inner" id="chatActive" hidden>
+        <div class="chat-top">
+          <header class="chat-head">
+            <button class="icon-btn back-btn" id="backBtn"></button>
+            <button class="who" id="chatWho">
+              <span id="chatWhoAvatar"></span>
+              <span class="info">
+                <span class="n" id="chatWhoName"></span>
+                <span class="s" id="chatWhoStatus"></span>
+              </span>
+            </button>
+            <button class="icon-btn" id="chatSearchBtn"></button>
+            <button class="icon-btn" id="videoCallBtn"></button>
+            <button class="icon-btn" id="shareBtn"></button>
+            <button class="icon-btn" id="callBtn"></button>
+            <button class="icon-btn" id="infoBtn"></button>
+          </header>
+          <div class="chat-search" id="chatSearch" hidden>
+            <span class="cs-ic" id="csIc"></span>
+            <input id="chatSearchInput" class="input" placeholder="" data-i18n-ph="chat.searchPh">
+            <span class="cs-count" id="chatSearchCount"></span>
+            <button class="icon-btn" id="chatSearchPrev"></button>
+            <button class="icon-btn" id="chatSearchNext"></button>
+            <button class="icon-btn" id="chatSearchClose"></button>
+          </div>
+          <div class="pin-bar" id="pinBar" hidden>
+            <span class="pin-ic" id="pinIc"></span>
+            <div class="pin-main">
+              <span class="pin-label" data-i18n="chat.pinned">Закреплённое</span>
+              <span class="pin-text" id="pinText"></span>
+            </div>
+            <button class="icon-btn" id="pinClose"></button>
+          </div>
+          <div class="select-bar" id="selectBar" hidden>
+            <button class="icon-btn" id="selClose" type="button"></button>
+            <b id="selCount"></b>
+            <span class="sel-actions">
+              <button class="btn btn-ghost" id="selForward" type="button" data-i18n="select.forward">Переслать</button>
+              <button class="btn btn-ghost" id="selCopy" type="button" data-i18n="select.copy">Копировать</button>
+              <button class="btn btn-danger-soft" id="selDelete" type="button" data-i18n="select.delete">Удалить</button>
+            </span>
+          </div>
+        </div>
+        <div class="decrypt-bar" id="decryptBar" hidden>
+          <span class="db-ic" id="decryptIc"></span>
+          <span class="db-text" id="decryptText"></span>
+          <button class="btn btn-ghost" id="decryptFix" type="button" data-i18n="decrypt.fix">Проверить ключи</button>
+          <button class="icon-btn" id="decryptClose" type="button" aria-label="Скрыть"></button>
+        </div>
+        <div class="msgs" id="msgs"></div>
+        <div class="drop-hint" id="dropHint" aria-hidden="true">
+          <span class="dh-ic" id="dropIc"></span>
+          <b data-i18n="chat.dropFiles">Отпустите файл, чтобы отправить</b>
+        </div>
+        <button class="to-bottom" id="toBottom" hidden></button>
+        <footer class="composer">
+          <div class="reply-edit-bar" id="reb">
+            <span class="reb-ic" id="rebIc"></span>
+            <div class="reb-main">
+              <span class="reb-label" id="rebLabel"></span>
+              <span class="reb-text" id="rebText"></span>
+            </div>
+            <button class="icon-btn" id="rebX"></button>
+          </div>
+          <div class="composer-row" id="crow">
+            <div class="attach">
+              <button class="icon-btn" id="attachBtn"></button>
+              <div class="attach-menu" id="attachMenu" hidden>
+                <button id="attPhoto"><span class="amb c-photo" id="attPhotoIc"></span><span data-i18n="comp.photo"></span></button>
+                <button id="attAlbum"><span class="amb c-album" id="attAlbumIc"></span><span data-i18n="comp.album"></span></button>
+                <button id="attVideo"><span class="amb c-video" id="attVideoIc"></span><span data-i18n="comp.video"></span></button>
+                <button id="attCircle"><span class="amb c-circle" id="attCircleIc"></span><span data-i18n="comp.circle"></span></button>
+                <button id="attFile"><span class="amb c-file" id="attFileIc"></span><span data-i18n="comp.file"></span></button>
+                <button id="attPoll"><span class="amb c-poll" id="attPollIc"></span><span data-i18n="comp.poll"></span></button>
+                <button id="attLater"><span class="amb c-later" id="attLaterIc"></span><span data-i18n="comp.schedule"></span></button>
+                <button id="attSched"><span class="amb c-later" id="attSchedIc"></span><span data-i18n="comp.schedList"></span></button>
+              </div>
+            </div>
+            <textarea id="ta" rows="1" placeholder="" data-i18n-ph="comp.ph"></textarea>
+            <div class="emoji-wrap">
+              <button class="icon-btn" id="emojiBtn"></button>
+              <div class="emoji-pop" id="emojiPop" hidden></div>
+            </div>
+            <span class="rec-ui" id="recUi" hidden><i class="rec-dot"></i><span class="rec-time" id="recTime">0:00</span><button class="icon-btn" id="recCancel"></button></span>
+            <button class="send-btn" id="sendBtn"></button>
+          </div>
+        </footer>
+      </section>
+    </main>
+  </div>
+
+  <!-- ══════════ НАСТРОЙКИ ══════════ -->
+  <div class="overlay" id="settingsOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="settings.title">Настройки</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <nav class="sec-nav" id="secNav" aria-label="Разделы настроек">
+          <button type="button" data-target="#secProfile" data-i18n="settings.secProfile">Профиль</button>
+          <button type="button" data-target="#secLook" data-i18n="settings.secLook">Внешний вид</button>
+          <button type="button" data-target="#secSecurity" data-i18n="settings.secSecurity">Безопасность</button>
+          <button type="button" data-target="#secData" data-i18n="settings.secData">Данные</button>
+        </nav>
+        <div class="set-sec" id="secProfile" data-i18n="settings.secProfile">Профиль</div>
+        <div class="field">
+          <span data-i18n="settings.avatar">Аватар</span>
+          <div class="avatar-row">
+            <span class="avatar lg" id="avatarPreview"></span>
+            <button class="btn btn-ghost" id="avatarBtn" data-i18n="settings.uploadPhoto">Загрузить фото</button>
+            <input type="file" id="avatarInput" accept="image/*" hidden>
+          </div>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.name"></span>
+          <input class="input" id="nameInput" maxlength="24">
+        </div>
+        <div class="field">
+          <span data-i18n="settings.username">Юзернейм</span>
+          <div class="uname-row">
+            <span class="uname-at">@</span>
+            <input class="input" id="usernameInput" maxlength="32" autocomplete="off" spellcheck="false" placeholder="username">
+          </div>
+          <span class="field-hint" data-i18n="settings.usernameHint">Латиница, цифры и _, 3–32 символа</span>
+        </div>
+        <div class="field-actions">
+          <button class="btn btn-ghost" id="saveProfile" data-i18n="settings.save" disabled>Сохранить</button>
+          <span class="field-hint" id="saveState"></span>
+        </div>
+        <div class="set-sec" id="secSecurity" data-i18n="settings.secSecurity">Безопасность</div>
+        <div class="field" id="keyField">
+          <span data-i18n="key.title">Ключи и восстановление</span>
+          <div class="avatar-row">
+            <button class="btn btn-ghost" id="keyPanelBtn" type="button" data-i18n="key.open">Резервная копия</button>
+          </div>
+          <span class="field-hint" id="keyStatus"></span>
+        </div>
+        <div class="field" id="secField">
+          <span data-i18n="sec.title">Что защищено, а что нет</span>
+          <ul class="sec-list">
+            <li data-i18n="sec.1">Текст сообщений и медиа шифруются на устройстве — сервер видит только шифротекст.</li>
+            <li data-i18n="sec.2">Метаданные видны: кто, кому, когда и размер сообщения.</li>
+            <li data-i18n="sec.3">Нет прямой секретности: если ключ украден, старая переписка читается.</li>
+            <li data-i18n="sec.4">PIN — это блокировка экрана, а не шифрование.</li>
+            <li data-i18n="sec.5">Фраза из 12 слов и файл ключа дают полный доступ к истории — храните их как пароль.</li>
+          </ul>
+        </div>
+        <div class="set-sec" id="secLook" data-i18n="settings.secLook">Внешний вид</div>
+        <div class="field">
+          <span data-i18n="settings.theme">Тема</span>
+          <div class="theme-grid" id="themeGrid"></div>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.font">Шрифт</span>
+          <select class="input" id="fontSelect"></select>
+          <div class="avatar-row">
+            <button class="btn btn-ghost" id="fontUploadBtn" data-i18n="settings.uploadFont">Загрузить свой шрифт</button>
+            <input type="file" id="fontUpload" accept=".woff2,.woff,.ttf,.otf" hidden>
+          </div>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.textSize">Размер текста</span>
+          <div class="seg seg-3" id="textSizeSeg">
+            <button type="button" data-size="compact">A−</button>
+            <button type="button" data-size="normal">A</button>
+            <button type="button" data-size="large">A+</button>
+          </div>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.wallpaper">Обои чата</span>
+          <div class="wall-grid" id="wallGrid"></div>
+          <button class="btn btn-ghost" type="button" id="wallUploadBtn" data-i18n="settings.uploadWall">Загрузить свои обои</button>
+          <input type="file" id="wallUpload" accept="image/*" hidden>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.accent">Акцентный цвет</span>
+          <div class="accent-grid" id="accentGrid"></div>
+        </div>
+        <label class="switch-row">
+          <span data-i18n="settings.enterSend">Отправлять по Enter</span>
+          <input type="checkbox" id="enterSendToggle">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="settings.motion">Анимации интерфейса</span>
+          <input type="checkbox" id="motionToggle">
+          <i></i>
+        </label>
+        <div class="field">
+          <span data-i18n="settings.lang"></span>
+          <div class="seg" id="langSeg">
+            <button data-lang="ru">Русский</button>
+            <button data-lang="en">English</button>
+          </div>
+        </div>
+        <label class="switch-row">
+          <span data-i18n="settings.sounds">Звуки</span>
+          <input type="checkbox" id="soundsToggle">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="settings.notifications">Уведомления</span>
+          <input type="checkbox" id="notifyToggle">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="settings.push">Push при закрытом приложении</span>
+          <input type="checkbox" id="pushToggle">
+          <i></i>
+        </label>
+        <span class="field-hint" id="pushHint" data-i18n="settings.pushHint">Работает в Chrome, Edge и в установленном приложении. На iPhone push в браузере недоступен.</span>
+        <label class="switch-row">
+          <span data-i18n="settings.hideOnline">Скрывать статус «онлайн»</span>
+          <input type="checkbox" id="hideOnlineToggle">
+          <i></i>
+        </label>
+        <span class="field-hint" data-i18n="settings.hideOnlineHint">Другие увидят вас офлайн. На сообщения и звонки это не влияет.</span>
+        <div class="field">
+          <span data-i18n="settings.pin">PIN-код при входе</span>
+          <label class="switch-row">
+            <span data-i18n="settings.pinEnable">Запрашивать PIN при открытии</span>
+            <input type="checkbox" id="pinToggle">
+            <i></i>
+          </label>
+          <button class="btn btn-ghost" type="button" id="pinChangeBtn" hidden data-i18n="settings.pinChange">Изменить PIN</button>
+          <button class="btn btn-ghost" type="button" id="pinLockBtn" hidden data-i18n="settings.pinLockNow">Заблокировать сейчас</button>
+          <span class="field-hint" data-i18n="settings.pinHint">Код хранится только на этом устройстве и не заменяет пароль.</span>
+        </div>
+        <div class="set-sec" id="secData" data-i18n="settings.secData">Данные</div>
+        <div class="field" id="storageField">
+          <span data-i18n="storage.title">Хранилище</span>
+          <div class="storage-card">
+            <div class="storage-top">
+              <span class="storage-state" id="storageState"></span>
+              <b id="storagePct">—</b>
+            </div>
+            <div class="storage-bar"><i id="storageBarFill"></i></div>
+            <span class="storage-meta" id="storageMeta"></span>
+          </div>
+          <div class="export-row">
+            <button class="btn btn-ghost" type="button" id="storageCompactBtn" data-i18n="storage.compact">Сжать историю</button>
+            <button class="btn btn-ghost" type="button" id="storagePersistBtn" hidden data-i18n="storage.persist">Защитить данные от очистки</button>
+            <button class="btn btn-ghost" type="button" id="storageClearBtn" data-i18n="storage.clear">Очистить медиа-кэш</button>
+          </div>
+          <span class="field-hint" data-i18n="storage.hint">Кэш ускоряет открытие фото и файлов. Ключи и сообщения не затрагиваются.</span>
+        </div>
+        <div class="field">
+          <span data-i18n="settings.data">Данные</span>
+          <button class="btn btn-ghost btn-danger-soft" type="button" id="clearLocalBtn">
+            <span class="btn-ic" id="clearLocalIc"></span>
+            <span data-i18n="settings.clearCache">Очистить локальный кэш</span>
+          </button>
+          <button class="btn btn-ghost btn-danger-soft" type="button" id="logoutAllBtn" data-i18n="settings.logoutAll">Выйти на всех устройствах</button>
+          <span class="field-hint" data-i18n="settings.clearCacheHint">Сообщения и чаты на этом устройстве. Ключи и профиль останутся.</span>
+          <div class="export-row">
+            <button class="btn btn-ghost" type="button" id="exportJsonBtn" data-i18n="settings.exportJson">Экспорт JSON</button>
+            <button class="btn btn-ghost" type="button" id="exportHtmlBtn" data-i18n="settings.exportHtml">Экспорт HTML</button>
+          </div>
+          <span class="field-hint" data-i18n="settings.exportHint">Сохраняет переписку в файл на устройстве.</span>
+          <span class="field-hint" id="migrationStatus"></span>
+        </div>
+        <div class="about">
+          <div class="top">
+            <img src="assets/icons/icon-192.png" alt="">
+            <div>
+              <div class="nm">Relik</div>
+              <div class="ver" id="verStr"></div>
+            </div>
+          </div>
+          <p class="e2e" data-i18n="settings.e2eNote"></p>
+          <a class="about-legal" href="legal.html" target="_blank" rel="noopener" data-i18n="legal.link">Условия и конфиденциальность</a>
+          <button class="btn btn-ghost" type="button" id="installBtn" hidden data-i18n="settings.install">Установить приложение</button>
+          <a class="btn btn-ghost" style="justify-content:center" href="tools/diagnostics.html" target="_blank" rel="noopener" data-i18n="settings.diag">Диагностика звонков и голоса</a>
+          <a class="btn btn-ghost" style="justify-content:center" href="tools/selftest.html" target="_blank" rel="noopener" data-i18n="settings.selftest">Самопроверка модулей</a>
+          <a class="btn btn-ghost" style="justify-content:center" href="https://github.com/AlexHU34/relik/blob/main/CRYPTO.md" target="_blank" rel="noopener" data-i18n="settings.security">Криптография и модель угроз</a>
+          <a class="btn btn-ghost" style="justify-content:center" href="tools/status.html" target="_blank" rel="noopener" data-i18n="settings.status">Статус сервиса</a>
+          <a class="btn btn-ghost" style="justify-content:center" href="tools/preflight.html" target="_blank" rel="noopener" data-i18n="settings.preflight">Предпроверка устройства</a>
+        </div>
+        <div class="field" style="margin-top:16px">
+          <span data-i18n="settings.account">Аккаунт</span>
+          <span class="field-hint" data-i18n="settings.accountHint">Удаление необратимо: профиль, сообщения, контакты и настройки будут стёрты.</span>
+          <button class="btn btn-ghost btn-danger-soft" type="button" id="deleteAccountBtn" data-i18n="settings.deleteAccount">Удалить аккаунт</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ МЕДИА ЧАТА ══════════ -->
+  <div class="overlay" id="mediaOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="media.title">Медиа в этом чате</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div id="mediaGrid" class="media-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ПОИСК ПО ВСЕЙ ПЕРЕПИСКЕ ══════════ -->
+  <div class="overlay" id="gsOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="gs.title">Поиск по переписке</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <input class="input" id="gsSearch" placeholder="" data-i18n-ph="gs.ph" autocomplete="off">
+        <span class="nc-hint" data-i18n="gs.hint">Ищет по сообщениям, уже сохранённым на этом устройстве</span>
+        <div id="gsList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ НОВЫЙ ЧАТ ══════════ -->
+  <div class="overlay" id="ncOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="newchat.title">Новый чат</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <input class="input" id="ncSearch" placeholder="" data-i18n-ph="newchat.search">
+        <button class="contact" id="ncGroup">
+          <span class="c-ic grad" id="ncGroupIc"></span>
+          <span class="info">
+            <span class="n" data-i18n="newchat.group">Создать группу</span>
+            <span class="s" data-i18n="newchat.groupSub">До 200 участников</span>
+          </span>
+        </button>
+        <button class="contact" id="ncPeople">
+          <span class="c-ic" id="ncPeopleIc"></span>
+          <span class="info">
+            <span class="n" data-i18n="newchat.findPeople">Найти людей</span>
+            <span class="s" data-i18n="newchat.findPeopleSub">Поиск по @username и заявка в контакты</span>
+          </span>
+        </button>
+        <span class="nc-hint" data-i18n="newchat.contacts">Контакты</span>
+        <div id="ncList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ПОИСК ЛЮДЕЙ ══════════ -->
+  <div class="overlay" id="peopleOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="people.title">Найти людей</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <input class="input" id="peopleSearch" placeholder="" data-i18n-ph="people.ph" autocomplete="off">
+        <span class="nc-hint" data-i18n="people.hint">Введите @username или имя, чтобы добавить человека в контакты</span>
+        <div id="peopleList" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ЗАЯВКИ В КОНТАКТЫ ══════════ -->
+  <div class="overlay" id="reqOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="req.title">Контакты и заявки</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <span class="nc-hint" data-i18n="req.incoming">Входящие заявки</span>
+        <div id="reqIn" style="display:grid;gap:2px"></div>
+        <span class="nc-hint" data-i18n="req.outgoing">Отправленные</span>
+        <div id="reqOut" style="display:grid;gap:2px"></div>
+        <span class="nc-hint" data-i18n="req.contacts">Мои контакты</span>
+        <div id="reqContacts" style="display:grid;gap:2px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ СОЗДАНИЕ ГРУППЫ ══════════ -->
+  <div class="overlay" id="gcOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="group.create">Создать группу</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="group.name">Название группы</span>
+          <input class="input" id="gcTitle" placeholder="" data-i18n-ph="group.namePh">
+        </div>
+        <span class="nc-hint" data-i18n="group.members">Участники</span>
+        <input class="input" id="gcSearch" placeholder="" data-i18n-ph="newchat.search">
+        <div id="gcContacts" style="display:grid;gap:2px"></div>
+        <div class="field" style="margin-top:14px">
+          <span data-i18n="group.selected">Выбрано</span>
+          <div id="gcMembers" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
+        <button class="btn" id="gcCreate" data-i18n="group.createBtn">Создать группу</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ УПРАВЛЕНИЕ ГРУППОЙ ══════════ -->
+  <div class="overlay" id="groupOv" hidden>
+    <div class="modal group-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="group.manage">Управление группой</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="group.name">Название группы</span>
+          <div class="inline-action">
+            <input class="input" id="groupTitleInput" maxlength="80" placeholder="">
+            <button class="btn btn-ghost" type="button" id="groupTitleSave" data-i18n="settings.save">Сохранить</button>
+          </div>
+          <span class="field-hint" id="groupE2eStatus"></span>
+        </div>
+        <div class="field">
+          <span data-i18n="group.members">Участники</span>
+          <div class="member-list" id="groupMemberList"></div>
+        </div>
+        <button class="btn btn-ghost add-member-btn" type="button" id="groupAddBtn">
+          <span class="btn-ic" id="groupAddIc"></span>
+          <span data-i18n="group.addMembers">Добавить участников</span>
+        </button>
+        <div class="group-add-panel" id="groupAddPanel" hidden>
+          <input class="input" id="groupAddSearch" placeholder="" data-i18n-ph="newchat.search">
+          <div class="group-add-list" id="groupAddList"></div>
+        </div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost btn-danger-soft" type="button" id="groupLeave" data-i18n="group.leave">Покинуть группу</button>
+        <button class="btn" type="button" data-close data-i18n="common.done">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ КТО ПРОЧИТАЛ ══════════ -->
+  <div class="overlay" id="readOv" hidden>
+    <div class="modal read-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="msg.readBy">Прочитали</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="read-list" id="readList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ПРОФИЛЬ ══════════ -->
+  <div class="overlay" id="profileOv" hidden>
+    <div class="modal profile-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="profile.title">Профиль</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body profile-body">
+        <div class="profile-hero" id="profileHero"></div>
+        <div class="profile-name" id="profileName"></div>
+        <div class="profile-username" id="profileUsername"></div>
+        <div class="profile-status" id="profileStatus"></div>
+        <div class="profile-actions">
+          <button class="btn" id="profileCall" data-i18n="profile.call">Позвонить</button>
+          <button class="btn btn-ghost" id="profileVideo" data-i18n="profile.video">Видеозвонок</button>
+          <button class="btn btn-ghost" id="profileManage" data-i18n="group.manage">Управление группой</button>
+          <button class="btn btn-ghost btn-danger-soft" id="profileBlock" data-i18n="profile.block">Заблокировать</button>
+          <button class="btn btn-ghost" id="profileMedia" data-i18n="media.title">Медиа в этом чате</button>
+        </div>
+        <div class="fp-block" id="profileFp" hidden>
+          <div class="fp-head">
+            <span data-i18n="fp.title">Код безопасности</span>
+            <button class="icon-btn" type="button" id="fpCopy" title="Copy"></button>
+          </div>
+          <button class="fp-code" type="button" id="fpCode"></button>
+          <span class="fp-hint" data-i18n="fp.hint">Сверьте код с собеседником по другому каналу — он должен совпадать.</span>
+          <span class="fp-warn" id="fpWarn" hidden data-i18n="fp.changed">Код безопасности изменился. Один из ключей другой — сверьте лично.</span>
+          <button class="btn btn-ghost" type="button" id="fpAccept" hidden data-i18n="fp.accept">Запомнить новый код</button>
+          <button class="btn btn-ghost" type="button" id="fpQrBtn" data-i18n="fp.qr">Показать QR</button>
+          <div class="fp-qr" id="fpQr" hidden></div>
+        </div>
+        <div class="field" id="profileTtlField">
+          <span data-i18n="ttl.title">Исчезающие сообщения</span>
+          <div class="seg seg-4" id="ttlSeg">
+            <button type="button" data-ttl="0" data-i18n="ttl.off">Выкл</button>
+            <button type="button" data-ttl="5" data-i18n="ttl.5s">5 сек</button>
+            <button type="button" data-ttl="60" data-i18n="ttl.1m">1 мин</button>
+            <button type="button" data-ttl="86400" data-i18n="ttl.1d">1 день</button>
+          </div>
+          <span class="field-hint" data-i18n="ttl.hint">Отсчёт начинается после прочтения. Пока приложение закрыто, таймер не идёт.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ОТЛОЖЕННОЕ СООБЩЕНИЕ ══════════ -->
+  <div class="overlay" id="scheduleOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="sched.title">Отправить позже</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="sched.at">Когда отправить</span>
+          <input class="input" id="scheduleAt" type="datetime-local">
+        </div>
+        <div class="field">
+          <span data-i18n="sched.preview">Сообщение</span>
+          <div class="sched-preview" id="schedulePreview"></div>
+          <span class="field-hint" data-i18n="sched.hint">Пока приложение закрыто, отправка ждёт следующего запуска.</span>
+        </div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
+        <button class="btn" id="scheduleGo" data-i18n="sched.send">Запланировать</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══════════ ОТЛОЖЕННЫЕ СООБЩЕНИЯ (СПИСОК) ══════════ -->
+  <div class="overlay" id="schedListOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedListTitle">
+      <header class="m-head">
+        <h3 id="schedListTitle" data-i18n="sched.listTitle">Отложенные</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="sched-list" id="schedList"></div>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.close">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="overlay" id="pollOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="poll.title">Новый опрос</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div class="field">
+          <span data-i18n="poll.question">Вопрос</span>
+          <input class="input" id="pollQuestion" maxlength="140" placeholder="" data-i18n-ph="poll.questionPh">
+        </div>
+        <div class="field">
+          <span data-i18n="poll.options">Варианты ответа</span>
+          <div id="pollOptions" class="poll-options-edit"></div>
+          <button class="btn btn-ghost" id="pollAddOpt" type="button" data-i18n="poll.addOption">Добавить вариант</button>
+        </div>
+        <label class="switch-row">
+          <span data-i18n="poll.multi">Несколько ответов</span>
+          <input type="checkbox" id="pollMulti">
+          <i></i>
+        </label>
+        <label class="switch-row">
+          <span data-i18n="poll.anon">Анонимный опрос</span>
+          <input type="checkbox" id="pollAnon" checked>
+          <i></i>
+        </label>
+      </div>
+      <div class="m-foot">
+        <button class="btn btn-ghost" data-close data-i18n="common.cancel">Отмена</button>
+        <button class="btn" id="pollCreate" data-i18n="poll.create">Создать опрос</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ЛАЙТБОКС ══════════ -->
+  <div class="lightbox" id="lightbox" hidden>
+    <button class="icon-btn lx-dl" id="lbDl" title=""></button>
+    <button class="icon-btn lx-close" id="lbX"></button>
+    <button class="icon-btn lx-prev" id="lbPrev" type="button" aria-label="Previous">‹</button>
+    <button class="icon-btn lx-next" id="lbNext" type="button" aria-label="Next">›</button>
+    <span class="lx-count" id="lbCount"></span>
+    <img id="lbImg" alt="">
+  </div>
+
+  <!-- ══════════ ПОДТВЕРЖДЕНИЕ / КОД ДОСТУПА ══════════ -->
+  <div class="overlay" id="verifyOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 id="verifyTitle" data-i18n="verify.title">Подтверждение</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <p class="verify-sub" id="verifySub" data-i18n="verify.sub">Введите код, который вам дали для входа в Relik.</p>
+        <p class="verify-email" id="verifyEmail"></p>
+        <input class="input code-input invite" id="verifyCode" autocomplete="off" maxlength="12" placeholder="" data-i18n-ph="verify.ph">
+        <button class="btn" id="verifyGo" data-i18n="verify.continue">Продолжить</button>
+        <button class="btn btn-ghost" id="verifyResend" data-i18n="verify.resend">Отправить код ещё раз</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ПЕРЕСЛАТЬ ══════════ -->
+  <div class="overlay" id="fwdOv" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="msg.forwardTitle">Переслать в…</h3>
+        <button class="icon-btn" data-close></button>
+      </header>
+      <div class="m-body">
+        <div id="fwdList" style="display:grid;gap:2px"></div>
+      </div>
+      <div class="m-foot">
+        <span class="field-hint" id="fwdCount" data-i18n="msg.forwardPick">Выберите чаты</span>
+        <button class="btn" id="fwdGo" disabled data-i18n="msg.forwardSend">Переслать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ ЗВОНОК ══════════ -->
+  <div class="call-overlay" id="callOverlay" hidden>
+    <video id="remoteVideo" playsinline autoplay muted></video>
+    <div class="call-shade"></div>
+    <video id="localVideo" playsinline muted autoplay></video>
+    <div class="call-card">
+      <div class="call-peer" id="callPeerAvatar"></div>
+      <div class="call-name" id="callPeerName"></div>
+      <div class="call-status" id="callStatus"></div>
+      <div class="call-timer" id="callTimer"></div>
+      <div class="call-rec" id="callRecBadge" hidden><i></i> <span data-i18n="call.recording">Идёт запись</span></div>
+      <div class="call-actions">
+        <button class="call-btn" id="callSwitch"></button>
+        <button class="call-btn" id="callRec"></button>
+        <button class="call-btn" id="callCamera"></button>
+        <button class="call-btn" id="callScreen"></button>
+        <button class="call-btn" id="callMute"></button>
+        <button class="call-btn end" id="callEnd"></button>
+        <button class="call-btn accept" id="callAccept" hidden></button>
+        <button class="call-btn decline" id="callDecline" hidden></button>
+      </div>
+      <audio id="remoteAudio" autoplay></audio>
+    </div>
+  </div>
+
+  <!-- ══════════ ВИДЕОКРУЖОК ══════════ -->
+  <div class="overlay circle-overlay" id="circleOv" hidden>
+    <div class="modal circle-modal" role="dialog" aria-modal="true">
+      <header class="m-head">
+        <h3 data-i18n="comp.circle">Видеокружок</h3>
+        <button class="icon-btn" type="button" id="circleClose"></button>
+      </header>
+      <div class="circle-stage">
+        <video id="circlePreview" playsinline autoplay muted></video>
+        <span class="circle-rec" id="circleTimer" hidden>0:00</span>
+      </div>
+      <div class="circle-actions">
+        <button class="btn btn-ghost" type="button" id="circleCancel" data-i18n="comp.cancelRecord">Отмена</button>
+        <button class="btn btn-primary" type="button" id="circleStart" data-i18n="comp.circleStart">Записать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ PIN-КОД ══════════ -->
+  <div class="pin-lock" id="pinLock" hidden>
+    <div class="pin-card">
+      <img class="pin-logo" src="assets/icons/icon-192.png" alt="">
+      <div class="pin-title" data-i18n="pin.title">Введите PIN</div>
+      <div class="pin-sub" id="pinSub" data-i18n="pin.sub">Код защищает переписку на этом устройстве</div>
+      <div class="pin-dots" id="pinDots"></div>
+      <div class="pin-pad" id="pinPad">
+        <button type="button" data-pin="1">1</button>
+        <button type="button" data-pin="2">2</button>
+        <button type="button" data-pin="3">3</button>
+        <button type="button" data-pin="4">4</button>
+        <button type="button" data-pin="5">5</button>
+        <button type="button" data-pin="6">6</button>
+        <button type="button" data-pin="7">7</button>
+        <button type="button" data-pin="8">8</button>
+        <button type="button" data-pin="9">9</button>
+        <button type="button" class="pin-ghost" data-pin="back" aria-label="Back">⌫</button>
+        <button type="button" data-pin="0">0</button>
+        <button type="button" class="pin-ghost" data-pin="ok" aria-label="OK">✓</button>
+      </div>
+      <button type="button" class="pin-forgot" id="pinForgot" data-i18n="pin.forgot">Забыли PIN?</button>
+      <button type="button" class="pin-forgot" id="pinCancel" hidden data-i18n="common.cancel">Отмена</button>
+    </div>
+  </div>
+
+  <!-- ══════════ КОМАНДНАЯ ПАЛИТРА ══════════ -->
+  <div class="overlay palette-ov" id="paletteOv" hidden>
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Relik">
+      <div class="pal-head">
+        <span class="pal-ic-lead" id="paletteIc"></span>
+        <input id="paletteInput" class="pal-input" type="text" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="true" aria-controls="paletteList"
+               placeholder="" data-i18n-ph="palette.ph">
+        <kbd class="pal-esc">Esc</kbd>
+      </div>
+      <div class="pal-list" id="paletteList" role="listbox"></div>
+      <div class="pal-foot" id="paletteHint"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ ВОССТАНОВЛЕНИЕ ПОСЛЕ ОШИБКИ ══════════ -->
+  <div class="recover-bar" id="recoverBar" hidden role="alert">
+    <span class="rb-ic" id="rbIc"></span>
+    <div class="rb-main">
+      <b id="rbTitle"></b>
+      <span id="rbText"></span>
+    </div>
+    <button class="btn btn-ghost rb-btn" type="button" id="rbReload" data-i18n="recovery.reload">Перезагрузить</button>
+    <a class="btn btn-ghost rb-btn" id="rbCheck" href="tools/health.html" target="_blank" rel="noopener" data-i18n="recovery.check">Проверить</a>
+    <button class="icon-btn" type="button" id="rbX"></button>
+  </div>
+
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <div id="srLive" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div class="net-bar" id="netBar" hidden>
+    <span class="nb-ic" id="netIc"></span>
+    <span id="netText"></span>
+  </div>
+
+  <!-- SDK грузим с defer: он больше не блокирует разбор страницы и первую отрисовку -->
+  <script defer src="js/vendor/supabase.js"></script>
+  <!-- qrcode.js (55 КБ) грузится по требованию из js/ui/chatView.js -->
+  <script nomodule>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.relikBoot) window.relikBoot.fail('Браузер не поддерживает современный JavaScript', 'Обновите браузер или откройте ссылку в Chrome / Safari.');
+    });
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

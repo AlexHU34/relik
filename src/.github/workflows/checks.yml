@@ -1,0 +1,50 @@
+# Проверки на каждый пуш.
+# В репозитории сайт лежит в корне (собранный dist), а исходники — в src/.
+# Все шаги выполняются в src/, чтобы проверять именно то, что собирается.
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Зависимости
+        run: npm ci
+
+      - name: Все проверки (синтаксис, ассеты, i18n, CSP, размеры, KPI, тесты, типы, линтер)
+        run: node scripts/check-all.mjs
+
+      - name: Сборка
+        run: node scripts/build.mjs
+
+      - name: Проверка собранного dist
+        run: node scripts/check-dist.mjs
+
+      - name: UI-смоук в браузере (демо)
+        run: |
+          python3 -m http.server 8123 --directory dist >/dev/null 2>&1 &
+          sleep 2
+          node scripts/e2e.mjs --demo --url http://localhost:8123/
+
+      - name: JSON-файлы валидны
+        run: |
+          for f in version.json manifest.json package.json scripts/push-service/package.json; do
+            node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
+          done

@@ -1,5 +1,6 @@
-# Статические проверки на каждый пуш: ловят поломки до того, как их увидят люди.
-# Ничего не деплоит — только проверяет.
+# Проверки на каждый пуш.
+# В репозитории сайт лежит в корне (собранный dist), а исходники — в src/.
+# Все шаги выполняются в src/, чтобы проверять именно то, что собирается.
 name: Checks
 
 on:
@@ -11,42 +12,39 @@ on:
 jobs:
   static:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: src/package-lock.json
 
-      - name: Синтаксис всех модулей
+      - name: Зависимости
+        run: npm ci
+
+      - name: Все проверки (синтаксис, ассеты, i18n, CSP, размеры, KPI, тесты, типы, линтер)
+        run: node scripts/check-all.mjs
+
+      - name: Сборка
+        run: node scripts/build.mjs
+
+      - name: Проверка собранного dist
+        run: node scripts/check-dist.mjs
+
+      - name: UI-смоук в браузере (демо)
         run: |
-          fail=0
-          for f in $(find js scripts -type f \( -name '*.js' -o -name '*.mjs' \)); do
-            node --check "$f" || { echo "FAIL $f"; fail=1; }
-          done
-          exit $fail
-
-      - name: Ассеты и офлайн-оболочка (sw.js ASSETS, 404, импорты)
-        run: node scripts/check-assets.mjs
-
-      - name: Паритет переводов RU/EN
-        run: node scripts/check-i18n.mjs
-
-      - name: Бюджет производительности (KPI)
-        run: node scripts/kpi.mjs --check
-
-      - name: Лимит размера модулей (400 строк)
-        run: node scripts/check-size.mjs
-
-      - name: CSP и хеши inline-скриптов
-        run: node scripts/check-csp.mjs
-
-      - name: Юнит-тесты (разметка, лента, отпечатки)
-        run: node scripts/test.mjs
+          python3 -m http.server 8123 --directory dist >/dev/null 2>&1 &
+          sleep 2
+          node scripts/e2e.mjs --demo --url http://localhost:8123/
 
       - name: JSON-файлы валидны
         run: |
-          for f in version.json manifest.json scripts/push-service/package.json; do
+          for f in version.json manifest.json package.json scripts/push-service/package.json; do
             node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
           done

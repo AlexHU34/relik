@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relik — диагностика звонков и голоса</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#0b0e14; --surface:#11151c; --surface-2:#161b24; --surface-3:#1b212d;
+    --line:#232b39; --line-2:#2b3442; --tx:#e8eaf2; --tx-2:#9aa3b5; --tx-3:#5f6879;
+    --blue:#4e7fff; --indigo:#5b6cf9; --violet:#9f5cf6;
+    --grad:linear-gradient(135deg,var(--blue),var(--indigo) 50%,var(--violet));
+    --ok:#3ecf8e; --bad:#f96a6a; --warn:#f5b544;
+    --r:14px; --font:"Inter",system-ui,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;min-height:100vh}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(900px 500px at 88% -10%,rgba(78,127,255,.09),transparent 60%),
+               radial-gradient(760px 480px at -8% 108%,rgba(159,92,246,.08),transparent 60%)}
+  .wrap{position:relative;max-width:860px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  header img{width:40px;height:40px;border-radius:12px}
+  header h1{font-size:20px;letter-spacing:-.01em}
+  header .badge{margin-left:auto;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--indigo);background:rgba(91,108,249,.15);border:1px solid rgba(91,108,249,.4);padding:4px 10px;border-radius:999px}
+  .sub{color:var(--tx-2);margin-bottom:22px;font-size:13px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:14px}
+  .card h2{font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--tx-3);flex:none}
+  .card h2 .dot.ok{background:var(--ok);box-shadow:0 0 10px rgba(62,207,142,.6)}
+  .card h2 .dot.bad{background:var(--bad);box-shadow:0 0 10px rgba(249,106,106,.6)}
+  .card p{color:var(--tx-2);font-size:13px;margin-bottom:12px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  button{font:inherit;color:var(--tx);background:var(--surface-3);border:1px solid var(--line-2);
+    padding:9px 16px;border-radius:10px;cursor:pointer;font-weight:600;font-size:13px;
+    transition:background .15s,border-color .15s,transform .1s}
+  button:hover{background:#222a38;border-color:#39445a}
+  button:active{transform:scale(.97)}
+  button.primary{background:var(--grad);border:0;color:#fff;box-shadow:0 8px 22px -8px rgba(91,108,249,.5)}
+  button.danger{background:rgba(249,106,106,.12);border-color:rgba(249,106,106,.4);color:#ffb4b4}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  .meter{height:14px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;overflow:hidden;flex:1;min-width:120px}
+  .meter i{display:block;height:100%;width:0%;background:var(--grad);transition:width .08s linear}
+  .status{font-size:12.5px;color:var(--tx-2);margin-top:10px;min-height:18px}
+  .status.ok{color:var(--ok)} .status.bad{color:var(--bad)} .status.warn{color:var(--warn)}
+  .checks{display:grid;gap:2px;margin-top:10px}
+  .check{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:9px;font-size:13px}
+  .check:nth-child(odd){background:var(--surface-2)}
+  .check .ic{width:18px;text-align:center;font-weight:700}
+  .check .ic.ok{color:var(--ok)} .check .ic.bad{color:var(--bad)}
+  .check .nm{flex:1;color:var(--tx-2)}
+  .check .vl{font-size:11px;color:var(--tx-3);font-family:ui-monospace,Consolas,monospace}
+  audio{width:100%;margin-top:12px;filter:invert(.92) hue-rotate(180deg)}
+  a.dl{display:inline-block;margin-top:8px;color:var(--indigo);font-size:12.5px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:640px){.grid2{grid-template-columns:1fr}}
+  .mini{font-size:11.5px;color:var(--tx-3);margin-top:6px}
+  .hint{border-left:3px solid var(--indigo);background:rgba(91,108,249,.07);padding:10px 12px;border-radius:0 10px 10px 0;font-size:12.5px;color:var(--tx-2);margin-top:12px}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .call-state{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--tx-2);margin-top:10px;padding:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;word-break:break-word}
+  .devices{font-size:12px;color:var(--tx-3);margin-top:8px;word-break:break-word}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="../assets/icons/icon-192.png" alt="Relik">
+    <h1>Diagnostics</h1>
+    <span class="badge">dev</span>
+  </header>
+  <p class="sub">Самопроверка браузера для голосовых сообщений и звонков Relik. Откройте через локальный сервер (http/https), не через <span class="mono">file://</span>.</p>
+
+  <section class="card">
+    <h2><span class="dot" id="supportDot"></span>Поддержка API</h2>
+    <p>Что умеет этот браузер. Красное — критично для звонков; жёлтое — необязательно.</p>
+    <div class="checks" id="checks"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot" id="micDot"></span>Микрофон</h2>
+    <p>Проверка разрешения, устройства и живой уровень сигнала.</p>
+    <div class="row">
+      <button class="primary" id="btnMic">Проверить микрофон</button>
+      <span class="meter"><i id="micBar"></i></span>
+      <button id="btnMicStop" disabled>Стоп</button>
+    </div>
+    <div class="status" id="micStatus">не запущено</div>
+    <div class="devices" id="micDevices"></div>
+    <div class="hint">Говорите в микрофон — полоска должна двигаться. Если она на нуле, проверьте разрешение (иконка замка в адресной строке) и выбранное устройство ввода.</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot" id="recDot"></span>Запись голосового (3 сек)</h2>
+    <p>Реальная запись через MediaRecorder и воспроизведение — то, что использует композер Relik.</p>
+    <div class="row">
+      <button class="primary" id="btnRec">Записать 3 секунды</button>
+      <button id="btnRecStop" disabled>Остановить</button>
+    </div>
+    <div class="status" id="recStatus">не запущено</div>
+    <audio id="recAudio" controls hidden></audio>
+    <a class="dl" id="recDl" download hidden>Скачать запись</a>
+    <div class="mini" id="recMime"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot" id="callDot"></span>Тестовый звонок (loopback)</h2>
+    <p>Настоящая WebRTC-сессия сама с собой: проверяет микрофон, кодеки, ICE и воспроизведение удалённой дорожки — весь конвейер звонка.</p>
+    <div class="row">
+      <button class="primary" id="btnCall">Начать тестовый звонок</button>
+      <button class="danger" id="btnCallStop" disabled>Завершить</button>
+      <span class="meter"><i id="callBar"></i></span>
+    </div>
+    <div class="call-state" id="callState">не запущено</div>
+    <audio id="callAudio" autoplay hidden></audio>
+    <div class="hint">Если соединение «connected» и полоска реагирует на голос — канал звонка в порядке. Эхо — нормально для loopback (вы слышите себя).</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot" id="toneDot"></span>Динамики / наушники</h2>
+    <p>Короткий тон 440 Гц проверит вывод звука.</p>
+    <div class="row">
+      <button id="btnTone">Проиграть тон 440 Гц</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Отчёт</h2>
+    <p>Скопируйте JSON-отчёт (поддержка API, устройства, mime-типы, результат звонка) — удобно приложить к баг-репорту.</p>
+    <div class="row">
+      <button id="btnReport">Скопировать отчёт</button>
+      <button id="btnClear">Очистить результаты</button>
+    </div>
+    <div class="status" id="reportStatus"></div>
+  </section>
+
+  <p class="sub" style="margin:0">Relik · tools/diagnostics.html</p>
+</div>
+
+<script>
+'use strict';
+
+/* ── короткие утилиты ── */
+const $ = (s) => document.querySelector(s);
+const setStatus = (el, kind, text) => {
+  const node = typeof el === 'string' ? $(el) : el;
+  node.className = 'status' + (kind ? ' ' + kind : '');
+  node.textContent = text;
+};
+const reportData = { support: {}, devices: [], recording: null, call: null };
+
+/* ── 1. Проверка API ── */
+const supportChecks = [
+  ['getUserMedia (микрофон)', () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia), true],
+  ['MediaRecorder (запись)', () => typeof MediaRecorder !== 'undefined', true],
+  ['RTCPeerConnection (звонки)', () => typeof RTCPeerConnection !== 'undefined', true],
+  ['AudioContext (звук)', () => !!(window.AudioContext || window.webkitAudioContext), true],
+  ['WebCrypto (E2E)', () => !!(window.crypto && crypto.subtle), false],
+  ['IndexedDB (история)', () => !!window.indexedDB, false],
+  ['Service Worker (PWA)', () => 'serviceWorker' in navigator, false],
+  ['Notifications', () => 'Notification' in window, false],
+  ['Clipboard', () => !!(navigator.clipboard), false],
+  ['Vibrate', () => 'vibrate' in navigator, false],
+  ['secure context (https/localhost)', () => window.isSecureContext, true],
+];
+
+const mimeList = [];
+if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+  ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4']
+    .forEach((m) => { if (MediaRecorder.isTypeSupported(m)) mimeList.push(m); });
+}
+if (mimeList.length) {
+  supportChecks.push(['MediaRecorder mime', () => true, false]);
+}
+
+function renderSupport() {
+  const wrap = $('#checks');
+  wrap.innerHTML = '';
+  let ok = 0, total = 0, critOk = true;
+  for (const [name, fn, critical] of supportChecks) {
+    const pass = !!fn();
+    total++;
+    if (pass) ok++;
+    if (critical && !pass) critOk = false;
+    const row = document.createElement('div');
+    row.className = 'check';
+    const ic = document.createElement('span');
+    ic.className = 'ic ' + (pass ? 'ok' : 'bad');
+    ic.textContent = pass ? '✓' : '✕';
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = name;
+    const vl = document.createElement('span');
+    vl.className = 'vl';
+    vl.textContent = pass ? 'ok' : 'нет';
+    row.append(ic, nm, vl);
+    wrap.appendChild(row);
+    reportData.support[name] = pass;
+  }
+  const dot = $('#supportDot');
+  dot.className = 'dot ' + (critOk ? 'ok' : 'bad');
+}
+
+/* ── 2. Микрофон ── */
+let micStream = null, micCtx = null, micRaf = 0;
+
+async function startMic() {
+  stopMic();
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = micCtx.createMediaStreamSource(micStream);
+    const analyser = micCtx.createAnalyser();
+    analyser.fftSize = 512;
+    src.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+    const bar = $('#micBar');
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) { const x = (data[i] - 128) / 128; sum += x * x; }
+      const rms = Math.sqrt(sum / data.length);
+      bar.style.width = Math.min(100, Math.round(rms * 400)) + '%';
+      micRaf = requestAnimationFrame(tick);
+    };
+    tick();
+    $('#btnMic').disabled = true;
+    $('#btnMicStop').disabled = false;
+    $('#micDot').className = 'dot ok';
+    setStatus('#micStatus', 'ok', 'Микрофон активен — говорите');
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((d) => d.kind === 'audioinput');
+    reportData.devices = devices.map((d) => ({ kind: d.kind, label: d.label }));
+    $('#micDevices').textContent = inputs.length
+      ? 'Входы: ' + inputs.map((d) => d.label || '(без названия)').join(' · ')
+      : 'Устройства ввода не найдены';
+  } catch (err) {
+    $('#micDot').className = 'dot bad';
+    setStatus('#micStatus', 'bad', 'Ошибка: ' + (err && err.message || err));
+  }
+}
+
+function stopMic() {
+  cancelAnimationFrame(micRaf);
+  if (micCtx && micCtx.state !== 'closed') micCtx.close().catch(() => {});
+  micCtx = null;
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  micStream = null;
+  $('#micBar').style.width = '0%';
+  $('#btnMic').disabled = false;
+  $('#btnMicStop').disabled = true;
+}
+
+/* ── 3. Запись ── */
+let recorder = null, recChunks = [], recStream = null;
+
+async function startRec() {
+  if (typeof MediaRecorder === 'undefined') {
+    setStatus('#recStatus', 'bad', 'MediaRecorder не поддерживается');
+    return;
+  }
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = mimeList[0] || '';
+    recorder = new MediaRecorder(recStream, mime ? { mimeType: mime } : undefined);
+    recChunks = [];
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' });
+      const url = URL.createObjectURL(blob);
+      const audio = $('#recAudio');
+      audio.src = url;
+      audio.hidden = false;
+      const dl = $('#recDl');
+      dl.href = url;
+      dl.hidden = false;
+      $('#recDot').className = 'dot ok';
+      setStatus('#recStatus', 'ok', 'Записано ' + (blob.size / 1024).toFixed(0) + ' КБ · нажмите ▶ для прослушивания');
+      reportData.recording = { mime: recorder.mimeType || 'audio/webm', bytes: blob.size, seconds: 3 };
+      if (recStream) recStream.getTracks().forEach((t) => t.stop());
+      recStream = null;
+      recorder = null;
+      $('#btnRec').disabled = false;
+      $('#btnRecStop').disabled = true;
+    };
+    recorder.start();
+    $('#btnRec').disabled = true;
+    $('#btnRecStop').disabled = false;
+    setStatus('#recStatus', 'warn', 'Идёт запись… 3 секунды');
+    let left = 3;
+    const t = setInterval(() => {
+      left--;
+      if (left <= 0) {
+        clearInterval(t);
+        if (recorder && recorder.state === 'recording') {
+          setStatus('#recStatus', 'warn', 'Останавливаем…');
+          recorder.stop();
+        }
+      } else {
+        setStatus('#recStatus', 'warn', 'Идёт запись… ' + left);
+      }
+    }, 1000);
+    $('#recMime').textContent = 'Формат: ' + (mime || 'по умолчанию') + (mimeList.length ? ' · поддержка: ' + mimeList.join(', ') : '');
+  } catch (err) {
+    $('#recDot').className = 'dot bad';
+    setStatus('#recStatus', 'bad', 'Ошибка: ' + (err && err.message || err));
+  }
+}
+
+function stopRec() {
+  if (recorder && recorder.state === 'recording') recorder.stop();
+}
+
+/* ── 4. Loopback-звонок ── */
+let pc1 = null, pc2 = null, callStream = null, callCtx = null, callRaf = 0, callTimer = 0;
+
+async function startCall() {
+  stopCall();
+  try {
+    callStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    pc1 = new RTCPeerConnection();
+    pc2 = new RTCPeerConnection();
+
+    pc1.onicecandidate = (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate).catch(() => {}); };
+    pc2.onicecandidate = (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate).catch(() => {}); };
+    pc1.onconnectionstatechange = () => { $('#callState').textContent = 'Состояние: ' + pc1.connectionState; };
+    pc2.onconnectionstatechange = () => {};
+
+    callStream.getTracks().forEach((t) => pc1.addTrack(t, callStream));
+
+    pc2.ontrack = (ev) => {
+      const remote = ev.streams[0];
+      const audio = $('#callAudio');
+      audio.srcObject = remote;
+      audio.play().catch(() => {});
+      callCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = callCtx.createMediaStreamSource(remote);
+      const an = callCtx.createAnalyser();
+      an.fftSize = 512;
+      src.connect(an);
+      const data = new Uint8Array(an.fftSize);
+      const bar = $('#callBar');
+      const tick = () => {
+        an.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) { const x = (data[i] - 128) / 128; sum += x * x; }
+        bar.style.width = Math.min(100, Math.round(Math.sqrt(sum / data.length) * 400)) + '%';
+        callRaf = requestAnimationFrame(tick);
+      };
+      tick();
+    };
+
+    const offer = await pc1.createOffer();
+    await pc1.setLocalDescription(offer);
+    await pc2.setRemoteDescription(offer);
+    const answer = await pc2.createAnswer();
+    await pc2.setLocalDescription(answer);
+    await pc1.setRemoteDescription(answer);
+
+    $('#btnCall').disabled = true;
+    $('#btnCallStop').disabled = false;
+    $('#callState').textContent = 'Устанавливаем соединение…';
+
+    const t0 = Date.now();
+    callTimer = setInterval(() => {
+      if (pc1.connectionState === 'connected') {
+        clearInterval(callTimer);
+        $('#callDot').className = 'dot ok';
+        $('#callState').textContent = '✅ Соединение установлено за ' + (Date.now() - t0) + ' мс (loopback) · полоска = удалённый звук';
+        reportData.call = { state: 'connected', setupMs: Date.now() - t0 };
+      } else if (Date.now() - t0 > 10000) {
+        clearInterval(callTimer);
+        $('#callDot').className = 'dot bad';
+        $('#callState').textContent = '⚠️ Таймаут: ' + pc1.connectionState + ' (проверьте сеть/фаервол)';
+        reportData.call = { state: pc1.connectionState, timeout: true };
+      }
+    }, 250);
+  } catch (err) {
+    $('#callDot').className = 'dot bad';
+    $('#callState').textContent = 'Ошибка: ' + (err && err.message || err);
+  }
+}
+
+function stopCall() {
+  clearInterval(callTimer);
+  cancelAnimationFrame(callRaf);
+  if (pc1) { try { pc1.close(); } catch (e) {} pc1 = null; }
+  if (pc2) { try { pc2.close(); } catch (e) {} pc2 = null; }
+  if (callCtx && callCtx.state !== 'closed') callCtx.close().catch(() => {});
+  callCtx = null;
+  if (callStream) callStream.getTracks().forEach((t) => t.stop());
+  callStream = null;
+  $('#callBar').style.width = '0%';
+  $('#btnCall').disabled = false;
+  $('#btnCallStop').disabled = true;
+  $('#callAudio').srcObject = null;
+}
+
+/* ── 5. Тон ── */
+function playTone() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = 440;
+  gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.04);
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.0);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 1.05);
+  osc.onended = () => ctx.close().catch(() => {});
+  $('#toneDot').className = 'dot ok';
+}
+
+/* ── 6. Отчёт ── */
+async function copyReport() {
+  const data = {
+    app: 'Relik diagnostics',
+    time: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    secureContext: window.isSecureContext,
+    mediaMime: mimeList,
+    support: reportData.support,
+    devices: reportData.devices,
+    recording: reportData.recording,
+    call: reportData.call,
+  };
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setStatus('#reportStatus', 'ok', 'Отчёт скопирован в буфер обмена');
+  } catch (err) {
+    setStatus('#reportStatus', 'bad', 'Не удалось скопировать: ' + (err && err.message || err));
+  }
+}
+
+/* ── события ── */
+renderSupport();
+$('#btnMic').addEventListener('click', startMic);
+$('#btnMicStop').addEventListener('click', stopMic);
+$('#btnRec').addEventListener('click', startRec);
+$('#btnRecStop').addEventListener('click', stopRec);
+$('#btnCall').addEventListener('click', startCall);
+$('#btnCallStop').addEventListener('click', stopCall);
+$('#btnTone').addEventListener('click', playTone);
+$('#btnReport').addEventListener('click', copyReport);
+$('#btnClear').addEventListener('click', () => location.reload());
+$('#recMime').textContent = mimeList.length ? 'Поддерживаемые форматы: ' + mimeList.join(', ') : 'MediaRecorder: форматы не определены';
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+﻿{
+  "name": "relik-ui-shots",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Скриншоты Relik для UI-аудита (puppeteer-core + установленный Chrome/Edge)",
+  "type": "module",
+  "scripts": { "shots": "node shots.mjs" },
+  "dependencies": { "puppeteer-core": "^24.0.0" }
+}

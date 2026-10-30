@@ -1,0 +1,786 @@
+/* Relik — управление сообщениями через Supabase (Фаза 6)
+   Отправка, загрузка, Realtime-подписка с E2E шифрованием */
+
+import { sb } from './supabaseClient.js';
+import { idb, newId } from '../db/idb.js';
+import { SUPABASE, CRYPTO_V2 } from '../config.js';
+import { S } from '../ui/state.js';
+import { t } from '../i18n/i18n.js';
+import {
+  getKeyPair,
+  getTheirPublicKey,
+  encryptForChat,
+  decryptFromChat,
+} from '../crypto/encryption.js';
+import { encryptGroupText, decryptGroupText } from './groupKeys.js';
+import { encryptV2Dm, decryptV2Row, isV2Row } from './v2Messages.js';
+
+/* Опросы и голоса передаются обычными сообщениями с префиксом —
+   так они остаются E2E-зашифрованными и не требуют новых таблиц. */
+const POLL_PREFIX = '__relik_poll__:';
+const VOTE_PREFIX = '__relik_vote__:';
+const RX_PREFIX = '__relik_rx__:';
+const CLOSE_PREFIX = '__relik_pollclose__:';
+const MEDIA_PREFIX = '__relik_media__:';
+const READ_PREFIX = '__relik_read__:';
+const TTL_PREFIX = '__relik_ttl__:';
+
+export function encodePoll(poll) {
+  return POLL_PREFIX + JSON.stringify(poll);
+}
+
+export function encodeVote(pollId, options) {
+  return VOTE_PREFIX + JSON.stringify({ p: pollId, v: options });
+}
+
+export function encodeReaction(messageId, emoji, on) {
+  return RX_PREFIX + JSON.stringify({ m: messageId, e: emoji, on: !!on });
+}
+
+export function encodePollClose(pollId) {
+  return CLOSE_PREFIX + JSON.stringify({ p: pollId });
+}
+
+export function encodeMedia(media) {
+  return MEDIA_PREFIX + JSON.stringify(media);
+}
+
+export function encodeRead(upto) {
+  return READ_PREFIX + JSON.stringify({ upto: Number(upto) || 0 });
+}
+
+export function encodeTtl(seconds) {
+  return TTL_PREFIX + JSON.stringify({ sec: Number(seconds) || 0 });
+}
+
+export function decodeSpecial(text) {
+  if (typeof text !== 'string') return null;
+  if (text.startsWith(POLL_PREFIX)) {
+    try {
+      const poll = JSON.parse(text.slice(POLL_PREFIX.length));
+      return { kind: 'poll', poll, text: poll.q || '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(VOTE_PREFIX)) {
+    try {
+      return { kind: 'vote', vote: JSON.parse(text.slice(VOTE_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(RX_PREFIX)) {
+    try {
+      return { kind: 'rx', reaction: JSON.parse(text.slice(RX_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(CLOSE_PREFIX)) {
+    try {
+      return { kind: 'pollclose', close: JSON.parse(text.slice(CLOSE_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(READ_PREFIX)) {
+    try {
+      return { kind: 'read', read: JSON.parse(text.slice(READ_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(MEDIA_PREFIX)) {
+    try {
+      return { kind: 'media', media: JSON.parse(text.slice(MEDIA_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  if (text.startsWith(TTL_PREFIX)) {
+    try {
+      return { kind: 'ttl', ttl: JSON.parse(text.slice(TTL_PREFIX.length)), text: '' };
+    } catch (err) { return null; }
+  }
+  return null;
+}
+
+/* Помечаем сообщение как опрос, скрытый голос или реакцию */
+function applySpecial(m) {
+  const s = decodeSpecial(m.text);
+  if (!s) return m;
+  if (s.kind === 'poll') {
+    m.type = 'poll';
+    m.poll = s.poll;
+    m.text = s.text;
+  } else if (s.kind === 'vote') {
+    m.type = 'vote';
+    m.hidden = true;
+    m.vote = s.vote;
+    m.text = '';
+  } else if (s.kind === 'rx') {
+    m.type = 'rx';
+    m.hidden = true;
+    m.reaction = s.reaction;
+    m.text = '';
+  } else if (s.kind === 'media') {
+    const rawKind = String(s.media.kind || '');
+    const kind = ['voice', 'image', 'video', 'videoNote', 'album'].includes(rawKind) ? rawKind : 'file';
+    m.type = kind;
+
+    if (kind === 'album') {
+      m.album = Array.isArray(s.media.items)
+        ? s.media.items.map((it) => ({ ...it }))
+        : [];
+      m.text = '';
+    } else {
+      const src = s.media.src || null;
+      m.file = {
+        name: s.media.name,
+        size: s.media.size,
+        mime: s.media.mime || '',
+        src,
+        ...(s.media.thumb ? { thumb: s.media.thumb } : {}),
+      };
+      if (s.media.path) {
+        m.media = {
+          path: s.media.path,
+          k: s.media.k,
+          iv: s.media.iv,
+          mime: s.media.mime || '',
+          name: s.media.name,
+          size: s.media.size,
+        };
+      }
+      if (kind === 'voice') {
+        const v = s.media.voice || {};
+        m.voice = { dur: v.dur || 0, bars: v.bars || [], rate: v.rate || 1, src };
+      }
+      m.text = '';
+    }
+  } else if (s.kind === 'read') {
+    m.type = 'read';
+    m.hidden = true;
+    m.read = s.read;
+    m.text = '';
+  } else if (s.kind === 'ttl') {
+    m.type = 'ttl';
+    m.hidden = true;
+    m.ttl = s.ttl;
+    m.text = '';
+  } else {
+    m.type = 'pollclose';
+    m.hidden = true;
+    m.close = s.close;
+    m.text = '';
+  }
+  return m;
+}
+
+/* Превью для списка чатов */
+function previewOfText(text) {
+  const s = decodeSpecial(text);
+  if (!s) return text;
+  if (s.kind === 'poll') return '📊 ' + s.text;
+  if (s.kind === 'media') {
+    if (s.media.kind === 'image') return `📷 ${t('msg.photo')}`;
+    if (s.media.kind === 'voice') return `🎙 ${t('msg.voice')}`;
+    if (s.media.kind === 'video') return `🎥 ${t('msg.video')}`;
+    if (s.media.kind === 'videoNote') return `⭕ ${t('msg.videoNote')}`;
+    if (s.media.kind === 'album') return `🖼 ${t('msg.album')}`;
+    return `📄 ${s.media.name || t('msg.file')}`;
+  }
+  if (s.kind === 'ttl') return null;
+  return null;
+}
+
+/* ── Ключи для расшифровки (кешируем на время вызова) ── */
+async function chatKeys(theirPublicKeyJwk) {
+  if (!SUPABASE.url || !SUPABASE.anonKey) return { keyPair: null, theirPubKey: null };
+  const keyPair = await getKeyPair();
+  let theirPubKey = null;
+  if (theirPublicKeyJwk && keyPair) {
+    try {
+      theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+    } catch (err) {
+      console.warn('Peer public key error:', err);
+    }
+  }
+  return { keyPair, theirPubKey };
+}
+
+/* ── Строка из Supabase → сообщение приложения (с дешифровкой) ── */
+async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
+  /* Свои v2-сообщения нельзя расшифровать чужой ratchet-сессией:
+     берём локальную копию (текст/медиа), если она есть. */
+  if (isV2Row(m) && m.sender_id === S.me?.id) {
+    const cached = await idb.get('messages', m.id);
+    if (cached) {
+      return {
+        ...cached,
+        deleted: !!m.deleted,
+        edited: !!m.edited,
+        status: cached.status === 'error' || cached.status === 'sending' ? 'sent' : cached.status,
+        ts: cached.ts || Number(m.envelope?.ts) || Date.now(),
+        cryptoVersion: 2,
+      };
+    }
+  }
+
+  let text = m.ciphertext;
+  let decryptFailed = false;
+
+  if (isV2Row(m)) {
+    const v2 = await decryptV2Row(m);
+    if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
+    else text = v2.text;
+  } else if (keyPair && theirPubKey && m.iv && chatKind === 'dm') {
+    try {
+      text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+    } catch (err) {
+      console.error('Decrypt error:', err);
+      text = '';
+      decryptFailed = true;
+    }
+  } else if (m.iv && chatKind === 'group') {
+    const plain = await decryptGroupText(m.conversation_id, m.iv, m.ciphertext);
+    if (plain === null) { text = ''; decryptFailed = true; }
+    else text = plain;
+  }
+
+  const msg = applySpecial({
+    id: m.id,
+    chatId: m.conversation_id,
+    sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
+    ts: new Date(m.created_at).getTime(),
+    type: 'text',
+    text,
+    reactions: [],
+    status: 'sent',
+    replyTo: m.reply_to ? { id: m.reply_to } : null,
+    edited: m.edited,
+    deleted: m.deleted,
+  });
+  if (decryptFailed) msg.decryptFailed = true;
+  if (isV2Row(m)) msg.cryptoVersion = 2;
+  return msg;
+}
+
+/* ── Загрузка сообщений чата с дешифрованием ──
+   Постранично: сначала последние SERVER_PAGE, остальное — по требованию
+   (loadOlderMessages). Раньше тянулась и расшифровывалась вся история,
+   из-за чего долгие чаты открывались секундами. */
+const SERVER_PAGE = 50;
+
+export async function loadMessagesPage(chatId, chatKind = 'dm', theirPublicKeyJwk = null, opts = {}) {
+  const limit = Math.min(200, Math.max(1, Number(opts.limit) || SERVER_PAGE));
+  let query = sb
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', chatId)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1);
+  if (opts.before) {
+    query = query.lt('created_at', new Date(Number(opts.before)).toISOString());
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = Array.isArray(data) ? data : [];
+  const hasMore = rows.length > limit;
+  /* страница пришла «с конца» — разворачиваем и расшифровываем по порядку */
+  const page = (hasMore ? rows.slice(0, limit) : rows).slice().reverse();
+
+  const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
+  /* v2 ratchet нельзя расшифровывать параллельно: порядок важен */
+  const messages = [];
+  for (const row of page) messages.push(await rowToMessage(row, keyPair, theirPubKey, chatKind));
+
+  // Кэшируем в IndexedDB (уже дешифрованные)
+  await idb.bulkPut('messages', messages);
+
+  return { messages, hasMore };
+}
+
+export async function loadMessages(chatId, chatKind = 'dm', theirPublicKeyJwk = null, opts = {}) {
+  const { messages } = await loadMessagesPage(chatId, chatKind, theirPublicKeyJwk, opts);
+  return messages;
+}
+
+/* Предыдущая страница истории (то, что выше самого старого сообщения в ленте). */
+export async function loadOlderMessages(chatId, beforeTs, chatKind = 'dm', theirPublicKeyJwk = null) {
+  return loadMessagesPage(chatId, chatKind, theirPublicKeyJwk, { before: beforeTs });
+}
+
+/* ── Новые сообщения после отметки времени (страховка для Realtime) ── */
+export async function fetchMessagesSince(chatId, afterTs, chatKind = 'dm', theirPublicKeyJwk = null) {
+  const after = new Date(Math.max(0, afterTs || 0)).toISOString();
+
+  const { data, error } = await sb
+    .from('messages')
+    .select('*')
+    .eq('conversation_id', chatId)
+    .gt('created_at', after)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  if (!data.length) return [];
+
+  const { keyPair, theirPubKey } = await chatKeys(theirPublicKeyJwk);
+  /* v2 ratchet нельзя расшифровывать параллельно: порядок важен */
+  const messages = [];
+  for (const row of data) messages.push(await rowToMessage(row, keyPair, theirPubKey, chatKind));
+  await idb.bulkPut('messages', messages);
+  return messages;
+}
+
+/* ── Последние сообщения по всем чатам: превью в списке без Realtime ── */
+export async function loadLatestPreviews() {
+  const { data, error } = await sb
+    .from('messages')
+    .select('id, conversation_id, sender_id, ciphertext, iv, created_at, crypto_version, sender_device, envelope')
+    .order('created_at', { ascending: false })
+    .limit(300);
+
+  if (error) throw error;
+
+  /* на чат — несколько последних строк: служебные (реакции, голоса,
+     отметки прочтения) не должны скрывать обычное сообщение */
+  const byChat = new Map();
+  for (const row of data) {
+    if (!byChat.has(row.conversation_id)) byChat.set(row.conversation_id, []);
+    const list = byChat.get(row.conversation_id);
+    if (list.length < 12) list.push(row);
+  }
+  return byChat;
+}
+
+/* ── Отправка сообщения с шифрованием ── */
+export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm', theirPublicKeyJwk = null, messageId = null, peerUserId = null) {
+  /* получатель заблокирован (в любую сторону) — не отправляем */
+  if (peerUserId && chatKind === 'dm') {
+    const { hideUser } = await import('./blocks.js');
+    if (hideUser(peerUserId)) throw new Error('recipient_blocked');
+  }
+  /* id уже есть у оптимистичного сообщения в ленте — используем его же */
+  const msgId = messageId || newId();
+
+  /* не гоняем лишний сетевой запрос getUser: id уже есть в состоянии */
+  let senderId = S.me?.id || null;
+  if (!senderId) {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    senderId = user.id;
+  }
+
+  const { row, ts } = await buildMessageRow({
+    chatId, text, replyToId, chatKind, theirPublicKeyJwk, messageId: msgId, peerUserId,
+  });
+
+  const { error } = await sb.from('messages').insert(row);
+  if (error) throw error;
+
+  const msg = applySpecial({
+    id: msgId,
+    chatId,
+    sender: 'u_me',
+    ts,
+    type: 'text',
+    text, // возвращаем оригинальный текст для UI
+    reactions: [],
+    status: 'sent',
+    replyTo: replyToId ? { id: replyToId } : null,
+    edited: false,
+    deleted: false,
+  });
+  if (row.crypto_version === 2) msg.cryptoVersion = 2;
+  return msg;
+}
+
+/* Собрать зашифрованную строку messages без отправки.
+   Нужно для отложенных сообщений: шифруем сразу, сервер хранит
+   только шифротекст и вставляет его в нужное время. */
+export async function buildMessageRow({
+  chatId, text, replyToId = null, chatKind = 'dm',
+  theirPublicKeyJwk = null, messageId = null, peerUserId = null,
+}) {
+  if (peerUserId && chatKind === 'dm') {
+    const { hideUser } = await import('./blocks.js');
+    if (hideUser(peerUserId)) throw new Error('recipient_blocked');
+  }
+
+  const msgId = messageId || newId();
+  let senderId = S.me?.id || null;
+  if (!senderId) {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    senderId = user.id;
+  }
+
+  const now = Date.now();
+  let ciphertext = '';
+  let iv = '';
+  let v2 = null;
+
+  if (SUPABASE.url && SUPABASE.anonKey) {
+    if (chatKind === 'dm' && CRYPTO_V2.enabled && peerUserId) {
+      try {
+        v2 = await encryptV2Dm({ chatId, peerUserId, senderId, text, messageId: msgId, ts: now });
+      } catch (err) {
+        console.warn('v2 encrypt failed, fallback to v1:', err?.message || err);
+        v2 = null;
+      }
+    }
+
+    if (!v2) {
+      const keyPair = await getKeyPair();
+      if (chatKind === 'dm' && theirPublicKeyJwk) {
+        if (!keyPair) throw new Error('No key pair found');
+        const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+        const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey);
+        ciphertext = encrypted.ciphertext;
+        iv = encrypted.iv;
+      } else if (chatKind === 'group') {
+        const encrypted = await encryptGroupText(chatId, text);
+        if (encrypted) {
+          ciphertext = encrypted.ciphertext;
+          iv = encrypted.iv;
+        } else {
+          ciphertext = text;
+          iv = '';
+        }
+      } else {
+        ciphertext = text;
+        iv = '';
+      }
+    } else {
+      ciphertext = v2.ciphertext;
+      iv = v2.iv;
+    }
+  } else {
+    ciphertext = text;
+    iv = '';
+  }
+
+  const row = {
+    id: msgId,
+    conversation_id: chatId,
+    sender_id: senderId,
+    ciphertext,
+    iv,
+    reply_to: replyToId,
+  };
+  if (v2) {
+    row.crypto_version = 2;
+    row.sender_device = v2.senderDevice;
+    row.envelope = v2.envelope;
+  }
+
+  return { row, ts: v2 ? v2.envelope.ts : now };
+}
+
+/* ── Редактирование сообщения ── */
+async function conversationOfMessage(messageId) {
+  const { data, error } = await sb
+    .from('messages')
+    .select('conversation_id')
+    .eq('id', messageId)
+    .maybeSingle();
+  if (error) return null;
+  return data?.conversation_id || null;
+}
+
+export async function editMessage(messageId, newText, chatKind = 'dm', theirPublicKeyJwk = null) {
+  /* v2 использует одноразовые message keys — правка на месте невозможна */
+  try {
+    const { data: meta } = await sb.from('messages').select('crypto_version').eq('id', messageId).maybeSingle();
+    if (Number(meta?.crypto_version) === 2) throw new Error('Editing v2 messages is not supported yet');
+  } catch (err) {
+    if (/not supported/i.test(err?.message || '')) throw err;
+    /* нет колонки/сети — продолжаем как v1 */
+  }
+
+  let ciphertext = newText;
+  let iv = '';
+
+  /* в личных чатах правка тоже должна оставаться зашифрованной */
+  if (SUPABASE.url && SUPABASE.anonKey && chatKind === 'dm' && theirPublicKeyJwk) {
+    const keyPair = await getKeyPair();
+    if (keyPair) {
+      const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
+      const encrypted = await encryptForChat(newText, keyPair.privateKey, theirPubKey);
+      ciphertext = encrypted.ciphertext;
+      iv = encrypted.iv;
+    }
+  } else if (SUPABASE.url && SUPABASE.anonKey && chatKind === 'group') {
+    const chatId = await conversationOfMessage(messageId);
+    if (chatId) {
+      const encrypted = await encryptGroupText(chatId, newText);
+      if (encrypted) {
+        ciphertext = encrypted.ciphertext;
+        iv = encrypted.iv;
+      }
+    }
+  }
+
+  const { error } = await sb
+    .from('messages')
+    .update({ ciphertext, iv, edited: true })
+    .eq('id', messageId);
+
+  if (error) throw error;
+
+  return { ciphertext, iv };
+}
+
+/* ── Удаление сообщения ── */
+export async function deleteMessage(messageId) {
+  const { error } = await sb
+    .from('messages')
+    .update({ deleted: true })
+    .eq('id', messageId);
+
+  if (error) throw error;
+}
+
+/* ── Добавление реакции ── */
+export async function addReaction(messageId, emoji) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await sb
+    .from('reactions')
+    .insert({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    });
+
+  if (error) throw error;
+}
+
+/* ── Удаление реакции ── */
+export async function removeReaction(messageId, emoji) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await sb
+    .from('reactions')
+    .delete()
+    .match({
+      message_id: messageId,
+      user_id: user.id,
+      emoji,
+    });
+
+  if (error) throw error;
+}
+
+/* ── Realtime-подписка на сообщения чата с дешифрованием ── */
+export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicKeyJwk = null) {
+  if (!sb) return { unsubscribe: () => {} };
+
+  const channel = sb
+    .channel(`chat:${chatId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${chatId}`,
+      },
+      async (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const m = payload.new;
+          let text = m.ciphertext;
+          let decryptFailed = false;
+
+          // Дешифруем если есть ключи
+          if (isV2Row(m)) {
+            const v2 = await decryptV2Row(m);
+            if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
+            else text = v2.text;
+          } else if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
+            try {
+              const keyPair = await getKeyPair();
+              const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
+              if (keyPair && theirPubKey) {
+                text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+              }
+            } catch (err) {
+              console.error('Decrypt error:', err);
+              text = '';
+              decryptFailed = true;
+            }
+          } else if (m.iv && chatKind === 'group') {
+            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
+            if (plain === null) { text = ''; decryptFailed = true; }
+            else text = plain;
+          }
+
+          const message = applySpecial({
+            id: m.id,
+            chatId: m.conversation_id,
+            sender: m.sender_id === S.me?.id ? 'u_me' : m.sender_id,
+            ts: isV2Row(m) ? Number(m.envelope?.ts) || Date.now() : new Date(m.created_at).getTime(),
+            type: 'text',
+            text,
+            reactions: [],
+            status: 'sent',
+            replyTo: m.reply_to ? { id: m.reply_to } : null,
+            edited: m.edited,
+            deleted: m.deleted,
+          });
+          if (decryptFailed) message.decryptFailed = true;
+          if (isV2Row(m)) message.cryptoVersion = 2;
+          await idb.put('messages', message);
+          callbacks.onMessage?.(message);
+        } else if (payload.eventType === 'UPDATE') {
+          const m = payload.new;
+          let text = m.ciphertext;
+          let decryptFailed = false;
+
+          // Дешифруем редактирование
+          if (isV2Row(m)) {
+            if (!m.deleted) {
+              const v2 = await decryptV2Row(m);
+              if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
+              else text = v2.text;
+            } else {
+              text = '';
+            }
+          } else if (SUPABASE.url && SUPABASE.anonKey && m.iv && chatKind === 'dm') {
+            try {
+              const keyPair = await getKeyPair();
+              const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
+              if (keyPair && theirPubKey) {
+                text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+              }
+            } catch (err) {
+              console.error('Decrypt error:', err);
+              text = '';
+              decryptFailed = true;
+            }
+          } else if (m.iv && chatKind === 'group') {
+            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
+            if (plain !== null) text = plain;
+            else { text = ''; decryptFailed = true; }
+          }
+
+          if (callbacks.onEdit) {
+            callbacks.onEdit(m.id, {
+              text,
+              edited: m.edited,
+              deleted: m.deleted,
+              decryptFailed,
+            });
+          }
+        } else if (payload.eventType === 'DELETE') {
+          if (callbacks.onDelete) {
+            callbacks.onDelete(payload.old.id);
+          }
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'reactions',
+      },
+      async (payload) => {
+        if (callbacks.onReaction) {
+          callbacks.onReaction(payload);
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log('Realtime status:', status);
+      try { callbacks.onStatus?.(status); } catch (e) { /* не критично */ }
+    });
+
+  return {
+    unsubscribe: () => {
+      sb.removeChannel(channel);
+    },
+  };
+}
+
+/* ── Realtime-подписка на все сообщения пользователя (RLS фильтрует) ── */
+export function subscribeAllMessages(onInsert) {
+  if (!sb) return { unsubscribe: () => {} };
+
+  const channel = sb
+    .channel('all-messages')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'messages' },
+      (payload) => { onInsert?.(payload.new); }
+    )
+    .subscribe();
+
+  return { unsubscribe: () => { sb.removeChannel(channel); } };
+}
+
+/* Текст для превью входящего сообщения (с расшифровкой, если возможно) */
+export async function previewTextFor(row, chat) {
+  if (isV2Row(row)) {
+    if (row.sender_id === S.me?.id) {
+      const cached = await idb.get('messages', row.id);
+      if (cached) return previewOfText(cached.wire || cached.text || '');
+    }
+    const v2 = await decryptV2Row(row);
+    return v2 && !v2.failed ? previewOfText(v2.text) : '…';
+  }
+  if (!row.iv) return previewOfText(row.ciphertext || '…');
+  try {
+    if (chat && chat.kind === 'group') {
+      const plain = await decryptGroupText(chat.id, row.iv, row.ciphertext);
+      if (plain !== null) return previewOfText(plain);
+    } else if (chat && chat.publicKey) {
+      const keyPair = await getKeyPair();
+      if (keyPair) {
+        const theirPubKey = await getTheirPublicKey(chat.publicKey);
+        const text = await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey);
+        return previewOfText(text);
+      }
+    }
+  } catch (err) {
+    /* не смогли расшифровать — покажем заглушку */
+  }
+  return '…';
+}
+
+/* ── Realtime-подписка на presence (онлайн-статус) ── */
+export function subscribeToPresence(callbacks) {
+  if (!sb) return { unsubscribe: () => {} };
+
+  const channel = sb
+    .channel('presence')
+    .on('presence', { event: 'sync' }, () => {
+      callbacks.onSync?.();
+    })
+    .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+      callbacks.onJoin?.(key, newPresences);
+    })
+    .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+      callbacks.onLeave?.(key, leftPresences);
+    })
+    .subscribe((status) => {
+      console.log('Presence status:', status);
+    });
+
+  return {
+    unsubscribe: () => {
+      sb.removeChannel(channel);
+    },
+  };
+}
+
+/* ── Обновление read receipt ── */
+export async function updateReadReceipt(chatId) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return;
+
+  const { error } = await sb
+    .from('read_receipts')
+    .upsert({
+      conversation_id: chatId,
+      user_id: user.id,
+      last_read_at: new Date().toISOString(),
+    });
+
+  if (error) console.error('Read receipt error:', error);
+}

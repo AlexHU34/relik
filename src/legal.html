@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Relik — условия и конфиденциальность</title>
+<link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<style>
+  body{background:var(--bg);color:var(--tx);font-family:var(--font);margin:0;line-height:1.6}
+  .doc-wrap{max-width:760px;margin:0 auto;padding:28px 20px 80px}
+  .doc-top{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .doc-top img{width:34px;height:34px;border-radius:10px}
+  .doc-top b{font-size:17px;font-weight:800;letter-spacing:-.02em}
+  .doc-top .sp{flex:1}
+  .doc-top a,.doc-top button{
+    font-size:12px;color:var(--tx-2);text-decoration:none;background:transparent;
+    border:1px solid var(--line-2);border-radius:999px;padding:6px 12px;cursor:pointer;font-family:inherit;
+  }
+  .doc-top a:hover,.doc-top button:hover{background:var(--surface-3);color:var(--tx)}
+  h1{font-size:26px;line-height:1.25;margin:8px 0 6px;letter-spacing:-.02em}
+  h2{font-size:16px;margin:26px 0 8px;letter-spacing:-.01em}
+  p,li{font-size:14px;color:var(--tx-2)}
+  strong{color:var(--tx)}
+  .meta{font-size:12px;color:var(--tx-3);margin-bottom:18px}
+  .card{background:var(--surface-2);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin:14px 0}
+  .card p{margin:6px 0}
+  ul{padding-left:20px;margin:8px 0}
+  li{margin:5px 0}
+  code{font-size:12px;background:var(--surface-3);border-radius:6px;padding:1px 5px;color:var(--tx)}
+  .warn{border-color:var(--line-2);background:transparent}
+  .doc-foot{margin-top:34px;font-size:12px;color:var(--tx-3);border-top:1px solid var(--line);padding-top:14px}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="doc-wrap">
+
+  <div class="doc-top">
+    <img src="assets/icons/icon-192.png" alt="">
+    <b>Relik</b>
+    <span class="sp"></span>
+    <button type="button" id="langBtn">EN</button>
+    <a href="./" id="backLink">← В приложение</a>
+  </div>
+
+  <!-- ══════════ РУССКИЙ ══════════ -->
+  <div id="doc-ru">
+    <h1>Условия использования и обработка данных</h1>
+    <div class="meta">Редакция от 25 октября 2026 года. Применяется к приложению Relik по адресу alexhu34.github.io/relik.</div>
+
+    <div class="card">
+      <p><strong>Коротко.</strong> Relik — небольшой независимый проект для приватной переписки. Он предоставляется «как есть», без гарантий и без обещания бесперебойной работы. Тексты сообщений шифруются на устройстве и на сервере хранятся в зашифрованном виде. Служебные данные (кто, когда и с кем переписывался, email при регистрации) серверу видны — это честно описано ниже.</p>
+    </div>
+
+    <h2>1. Кто мы и что это за сервис</h2>
+    <p>Relik — некоммерческий учебный/исследовательский проект. Это не компания, не оператор связи и не публичный сервис с поддержкой 24/7. Проект существует, чтобы показать работу сквозного шифрования в браузере (Web Crypto API) и на бесплатном бэкенде (Supabase). Доступ к регистрации ограничен инвайт-кодом.</p>
+
+    <h2>2. Какие данные обрабатываются</h2>
+    <p><strong>Вы передаёте при регистрации:</strong> адрес электронной почты и пароль. Пароль хранится в виде криптографического хеша на стороне Supabase Auth; в открытом виде он не сохраняется и нам не известен.</p>
+    <p><strong>Вы заполняете в профиле:</strong> отображаемое имя, @username, цвет аватара, изображение аватара (если загрузили), публичный ключ шифрования.</p>
+    <p><strong>Сервер видит служебные данные (метаданные):</strong></p>
+    <ul>
+      <li>кто, когда и в каком чате отправил сообщение;</li>
+      <li>размер сообщения и тип вложения;</li>
+      <li>участников чатов и групп;</li>
+      <li>время последней активности («был(а) в сети»);</li>
+      <li>IP-адрес и технические журналы — их обрабатывает Supabase как хостинг-провайдер.</li>
+    </ul>
+    <p><strong>Сервер не видит:</strong> текст сообщений, содержимое фото, видео, файлов и голосовых — они шифруются на устройстве отправителя и расшифровываются только на устройствах участников чата.</p>
+
+    <h2>3. Чего защита не делает</h2>
+    <div class="card warn">
+      <p>Мы не обещаем «полной анонимности». Важно понимать ограничения:</p>
+      <ul>
+        <li>метаданные (кто, когда, с кем) не шифруются;</li>
+        <li>нет совершенной прямой секретности (PFS): при компрометации долговременного ключа старая переписка теоретически может быть расшифрована;</li>
+        <li>PIN-код в приложении — это только блокировка экрана, он не шифрует данные;</li>
+        <li>ключ шифрования хранится на устройстве; при потере устройства и отсутствии резервной копии переписка не восстановится.</li>
+      </ul>
+      <p>Подробное и технически точное описание — в файле <code>CRYPTO.md</code> репозитория.</p>
+    </div>
+
+    <h2>4. Для чего запрещено использовать</h2>
+    <p>Сервис нельзя использовать для:</p>
+    <ul>
+      <li>распространения материалов, запрещённых законом;</li>
+      <li>угроз, преследования, шантажа, мошенничества;</li>
+      <li>координации действий, нарушающих законодательство;</li>
+      <li>рассылки спама и массовых сообщений незнакомым людям;</li>
+      <li>нарушения прав третьих лиц, включая авторские права.</li>
+    </ul>
+    <p>При получении обоснованной жалобы доступ может быть ограничен без предварительного уведомления. Технически администратор не может прочитать зашифрованные сообщения, но может удалить учётную запись и служебные записи.</p>
+
+    <h2>4.1. Жалобы: категории и сроки</h2>
+    <p>Жалоба отправляется из меню сообщения («Пожаловаться») и содержит только метаданные: кто, на какое сообщение и когда. Выберите категорию: спам, мошенничество, угрозы, незаконный контент, другое.</p>
+    <p><strong>Срок реакции — до 72 часов.</strong> Возможные решения: оставить без изменений, предупредить, ограничить доступ (бан на срок или навсегда), удалить сообщение. Содержание переписки модератору недоступно — решения принимаются по метаданным и повторным жалобам, поэтому в спорных случаях мы можем запросить контекст у заявителя.</p>
+    <p>Злоупотребление жалобами (массовые необоснованные обращения) также может привести к ограничению доступа.</p>
+
+    <h2>5. Ваши данные и их удаление</h2>
+    <p>Вы можете в любой момент удалить учётную запись самостоятельно: <strong>Настройки → Удалить аккаунт</strong>. Вместе с учётной записью удаляются профиль, членство в чатах, ваши сообщения, реакции, настройки и заявки в контакты. Действие необратимо.</p>
+    <p>Чаты, где вы были единственным участником, становятся недоступны. История переписки у собеседников может сохраниться в их локальном кэше — это особенность сквозного шифрования. Зашифрованные файлы (фото, видео, голосовые) могут оставаться в хранилище как «осиротевшие» объекты до ручной очистки.</p>
+
+    <h2>6. Где хранятся данные</h2>
+    <p>Данные хранятся в облачном сервисе Supabase (за пределами Российской Федерации) и в локальном хранилище браузера (IndexedDB) на вашем устройстве. Серверная часть работает на бесплатном тарифе и может быть недоступна или очищена провайдером.</p>
+
+    <h2>7. Отказ от гарантий и ответственности</h2>
+    <p>Приложение предоставляется на условиях «как есть» (as is) и «как доступно» (as available), без каких-либо явных или подразумеваемых гарантий, включая гарантии пригодности для конкретных целей, сохранности данных и бесперебойной работы.</p>
+    <p>Автор проекта не несёт ответственности за: утрату данных, прямой или косвенный ущерб, упущенную выгоду, последствия использования приложения третьими лицами, а также за действия пользователей, нарушающие законодательство. Ответственность за соблюдение местных законов при использовании приложения лежит на пользователе.</p>
+
+    <h2>8. Соответствие требованиям законодательства</h2>
+    <p>Проект небольшой, но мы не делаем вид, что закон нас не касается. Что учтено:</p>
+    <ul>
+      <li><strong>Политика обработки ПД опубликована</strong> (эта страница) — требование ч. 2 ст. 18.1 152-ФЗ. Отсутствие такой страницы — штраф по ч. 3 ст. 13.11 КоАП: для гражданина 1 500–3 000 ₽.</li>
+      <li><strong>Согласие на обработку</strong> запрашивается при регистрации отдельной галочкой (ст. 9 152-ФЗ).</li>
+      <li><strong>Удаление данных</strong> доступно по кнопке (ст. 21 152-ФЗ) — без писем и ожидания.</li>
+      <li><strong>Минимизация:</strong> мы не спрашиваем телефон, адрес, паспорт, дату рождения; не используем аналитику и сторонние трекеры.</li>
+      <li><strong>Шифрование содержимого</strong> снижает последствия возможной утечки: сервер хранит только шифротекст.</li>
+    </ul>
+    <p><strong>Что важно знать про локализацию.</strong> Ч. 5 ст. 18 152-ФЗ требует, чтобы запись, систематизация, накопление, хранение и извлечение персональных данных граждан РФ выполнялись с использованием баз данных на территории РФ. Сейчас серверная часть расположена в Supabase за пределами РФ: для семейного проекта по инвайтам это осознанное ограничение, но <em>при публичном запуске в РФ базу потребуется перенести</em>. Штраф по ч. 8 ст. 13.11 КоАП для гражданина — 30 000–50 000 ₽.</p>
+    <p><strong>Уведомление Роскомнадзора.</strong> По ст. 22 152-ФЗ оператор обязан уведомить РКН о намерении обрабатывать персональные данные (реестр операторов: <code>pd.rkn.gov.ru</code>). Штраф за неуведомление по ч. 10 ст. 13.11 КоАП для гражданина — 5 000–10 000 ₽. Это действие выполняет владелец проекта, а не приложение.</p>
+    <p><strong>Организатор распространения информации.</strong> По ст. 10.1 149-ФЗ сервис обмена сообщениями может быть отнесён к ОРИ с обязанностью хранить метаданные и предоставлять уполномоченным органам возможность декодирования сообщений. При сквозном шифровании последнее технически невыполнимо; практическое последствие для такого сервиса — предписание или блокировка, а не ответственность пользователей. Проект не позиционируется как публичный сервис и работает по инвайт-кодам.</p>
+    <p>Мы не обещаем «неприкосновенности»: ни один текст на сайте не отменяет закон. Задача документов — честно описать правила и снизить риск претензий к добросовестному разработчику.</p>
+
+    <h2>9. Изменения</h2>
+    <p>Условия могут меняться. Актуальная редакция всегда доступна по этому адресу; дата редакции указана в начале страницы. Продолжение использования после изменений означает согласие с новой редакцией.</p>
+
+    <h2>10. Связь</h2>
+    <p>Вопросы по данным и работе сервиса: <strong>RelikSupp@ya.ru</strong>, через раздел «Настройки» в приложении или через issues в репозитории проекта на GitHub. Жалобы на нарушения — в течение 72 часов (см. раздел 4.1).</p>
+
+    <div class="doc-foot">Relik — независимый некоммерческий проект. Документ не является юридической консультацией и не заменяет консультацию юриста.</div>
+  </div>
+
+  <!-- ══════════ ENGLISH ══════════ -->
+  <div id="doc-en" hidden>
+    <h1>Terms of use and data processing</h1>
+    <div class="meta">Revision dated 25 October 2026. Applies to Relik at alexhu34.github.io/relik.</div>
+
+    <div class="card">
+      <p><strong>In short.</strong> Relik is a small independent project for private messaging. It is provided “as is”, with no warranties and no promise of uninterrupted operation. Message contents are encrypted on the device and stored encrypted on the server. Service data (who talked to whom and when, plus the email used at sign-up) is visible to the server — described honestly below.</p>
+    </div>
+
+    <h2>1. What this service is</h2>
+    <p>Relik is a non-commercial educational/research project. It is not a company, not a telecom operator and not a public service with 24/7 support. It exists to demonstrate end-to-end encryption in the browser (Web Crypto API) on a free backend (Supabase). Sign-up is limited by an invite code.</p>
+
+    <h2>2. Data we process</h2>
+    <p><strong>Provided at sign-up:</strong> an email address and a password. The password is stored as a cryptographic hash by Supabase Auth; it is never stored or known in plain text.</p>
+    <p><strong>Provided in the profile:</strong> display name, @username, avatar colour, avatar image (if uploaded), public encryption key.</p>
+    <p><strong>The server can see metadata:</strong> who sent a message, when and in which chat; message size and attachment type; chat and group membership; last activity time; IP address and technical logs processed by Supabase as the hosting provider.</p>
+    <p><strong>The server cannot see:</strong> message text, images, video, files and voice notes — these are encrypted on the sender’s device and decrypted only on participants’ devices.</p>
+
+    <h2>3. Limits of the protection</h2>
+    <div class="card warn">
+      <ul>
+        <li>metadata (who, when, with whom) is not encrypted;</li>
+        <li>there is no perfect forward secrecy: a compromised long-term key could theoretically expose older messages;</li>
+        <li>the in-app PIN is a screen lock only, it does not encrypt data;</li>
+        <li>the encryption key lives on the device; without a backup, a lost device means lost history.</li>
+      </ul>
+      <p>See <code>CRYPTO.md</code> in the repository for the precise technical description.</p>
+    </div>
+
+    <h2>4. Prohibited use</h2>
+    <p>You may not use the service for unlawful content, threats, harassment, extortion, fraud, coordinating illegal activity, spam or mass messaging of strangers, or infringing third-party rights. On a substantiated complaint, access may be restricted without prior notice. Technically the administrator cannot read encrypted messages, but can delete an account and service records.</p>
+
+    <h2>4.1 Reports: categories and response time</h2>
+    <p>A report is sent from the message menu and contains metadata only: who reported what message and when. Choose a category: spam, fraud, threats, illegal content, other.</p>
+    <p><strong>Response time — within 72 hours.</strong> Possible outcomes: no action, a warning, restricted access (temporary or permanent ban), message removal. Moderators cannot read message content, so decisions rely on metadata and repeated reports; in disputed cases we may ask the reporter for context.</p>
+    <p>Abusing reports (mass unfounded complaints) may also lead to restricted access.</p>
+
+    <h2>5. Your data and deletion</h2>
+    <p>You can delete your account yourself at any time: <strong>Settings → Delete account</strong>. This removes the profile, chat memberships, your messages, reactions, settings and contact requests. The action is irreversible. Chats where you were the only member become unavailable. Copies may remain in other participants’ local caches — a property of end-to-end encryption. Encrypted files (photos, video, voice) may remain in storage as orphaned objects until manual cleanup.</p>
+
+    <h2>6. Where data is stored</h2>
+    <p>Data is stored in the Supabase cloud (outside the Russian Federation) and in your browser’s local storage (IndexedDB) on your device. The backend runs on a free tier and may be unavailable or wiped by the provider.</p>
+
+    <h2>7. No warranty, limitation of liability</h2>
+    <p>The app is provided “as is” and “as available”, without any express or implied warranties, including fitness for a particular purpose, data preservation or uninterrupted operation. The author is not liable for data loss, direct or indirect damages, lost profits, consequences of third-party use, or for users’ unlawful actions. Users are responsible for complying with their local laws.</p>
+
+    <h2>8. Legal compliance (Russia)</h2>
+    <p>What is covered: this policy page is published (art. 18.1(2) of 152-FZ; missing policy is an administrative fine of RUB 1,500–3,000 for an individual under art. 13.11(3) of the Administrative Code); consent to personal data processing is a separate checkbox at sign-up (art. 9); data can be deleted in one click (art. 21); data collection is minimised (no phone, address, birth date, analytics or third-party trackers); message content is encrypted, so a server breach exposes ciphertext only.</p>
+    <p><strong>Data localisation.</strong> Art. 18(5) of 152-FZ requires recording, systematisation and storage of Russian citizens’ personal data in databases located in Russia. The backend currently runs on Supabase outside Russia: an accepted limitation for a family-scale invite-only project, but a public launch in Russia would require moving the database. The administrative fine under art. 13.11(8) is RUB 30,000–50,000 for an individual.</p>
+    <p><strong>Roskomnadzor notification.</strong> Under art. 22 of 152-FZ an operator must notify the regulator before processing personal data (operator registry at <code>pd.rkn.gov.ru</code>). Failure to notify carries a fine of RUB 5,000–10,000 for an individual (art. 13.11(10)). This is an action for the project owner, not something the app can do.</p>
+    <p><strong>Organiser of information dissemination.</strong> Under art. 10.1 of 149-FZ a messaging service may be classified as an ORI with obligations to retain metadata and to give authorities the ability to decode messages. With end-to-end encryption the latter is technically impossible; the practical consequence is an order or blocking, not liability for users. The project is not positioned as a public service and requires an invite code.</p>
+
+    <h2>9. Changes</h2>
+    <p>These terms may change. The current revision is always available at this address; the revision date is shown at the top. Continued use after changes means acceptance of the new revision.</p>
+
+    <h2>10. Contact</h2>
+    <p>Questions about data and the service: <strong>RelikSupp@ya.ru</strong>, via “Settings” in the app, or via issues in the project repository on GitHub. Abuse reports are handled within 72 hours (see 4.1).</p>
+
+    <div class="doc-foot">Relik is an independent non-commercial project. This document is not legal advice and does not replace consulting a lawyer.</div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('langBtn');
+  var ru = document.getElementById('doc-ru');
+  var en = document.getElementById('doc-en');
+  var back = document.getElementById('backLink');
+  var saved = 'ru';
+  try { saved = localStorage.getItem('relik.lang') === 'en' ? 'en' : 'ru'; } catch (e) {}
+
+  function apply(l) {
+    var isEn = l === 'en';
+    ru.hidden = isEn;
+    en.hidden = !isEn;
+    document.documentElement.lang = isEn ? 'en' : 'ru';
+    btn.textContent = isEn ? 'RU' : 'EN';
+    back.textContent = isEn ? '← Back to app' : '← В приложение';
+    try { localStorage.setItem('relik.lang', isEn ? 'en' : 'ru'); } catch (e) {}
+  }
+
+  btn.addEventListener('click', function () {
+    apply(document.documentElement.lang === 'en' ? 'ru' : 'en');
+  });
+  apply(saved);
+})();
+</script>
+</body>
+</html>
