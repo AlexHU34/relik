@@ -82,7 +82,14 @@ export function initChatView() {
     if (el.classList.contains('tools-open') || el.classList.contains('react-open')) return;
     el.querySelectorAll(':scope > .bubble > .tools').forEach((t) => t.remove());
   });
-  els.msgs.addEventListener('scroll', updateToBottom, { passive: true });
+  let earlierTimer = 0;
+  els.msgs.addEventListener('scroll', () => {
+    updateToBottom();
+    /* У верхней кромки тихо догружаем предыдущую страницу — как в мессенджерах. */
+    if (els.msgs.scrollTop > 80 || earlierTimer) return;
+    earlierTimer = setTimeout(() => { earlierTimer = 0; }, 600);
+    els.msgs.querySelector('[data-load-earlier]')?.click();
+  }, { passive: true });
   els.toBottom.addEventListener('click', () => scrollBottom(false));
   $('#selClose').innerHTML = icon('x', 16);
   $('#selClose').title = t('common.close');

@@ -1,7 +1,7 @@
 {
-  "version": "1.28.0",
+  "version": "1.29.0",
   "released": "2026-10-30",
-  "notes": "1.28.0: сборка на Vite (минификация, хеши, code-split), ESLint + проверка типов, проверка dist перед деплоем, исправлены пустой список чатов в демо и дубль ключа msg.forwarded.",
+  "notes": "1.29.0: окно ленты 120 вместо 240 и автодогрузка при скролле вверх, единая политика ретраев outbox (потолок 24 ч), crypto v2 умеет адресовать сообщение всем устройствам, миграции БД и schema_version.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }
