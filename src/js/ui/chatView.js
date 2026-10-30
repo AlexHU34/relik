@@ -1,13 +1,12 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
-/* global qrcode */
 import { S, user, chatTitle, chatById, bus } from './state.js';
-import { $, esc, fmtTime, fmtDay, fmtDur, fmtSize, avatarHtml, snippet, safeImgSrc } from './utils.js';
-import { syncExpanded, setLabel } from './a11y.js';
+import { $, esc, fmtDay, avatarHtml, snippet } from './utils.js';
+import { syncExpanded } from './a11y.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
-import { idb, newId } from '../db/idb.js';
-import { EMOJI_QUICK, SUPABASE } from '../config.js';
-import { openLightbox, openGroupManager } from './modals.js';
+import { idb } from '../db/idb.js';
+import { SUPABASE } from '../config.js';
+import { openLightbox } from './modals.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
@@ -18,17 +17,12 @@ import { initTyping, stopTyping } from '../backend/presence.js';
 import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs, getChatTtl, getChatTtlSince, setChatTtl } from './prefs.js';
-import { formatText, isEmojiOnly, safeMediaSrc } from './richText.js';
-import { loadMessages, loadMessagesPage, loadOlderMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend, sendMessage, encodeMedia } from '../backend/messages.js';
-import { hydrateMessagesMedia, hydrateMessageMedia, rememberMediaPreview } from '../backend/storage.js';
+import { safeMediaSrc } from './richText.js';
+import { loadMessagesPage, loadOlderMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend } from '../backend/messages.js';
+import { hydrateMessagesMedia, hydrateMessageMedia } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 import { ensureDmMember } from '../backend/chats.js';
-import { isBlocked, blockUser, unblockUser } from '../backend/blocks.js';
-import { confirmAction } from './dialog.js';
-import { sb } from '../backend/supabaseClient.js';
-import { logEvent, markTiming } from '../backend/telemetry.js';
-import { notifyPush } from '../backend/push.js';
-import { fingerprintForPair } from '../crypto/fingerprint.js';
+import { markTiming } from '../backend/telemetry.js';
 
 import { openRecoveryFlow } from './keyRecovery.js';
 import { PAGE_SIZE, mergeMessages, windowOf, oldestTs } from './msgWindow.js';
@@ -57,6 +51,29 @@ bindReadHooks({
 });
 export { refreshMessageStatus };
 
+bindForwardHooks({ deliverMessage, renderMessages });
+
+import {
+  openChatProfile, toggleProfileQr, copyProfileFingerprint,
+  warnPeerKeyChange, reportMessage, acceptFingerprint,
+} from './chat/profile.js';
+import {
+  openForward, openForwardMany, forwardToMany, toggleForwardTarget, bindForwardHooks,
+} from './chat/forward.js';
+import {
+  msgHtml, tallyReactions, ticksHtml, metaHtml, toolsHtml, rxPickHtml, votePollOption,
+  refreshMessageReactions, refreshPollCard, bindRenderView, bindRenderHooks,
+} from './chat/render.js';
+
+bindRenderView(() => ({ searchIndex, selectMode, selectedMsgs, toolsOpen }));
+bindRenderHooks({
+  getEls: () => els,
+  votePoll: (m, i) => votePoll(m, i),
+  byId: (id) => byId(id),
+  escapeId: (id) => nonzeroEscape(id),
+});
+export { refreshMessageReactions, refreshPollCard };
+
 let els = {};
 const playing = new Map(); // msgId -> {timer, i, bars}
 let loadingOlder = false;
@@ -66,8 +83,6 @@ let searchIndex = 0;
 let searchInputTimer = 0;
 let lastSearchQuery = '';
 let unseenCount = 0;
-let forwardMsgs = [];
-let forwardTargets = new Set();
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
@@ -78,9 +93,6 @@ const selectedMsgs = new Set(); // id выбранных сообщений
 let autoScrolling = false;
 let showLocked = false;         // показывать недоступные (нерасшифрованные) сообщения
 let groupMigrationWarned = false;
-const FP_KEY = 'relik.fp.v1';
-let profileFp = null;          // { chatId, peerId, fullHex, display, changed }
-const fpWarned = new Set();    // чтобы не повторять тост при каждом открытии
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
@@ -153,16 +165,7 @@ export function initChatView() {
   $('#fpCopy') && ($('#fpCopy').innerHTML = icon('copy', 16));
   $('#fpCopy')?.addEventListener('click', copyProfileFingerprint);
   $('#fpCode')?.addEventListener('click', copyProfileFingerprint);
-  $('#fpAccept')?.addEventListener('click', () => {
-    if (!profileFp) return;
-    saveFpSeen(profileFp.peerId, profileFp.fullHex);
-    profileFp.changed = false;
-    const warn = $('#fpWarn');
-    if (warn) warn.hidden = true;
-    const accept = $('#fpAccept');
-    if (accept) accept.hidden = true;
-    toast(t('fp.accepted'), { type: 'success' });
-  });
+  $('#fpAccept')?.addEventListener('click', () => acceptFingerprint());
   $('#fpQrBtn')?.addEventListener('click', toggleProfileQr);
   $('#ttlSeg')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-ttl]');
@@ -266,11 +269,8 @@ export function initChatView() {
   $('#fwdList').addEventListener('click', (e) => {
     const item = e.target.closest('[data-fwd-cid]');
     if (!item) return;
-    const cid = item.dataset.fwdCid;
-    if (forwardTargets.has(cid)) forwardTargets.delete(cid);
-    else forwardTargets.add(cid);
-    item.classList.toggle('on', forwardTargets.has(cid));
-    paintForwardCount();
+    const on = toggleForwardTarget(item.dataset.fwdCid);
+    item.classList.toggle('on', on);
   });
   $('#fwdGo').addEventListener('click', () => forwardToMany());
 
@@ -1073,326 +1073,6 @@ export function showChat() {
   if (has) { renderHeader(); renderMessages(); }
 }
 
-/* ── код безопасности (fingerprint) ───────────────────────── */
-function loadFpSeen() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(FP_KEY) || '{}');
-    return raw && typeof raw === 'object' ? raw : {};
-  } catch (e) {
-    return {};
-  }
-}
-
-function saveFpSeen(peerId, fullHex) {
-  if (!peerId || !fullHex) return;
-  try {
-    const all = loadFpSeen();
-    all[peerId] = fullHex;
-    localStorage.setItem(FP_KEY, JSON.stringify(all));
-  } catch (e) { /* приватный режим */ }
-}
-
-async function peerFingerprint(chat) {
-  if (!chat || chat.kind !== 'dm' || !chat.userId) return null;
-  if (!S.me?.id || !S.me?.publicKey || !chat.publicKey) return null;
-  try {
-    const fp = await fingerprintForPair(S.me.id, S.me.publicKey, chat.userId, chat.publicKey);
-    const seen = loadFpSeen();
-    const previous = seen[chat.userId] || '';
-    return { ...fp, peerId: chat.userId, changed: !!previous && previous !== fp.fullHex };
-  } catch (err) {
-    return null;
-  }
-}
-
-async function renderProfileFingerprint(chat) {
-  const block = $('#profileFp');
-  if (!block) return;
-  profileFp = null;
-  block.hidden = true;
-  const qrBox = $('#fpQr');
-  if (qrBox) { qrBox.hidden = true; qrBox.innerHTML = ''; }
-  const qrBtn = $('#fpQrBtn');
-  if (qrBtn) qrBtn.textContent = t('fp.qr');
-  const fp = await peerFingerprint(chat);
-  if (!fp || S.active !== chat.id) return;
-
-  profileFp = { chatId: chat.id, ...fp };
-  block.hidden = false;
-  const code = $('#fpCode');
-  if (code) {
-    code.textContent = fp.display;
-    code.title = t('fp.copy');
-  }
-  const warn = $('#fpWarn');
-  if (warn) warn.hidden = !fp.changed;
-  const accept = $('#fpAccept');
-  if (accept) accept.hidden = !fp.changed;
-  if (!loadFpSeen()[chat.userId]) saveFpSeen(chat.userId, fp.fullHex);
-}
-
-async function warnPeerKeyChange(chat) {
-  const fp = await peerFingerprint(chat);
-  if (!fp || S.active !== chat.id) return;
-  if (!loadFpSeen()[chat.userId]) {
-    saveFpSeen(chat.userId, fp.fullHex);
-    return;
-  }
-  if (fp.changed) {
-    if (fpWarned.has(chat.id)) return;
-    fpWarned.add(chat.id);
-    toast(t('fp.changedToast'), {
-      type: 'warn',
-      duration: 0,
-      action: {
-        label: t('fp.check'),
-        onClick: () => {
-          if (chatById(chat.id)) {
-            S.active = chat.id;
-            location.hash = `#/chat/${chat.id}`;
-            openChatProfile();
-          }
-        },
-      },
-    });
-  }
-}
-
-function copyProfileFingerprint() {
-  if (!profileFp?.display) return;
-  const text = profileFp.display;
-  const done = () => toast(t('fp.copied'), { type: 'success' });
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(() => toast(text));
-  } else {
-    toast(text);
-  }
-}
-
-/* qrcode.js — 55 КБ, нужен только для QR в карточке безопасности.
-   Грузим по требованию: при первом запуске эти килобайты не конкурируют
-   с модулями приложения (важно на мобильном интернете). Файл остаётся
-   в ASSETS service worker, поэтому офлайн-режим не страдает. */
-let qrLibPromise = null;
-
-function loadQrLib() {
-  if (typeof qrcode === 'function') return Promise.resolve(true);
-  if (qrLibPromise) return qrLibPromise;
-  qrLibPromise = new Promise((resolve) => {
-    const s = document.createElement('script');
-    s.src = new URL('js/vendor/qrcode.js', document.baseURI).href;
-    s.onload = () => resolve(typeof qrcode === 'function');
-    s.onerror = () => { qrLibPromise = null; resolve(false); };
-    document.head.appendChild(s);
-  });
-  return qrLibPromise;
-}
-
-async function toggleProfileQr() {
-  const box = $('#fpQr');
-  const btn = $('#fpQrBtn');
-  if (!box || !profileFp) return;
-  if (!box.hidden) {
-    box.hidden = true;
-    box.innerHTML = '';
-    if (btn) btn.textContent = t('fp.qr');
-    syncExpanded();
-    return;
-  }
-  const ready = await loadQrLib();
-  if (!ready) {
-    toast(t('fp.qrError'), { type: 'error' });
-    return;
-  }
-  if (!box.hidden) return; // пока грузили, окно уже открыли
-  try {
-    const qr = qrcode(0, 'M');
-    qr.addData(profileFp.fullHex);
-    qr.make();
-    box.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1 });
-    box.hidden = false;
-    if (btn) btn.textContent = t('fp.qrHide');
-    setLabel('fpQrBtn', 'fp.qrHide');
-    syncExpanded();
-  } catch (err) {
-    console.warn('QR error:', err);
-    toast(t('fp.qrError'), { type: 'error' });
-  }
-}
-
-
-/* ── жалоба на сообщение ───────────────────────────────────── */
-const REPORT_REASONS = [
-  { code: 'spam', key: 'report.r.spam' },
-  { code: 'scam', key: 'report.r.scam' },
-  { code: 'threat', key: 'report.r.threat' },
-  { code: 'illegal', key: 'report.r.illegal' },
-  { code: 'other', key: 'report.r.other' },
-];
-
-function pickReportReason() {
-  return new Promise((resolve) => {
-    const ov = document.createElement('div');
-    ov.className = 'overlay';
-    ov.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true">
-        <header class="m-head">
-          <h3>${esc(t('report.title'))}</h3>
-          <button class="icon-btn" data-close type="button" aria-label="${esc(t('common.close'))}"></button>
-        </header>
-        <div class="m-body">
-          <p class="field-hint">${esc(t('report.pick'))}</p>
-          <div class="report-reasons">
-            ${REPORT_REASONS.map((r) => `<button class="contact" type="button" data-reason="${r.code}">
-              <span class="info"><span class="n">${esc(t(r.key))}</span></span>
-            </button>`).join('')}
-          </div>
-          <p class="field-hint">${esc(t('report.text'))}</p>
-        </div>
-      </div>`;
-    const done = (value) => { ov.remove(); resolve(value); };
-    ov.addEventListener('click', (e) => {
-      if (e.target.closest('[data-close]') || e.target === ov) return done(null);
-      const b = e.target.closest('[data-reason]');
-      if (b) done(b.dataset.reason);
-    });
-    document.body.appendChild(ov);
-  });
-}
-
-async function reportMessage(m) {
-  const chat = chatById(S.active);
-  if (!chat || !m) return;
-  const reason = await pickReportReason();
-  if (!reason) return;
-  try {
-    const { error } = await sb.from('reports').insert({
-      chat_id: chat.id,
-      message_id: m.id,
-      reporter_id: S.me.id,
-      sender_id: m.sender === 'u_me' ? S.me.id : m.sender,
-      message_ts: new Date(m.ts).toISOString(),
-      reason: 'user_report:' + reason,
-    });
-    if (error) throw error;
-    toast(t('report.sent'), { type: 'success' });
-    logEvent('report_sent', { chat: chat.kind });
-  } catch (err) {
-    const msg = String(err?.message || '');
-    toast(/does not exist|42P01|schema cache|relation/i.test(msg) ? t('report.needSql') : t('report.failed'), { type: 'error' });
-  }
-}
-
-/* ── медиа-галерея чата ───────────────────────────────────── */
-async function openChatMedia() {
-  const chat = chatById(S.active);
-  if (!chat) return;
-  $('#profileOv').hidden = true;
-  const grid = $('#mediaGrid');
-  grid.innerHTML = `<div class="nc-hint">${t('people.loading')}</div>`;
-  $('#mediaOv').hidden = false;
-
-  let all = [];
-  try {
-    all = await idb.messagesOf(chat.id);
-  } catch (e) { all = S.messages[chat.id] || []; }
-
-  const items = [];
-  for (const m of all) {
-    if (m.hidden || m.localDeleted || m.deleted) continue;
-    if (m.type === 'image' && m.file?.src) items.push({ src: m.file.src, name: m.file.name, kind: 'img', ts: m.ts });
-    if (m.type === 'video' && (m.thumb || m.file?.src)) items.push({ src: m.thumb || m.file.src, name: m.file?.name, kind: 'vid', ts: m.ts });
-    if (m.type === 'videoNote' && m.thumb) items.push({ src: m.thumb, name: t('msg.videoNote'), kind: 'vid', ts: m.ts });
-    if (m.type === 'album') {
-      for (const it of m.album || []) {
-        if (it?.src) items.push({ src: it.src, name: it.name, kind: 'img', ts: m.ts });
-      }
-    }
-  }
-
-  if (!items.length) {
-    grid.innerHTML = `<div class="nc-hint">${t('media.empty')}</div>`;
-    return;
-  }
-
-  grid.innerHTML = items
-    .sort((a, b) => (b.ts || 0) - (a.ts || 0))
-    .map((it, i) => `<button type="button" class="media-cell" data-media-idx="${i}">
-      ${safeImgSrc(it.src)
-        ? `<img src="${esc(safeImgSrc(it.src))}" loading="lazy" decoding="async" alt="">`
-        : `<span style="display:grid;place-items:center;width:100%;height:100%;color:var(--tx-3)">${icon('image', 22)}</span>`}
-      ${it.kind === 'vid' ? `<span class="media-play">${icon('play', 18)}</span>` : ''}
-    </button>`).join('');
-
-  grid.onclick = (e) => {
-    const b = e.target.closest('[data-media-idx]');
-    if (!b) return;
-    const it = items[Number(b.dataset.mediaIdx)];
-    if (!it) return;
-    openLightbox(it.src, it.name || 'relik-media');
-  };
-}
-
-/* ── профиль собеседника / группы ── */
-function openChatProfile() {
-  const chat = chatById(S.active);
-  if (!chat) return;
-
-  const isDm = chat.kind === 'dm';
-  const u = isDm
-    ? (S.users.find((x) => x.id === chat.userId) || { name: chat.title || '…', hue: chat.hue ?? 0, seen: 'offline' })
-    : { name: chat.title || '…', hue: chat.hue ?? 5 };
-
-  $('#profileHero').innerHTML = avatarHtml(u, { lg: true });
-  $('#profileName').innerHTML = esc(u.name);
-  $('#profileUsername').textContent = isDm && u.username ? '@' + u.username : '';
-  $('#profileStatus').textContent = isDm
-    ? (u.seen === 'online' ? t('chat.online') : t('chat.' + u.seen))
-    : t('chat.members').replace('{n}', String((chat.members?.length || 0) + 1));
-
-  $('#profileCall').hidden = !isDm;
-  $('#profileVideo').hidden = !isDm;
-  const blockBtn = $('#profileBlock');
-  if (blockBtn) {
-    const blocked = isDm && isBlocked(chat.userId);
-    blockBtn.hidden = !isDm;
-    blockBtn.textContent = t(blocked ? 'profile.unblock' : 'profile.block');
-    blockBtn.classList.toggle('btn-danger-soft', !blocked);
-    blockBtn.onclick = async () => {
-      if (!isDm) return;
-      const ok = await confirmAction({
-        title: t(blocked ? 'profile.unblockTitle' : 'profile.blockTitle'),
-        text: t(blocked ? 'profile.unblockText' : 'profile.blockText'),
-        ok: t(blocked ? 'profile.unblock' : 'profile.block'),
-        danger: !blocked,
-        iconName: 'shield',
-      });
-      if (!ok) return;
-      try {
-        if (blocked) await unblockUser(chat.userId);
-        else await blockUser(chat.userId);
-        toast(t(blocked ? 'profile.unblocked' : 'profile.blocked'));
-        $('#profileOv').hidden = true;
-        renderSidebar();
-      } catch (err) {
-        toast(err?.message || t('toast.error'), { type: 'error' });
-      }
-    };
-  }
-  const manage = $('#profileManage');
-  if (manage) {
-    manage.hidden = isDm;
-    manage.onclick = () => {
-      $('#profileOv').hidden = true;
-      openGroupManager(chat);
-    };
-  }
-  renderProfileFingerprint(chat).catch(() => {});
-  paintTtl(chat);
-  const mediaBtn = $('#profileMedia');
-  if (mediaBtn) mediaBtn.onclick = () => openChatMedia();
-  $('#profileOv').hidden = false;
-}
 
 /* ── шапка чата ────────────────────────────────────────────── */
 function renderHeader() {
@@ -1630,210 +1310,6 @@ function unpin() {
   renderPin();
 }
 
-/* ── пересылка ─────────────────────────────────────────────── */
-function openForward(m) {
-  openForwardMany([m]);
-}
-
-function openForwardMany(msgs) {
-  forwardMsgs = (Array.isArray(msgs) ? msgs : [msgs]).filter(Boolean);
-  if (!forwardMsgs.length) return;
-  forwardTargets = new Set();
-  const list = $('#fwdList');
-  const chats = S.chats.filter((c) => c.id !== S.active);
-  list.innerHTML = chats.map((c) => {
-    const u = c.kind === 'dm'
-      ? (S.users.find((x) => x.id === c.userId) || { name: c.title || '…', hue: c.hue ?? 0 })
-      : { name: c.title, hue: c.hue ?? 5 };
-    return `<button class="contact" data-fwd-cid="${esc(c.id)}">
-      ${avatarHtml(u)}
-      <span class="info"><span class="n">${esc(chatTitle(c))}</span></span>
-    </button>`;
-  }).join('') || `<div class="nc-hint">${t('newchat.empty')}</div>`;
-  paintForwardCount();
-  $('#fwdOv').hidden = false;
-}
-
-function paintForwardCount() {
-  const n = forwardTargets.size;
-  const go = $('#fwdGo');
-  const cnt = $('#fwdCount');
-  if (go) go.disabled = n === 0;
-  if (cnt) cnt.textContent = n ? t('msg.forwardSelected').replace('{n}', String(n)) : t('msg.forwardPick');
-}
-
-async function forwardToMany() {
-  const msgs = forwardMsgs.slice();
-  const ids = [...forwardTargets];
-  if (!msgs.length || !ids.length) return;
-  $('#fwdOv').hidden = true;
-  forwardMsgs = [];
-  forwardTargets = new Set();
-
-  let sent = 0;
-  let failed = 0;
-
-  for (const chatId2 of ids) {
-    const chat = chatById(chatId2);
-    if (!chat) continue;
-    let sentToChat = 0;
-    for (const m of msgs) {
-      const fwd = forwardPayload(m);
-      if (!fwd) continue;
-      if (fwd.media?.path && fwd.file?.src) rememberMediaPreview(fwd.media.path, fwd.file.src);
-      for (const it of fwd.album || []) {
-        if (it?.path && it.src) rememberMediaPreview(it.path, it.src);
-      }
-      const msg = {
-        id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
-        type: fwd.type, text: fwd.text || '', reactions: [], status: 'sending', forwarded: true,
-        wire: fwd.wire,
-        ...(fwd.file ? { file: fwd.file } : {}),
-        ...(fwd.voice ? { voice: fwd.voice } : {}),
-        ...(fwd.media ? { media: fwd.media } : {}),
-        ...(fwd.album ? { album: fwd.album } : {}),
-      };
-      await deliverMessage(chatId2, msg);
-
-      if (!(SUPABASE.url && SUPABASE.anonKey)) {
-        msg.status = 'sent';
-        await idb.put('messages', msg);
-        sent += 1;
-        sentToChat += 1;
-        continue;
-      }
-
-      try {
-        await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
-        msg.status = 'sent';
-        await idb.put('messages', msg);
-        refreshMessageStatus(msg);
-        sent += 1;
-        sentToChat += 1;
-      } catch (err) {
-        msg.status = 'error';
-        msg.error = String(err?.message || '');
-        await idb.put('messages', msg);
-        refreshMessageStatus(msg);
-        failed += 1;
-      }
-    }
-    if (sentToChat) notifyPush(chat);
-  }
-
-  renderSidebar();
-  if (!sent) toast(t('msg.forwardUnsupported'), { type: 'error' });
-  else toast(t('msg.forwardedMany').replace('{n}', String(sent)), { type: 'success' });
-  if (failed) toast(t('toast.error'), { type: 'error' });
-}
-
-async function forwardTo(chatId2) {
-  const m = forwardMsgs[0];
-  const chat = chatById(chatId2);
-  $('#fwdOv').hidden = true;
-  forwardMsgs = [];
-  if (!m || !chat) return;
-
-  const fwd = forwardPayload(m);
-  if (!fwd) { toast(t('msg.forwardUnsupported'), { type: 'error' }); return; }
-  if (fwd.media?.path && fwd.file?.src) rememberMediaPreview(fwd.media.path, fwd.file.src);
-  for (const it of fwd.album || []) {
-    if (it?.path && it.src) rememberMediaPreview(it.path, it.src);
-  }
-
-  const msg = {
-    id: newId(), chatId: chatId2, sender: 'u_me', ts: Date.now(),
-    type: fwd.type, text: fwd.text || '', reactions: [], status: 'sending', forwarded: true,
-    wire: fwd.wire,
-    ...(fwd.file ? { file: fwd.file } : {}),
-    ...(fwd.voice ? { voice: fwd.voice } : {}),
-    ...(fwd.media ? { media: fwd.media } : {}),
-    ...(fwd.album ? { album: fwd.album } : {}),
-  };
-
-  await deliverMessage(chatId2, msg);
-
-  if (!(SUPABASE.url && SUPABASE.anonKey)) {
-    msg.status = 'sent';
-    await idb.put('messages', msg);
-    toast(t('chat.forwarded'), { type: 'success' });
-    return;
-  }
-
-  try {
-    await sendMessage(chatId2, fwd.wire, null, chat.kind, chat.publicKey, msg.id, chat.userId || null);
-    msg.status = 'sent';
-    await idb.put('messages', msg);
-    if (S.active === chatId2) renderMessages();
-    toast(t('chat.forwarded'), { type: 'success' });
-  } catch (err) {
-    console.error('Forward error:', err);
-    msg.status = 'error';
-    msg.error = String(err?.message || '');
-    await idb.put('messages', msg);
-    if (S.active === chatId2) renderMessages();
-    toast(err.message || t('toast.error'), { type: 'error' });
-  }
-}
-
-/* Пересылка любого поддерживаемого типа: текст, фото, файл, голосовое */
-function forwardPayload(m) {
-  if (m.type === 'text') return { type: 'text', text: m.text || '', wire: m.text || '' };
-
-  if (m.type === 'album') {
-    const items = (m.album || []).filter((it) => it?.path || it?.src);
-    if (!items.length) return null;
-    const wireItems = items.map((it) => ({
-      path: it.path, k: it.k, iv: it.iv, mime: it.mime, name: it.name, size: it.size,
-      ...(it.thumb ? { thumb: it.thumb } : {}),
-      ...(it.path ? {} : { src: it.src }),
-    }));
-    return {
-      type: 'album', text: m.text || '',
-      album: items.map((it) => ({ ...it })),
-      wire: encodeMedia({ kind: 'album', items: wireItems }),
-    };
-  }
-
-  if (['image', 'file', 'video', 'videoNote'].includes(m.type)) {
-    const src = safeMediaSrc(m.file?.src, m.type === 'image' ? 'image' : 'file');
-    if (!src && !m.media) return null;
-    const file = {
-      name: m.file?.name || 'file',
-      size: m.file?.size || 0,
-      mime: m.file?.mime || '',
-      src,
-      ...(m.file?.thumb ? { thumb: m.file.thumb } : {}),
-    };
-    const wireMedia = {
-      kind: m.type, name: file.name, size: file.size, mime: file.mime,
-      ...(m.media ? { path: m.media.path, k: m.media.k, iv: m.media.iv, ...(file.thumb ? { thumb: file.thumb } : {}) } : { src }),
-    };
-    return {
-      type: m.type, text: m.text || '', file,
-      name: file.name, size: file.size, mime: file.mime,
-      ...(m.media ? { media: { ...m.media } } : {}),
-      wire: encodeMedia(wireMedia),
-    };
-  }
-
-  if (m.type === 'voice') {
-    const src = safeMediaSrc(m.voice?.src, 'audio');
-    if (!src && !m.media) return null;
-    const voice = { dur: m.voice?.dur, bars: m.voice?.bars || [], src, rate: m.voice?.rate || 1 };
-    return {
-      type: 'voice', text: '', voice,
-      name: 'voice', size: 0, mime: m.media?.mime || '',
-      ...(m.media ? { media: { ...m.media } } : {}),
-      wire: encodeMedia({
-        kind: 'voice', name: 'voice', size: 0, mime: m.media?.mime || m.file?.mime || '',
-        ...(m.media ? { path: m.media.path, k: m.media.k, iv: m.media.iv } : { src }),
-        voice: { dur: voice.dur, bars: voice.bars, rate: voice.rate },
-      }),
-    };
-  }
-  return null;
-}
 
 
 function scrollBottom(smooth = true) {
@@ -1888,317 +1364,6 @@ function paintDecryptBar() {
 }
 
 /* ── разметка сообщения ────────────────────────────────────── */
-function msgHtml(m, first, hitIndex = -1) {
-  const mine = m.sender === 'u_me';
-  const u = mine ? S.me : user(m.sender);
-  const searchCls = hitIndex >= 0 ? ` search-hit${hitIndex === searchIndex ? ' search-current' : ''}` : '';
-  const selectCls = selectMode ? ` selectable${selectedMsgs.has(m.id) ? ' selected' : ''}` : '';
-  const hasMedia = ['image', 'video', 'file', 'voice', 'album', 'videoNote'].includes(m.type);
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${hasMedia ? ' has-media' : ''}${toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}${selectCls}`;
-  const av = mine ? '' : avatarHtml(u);
-  const body = bubbleHtml(m, mine);
-  const pick = S.reactOpen === m.id ? rxPickHtml() : '';
-  return `<div class="${cls}" data-mid="${esc(m.id)}" data-hit-index="${hitIndex}">${av}
-    <div class="bubble">${body}${pick}</div>
-  </div>`;
-}
-
-function mediaErrorHtml(round = false) {
-  return `<button type="button" class="msg-broken as-btn${round ? ' round' : ''}" data-media-retry>
-    ${icon('alert', 16)} <span>${t('media.retry')}</span>
-  </button>`;
-}
-
-function mediaLoadHtml(round = false, kind = 'video') {
-  return `<button type="button" class="msg-loading as-btn${round ? ' round' : ''}" data-media-retry>
-    ${icon(kind === 'video' ? 'play' : 'dl', 16)} <span>${t('media.load')}</span>
-  </button>`;
-}
-
-function bubbleHtml(m, mine) {
-  if (m.deleted) return `<div class="msg-deleted">${t('msg.deleted')}</div>`;
-  if (m.decryptFailed) {
-    return `<div class="msg-broken">${icon('lock', 16)} ${t('msg.decryptFailed')}</div>`;
-  }
-  let out = '';
-  if (m.forwarded) out += `<div class="fwd-label">${icon('forward', 12)} ${t('msg.forwarded')}</div>`;
-  if (m.replyTo) out += `<button class="reply-quote" data-jump="${esc(m.replyTo.id)}">
-      <span class="rq-name">${esc(m.replyTo.name)}</span>
-      <span class="rq-text">${esc(m.replyTo.snippet)}</span>
-    </button>`;
-  if (m.type === 'poll') out += pollHtml(m);
-  if (m.type === 'image') {
-    const src = safeMediaSrc(m.file?.src, 'image');
-    const thumb = safeMediaSrc(m.file?.thumb, 'image');
-    out += src
-      ? `<button class="msg-img" type="button" aria-label="${esc(m.file?.name || t('msg.photo'))}"><img src="${esc(src)}" loading="lazy" decoding="async" alt="${esc(m.file?.name || t('msg.photo'))}"></button>`
-      : (thumb
-        ? `<button class="msg-img" type="button" aria-label="${esc(m.file?.name || t('msg.photo'))}"><img class="thumb" src="${esc(thumb)}" loading="lazy" decoding="async" alt=""></button>`
-        : (m.media
-          ? (m.mediaError ? mediaErrorHtml() : `<div class="msg-loading">${icon('image', 18)} ${t('media.loading')}</div>`)
-          : `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`));
-  }
-  if (m.type === 'video') {
-    const src = safeMediaSrc(m.file?.src, 'video');
-    const thumb = safeMediaSrc(m.file?.thumb, 'image');
-    out += src
-      ? `<video class="msg-video" src="${esc(src)}"${thumb ? ` poster="${esc(thumb)}"` : ''} controls playsinline preload="metadata"></video>`
-      : (thumb
-        ? `<div class="msg-video pending"><img src="${esc(thumb)}" loading="lazy" decoding="async" alt=""><span>${icon('play', 22)}</span></div>`
-        : (m.media
-          ? (m.mediaError ? mediaErrorHtml() : mediaLoadHtml(false, 'video'))
-          : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`));
-  }
-  if (m.type === 'videoNote') {
-    const src = safeMediaSrc(m.file?.src, 'video');
-    const thumb = safeMediaSrc(m.file?.thumb, 'image');
-    out += src
-      ? `<button class="video-note" type="button"><video src="${esc(src)}"${thumb ? ` poster="${esc(thumb)}"` : ''} playsinline loop preload="metadata"></video>
-          <span class="vn-play">${icon('play', 20)}</span></button>`
-      : (thumb
-        ? `<button class="video-note" type="button"><img src="${esc(thumb)}" loading="lazy" decoding="async" alt=""><span class="vn-play">${icon('play', 20)}</span></button>`
-        : (m.media
-          ? (m.mediaError ? mediaErrorHtml(true) : mediaLoadHtml(true, 'video'))
-          : `<div class="msg-broken">${icon('video', 18)} ${t('media.broken')}</div>`));
-  }
-  if (m.type === 'album') {
-    const items = Array.isArray(m.album) ? m.album : [];
-    if (!items.length) {
-      out += `<div class="msg-broken">${icon('image', 18)} ${t('media.broken')}</div>`;
-    } else {
-      out += `<div class="album${items.length === 1 ? ' one' : ''}">${items.map((it, i) => {
-        const src = safeMediaSrc(it?.src, 'image');
-        const thumb = safeMediaSrc(it?.thumb, 'image');
-        const img = src || thumb;
-        return img
-          ? `<button type="button" class="album-item" data-album-idx="${i}"><img src="${esc(img)}" loading="lazy" decoding="async" alt="">${!src ? '<span class="album-load">•</span>' : ''}</button>`
-          : `<span class="album-item pending${it?.error ? ' failed' : ''}">${icon('image', 18)}</span>`;
-      }).join('')}</div>`;
-    }
-  }
-  if (m.type === 'file') {
-    const ready = !!m.file?.src;
-    const failed = !!m.media && !ready && m.mediaError;
-    out += `<div class="file-row${ready ? '' : ' no-src'}${failed ? ' retry' : ''}"${failed ? ' data-media-retry role="button"' : ''}>
-      <span class="file-ic">${icon('file', 20)}</span>
-      <span class="file-info"><span class="file-name">${esc(m.file?.name || t('msg.file'))}</span>
-      <span class="file-size">${m.media && !ready ? t(failed ? 'media.retry' : 'media.loading') : fmtSize(m.file?.size)}</span></span>
-      ${ready ? `<span class="file-dl">${icon('dl', 17)}</span>` : (failed ? `<span class="file-dl">${icon('refresh', 16)}</span>` : '')}</div>`;
-  }
-  if (m.type === 'voice') {
-    if (!m.voice?.src && m.media) {
-      out += m.mediaError
-        ? mediaErrorHtml()
-        : `<div class="msg-loading">${icon('mic', 16)} ${t('media.loading')}</div>`;
-    } else {
-      out += `<div class="voice">
-        <button class="v-play">${icon('play', 17)}</button>
-        <span class="v-bars">${(m.voice?.bars || []).map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}</span>
-        <span class="v-dur">${fmtDur(m.voice?.dur || 0)}</span>
-        <button class="v-speed" data-speed="${m.voice?.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice?.rate || 1}×</button>
-      </div>`;
-    }
-  }
-  if (m.text && ['text', 'image', 'file', 'video'].includes(m.type)) {
-    const emoji = m.type === 'text' && isEmojiOnly(m.text);
-    out += `<div class="msg-text${emoji ? ' emoji-only' : ''}">${formatText(m.text)}</div>`;
-  }
-  out += reactionsHtml(m);
-  out += metaHtml(m, mine);
-  return out;
-}
-
-function reactionsHtml(m) {
-  if (!m.reactions?.length) return '';
-  return `<div class="rx-row">${m.reactions.map((r) =>
-    `<button class="rx${r.by.includes('u_me') ? ' mine' : ''}" data-rx="${esc(r.e)}">${esc(r.e)}${r.by.length > 1 ? `<b>${r.by.length}</b>` : ''}</button>`).join('')}</div>`;
-}
-
-function pollHtml(m) {
-  const opts = Array.isArray(m.poll?.o) ? m.poll.o : [];
-  const { counts, voters, mine, closed, votersByOption } = tallyPoll(m);
-  const rows = opts.map((label, i) => {
-    const pct = voters ? Math.round((counts[i] / voters) * 100) : 0;
-    const on = mine.includes(i);
-    const names = m.poll?.anon
-      ? ''
-      : (votersByOption[i] || [])
-        .map((uid) => user(uid).name)
-        .slice(0, 3)
-        .join(', ') + ((votersByOption[i] || []).length > 3 ? ' +' + ((votersByOption[i] || []).length - 3) : '');
-    return `<button type="button" class="poll-opt${on ? ' on' : ''}${closed ? ' closed' : ''}" data-poll-opt="${i}"${closed ? ' disabled' : ''}>
-      <span class="poll-fill" style="width:${pct}%"></span>
-      <span class="poll-mark">${on ? icon('check', 12) : ''}</span>
-      <span class="poll-text">
-        <span class="poll-label">${esc(label)}</span>
-        ${names ? `<span class="poll-who">${esc(names)}</span>` : ''}
-      </span>
-      <span class="poll-count">${counts[i]}</span>
-    </button>`;
-  }).join('');
-
-  const hint = closed
-    ? t('poll.closed')
-    : (mine.length ? t('poll.yourVote') : (m.poll?.multi ? t('poll.hintMulti') : t('poll.hint')));
-  const canClose = !closed && m.sender === 'u_me';
-
-  return `<div class="poll${closed ? ' poll-ended' : ''}">
-    <div class="poll-head">${icon('poll', 16)}<span>${esc(m.poll?.q || m.text || '')}</span></div>
-    <div class="poll-opts">${rows}</div>
-    <div class="poll-meta"><span>${t('poll.votes')}: ${voters}</span><span>${hint}</span></div>
-    ${canClose ? `<button type="button" class="poll-close" data-poll-close="${esc(m.id)}">${t('poll.close')}</button>` : ''}
-  </div>`;
-}
-
-/* Реакции: последнее событие пользователя по каждому эмодзи */
-function tallyReactions(raw) {
-  const latest = new Map();
-
-  for (const x of raw) {
-    if (x.type !== 'rx' || !x.reaction) continue;
-    const r = x.reaction;
-    const key = `${x.sender}|${r.m}|${r.e}`;
-    const prev = latest.get(key);
-    if (!prev || (x.ts || 0) >= (prev.ts || 0)) latest.set(key, x);
-  }
-
-  const touched = new Set();
-  const byMessage = new Map();
-
-  for (const x of latest.values()) {
-    const id = x.reaction.m;
-    touched.add(id);
-    if (!x.reaction.on) continue;
-    if (!byMessage.has(id)) byMessage.set(id, new Map());
-    const emojiMap = byMessage.get(id);
-    if (!emojiMap.has(x.reaction.e)) emojiMap.set(x.reaction.e, []);
-    emojiMap.get(x.reaction.e).push(x.sender);
-  }
-
-  const out = new Map();
-  for (const id of touched) {
-    const emojiMap = byMessage.get(id);
-    out.set(id, emojiMap
-      ? [...emojiMap.entries()].map(([e, by]) => ({ e, by }))
-      : []);
-  }
-  return out;
-}
-
-/* Обновляем только реакции сообщения */
-export function refreshMessageReactions(messageId) {
-  if (S.active == null) return;
-  const m = byId(messageId);
-  if (!m) return;
-
-  const map = tallyReactions(S.messages[S.active] || []);
-  if (map.has(m.id)) m.reactions = map.get(m.id);
-
-  const id = nonzeroEscape(messageId);
-  const bubble = els.msgs.querySelector(`[data-mid="${id}"] .bubble`);
-  if (!bubble) return;
-
-  const html = reactionsHtml(m);
-  const row = bubble.querySelector('.rx-row');
-  if (html) {
-    if (row) row.outerHTML = html;
-    else {
-      const meta = bubble.querySelector('.msg-meta');
-      if (meta) meta.insertAdjacentHTML('beforebegin', html);
-      else bubble.insertAdjacentHTML('beforeend', html);
-    }
-  } else if (row) {
-    row.remove();
-  }
-}
-
-/* Обновляем только карточку опроса — без перерисовки всей ленты */
-export function refreshPollCard(pollId) {
-  if (S.active == null) return;
-  const m = byId(pollId);
-  if (!m || m.type !== 'poll') return;
-
-  const id = nonzeroEscape(pollId);
-  const el = els.msgs.querySelector(`[data-mid="${id}"] .poll`);
-  if (!el) return;
-
-  const box = document.createElement('div');
-  box.innerHTML = pollHtml(m);
-  const next = box.firstElementChild;
-  if (next) el.replaceWith(next);
-}
-
-/* Последний голос каждого участника; для мультивыбора — весь набор */
-function tallyPoll(pollMsg) {
-  const all = S.messages[S.active] || [];
-  const latest = new Map();
-  let closed = false;
-
-  for (const m of all) {
-    if (m.type === 'pollclose' && m.close?.p === pollMsg.id) closed = true;
-    if (m.type !== 'vote' || !m.vote || m.vote.p !== pollMsg.id) continue;
-    const prev = latest.get(m.sender);
-    if (!prev || (m.ts || 0) >= (prev.ts || 0)) latest.set(m.sender, m);
-  }
-
-  const total = Array.isArray(pollMsg.poll?.o) ? pollMsg.poll.o.length : 0;
-  const counts = Array(total).fill(0);
-  const votersByOption = Array.from({ length: total }, () => []);
-  let voters = 0;
-  let mine = [];
-
-  for (const [uid, m] of latest) {
-    const v = (m.vote.v || []).filter((i) => Number.isInteger(i) && i >= 0 && i < total);
-    if (!v.length) continue;
-    voters++;
-    for (const i of v) {
-      counts[i]++;
-      votersByOption[i].push(uid);
-    }
-    if (uid === 'u_me' || uid === S.me?.id) mine = v;
-  }
-
-  return { counts, voters, mine, closed, votersByOption };
-}
-
-function votePollOption(m, index) {
-  const { mine, closed } = tallyPoll(m);
-  if (closed) return;
-  let next;
-
-  if (m.poll?.multi) {
-    next = mine.includes(index)
-      ? mine.filter((i) => i !== index)
-      : [...mine, index].sort((a, b) => a - b);
-  } else {
-    if (mine.length === 1 && mine[0] === index) {
-      toast(t('poll.alreadyVoted'));
-      return;
-    }
-    next = [index];
-  }
-
-  votePoll(m, next);
-}
-
-function ticksHtml(m, mine) {
-  if (!mine || m.deleted) return '';
-  if (m.status === 'error') {
-    return `<button class="ticks err" data-act="retry" title="${t('comp.sendOffline')}">${icon('alert', 13)}</button>`;
-  }
-  if (m.status === 'sending') {
-    return `<span class="ticks sending" title="${t('comp.sending')}">${icon('clock', 13)}</span>`;
-  }
-  if (m.status === 'read') {
-    return `<span class="ticks read" title="${t('msg.read')}">${icon('check2', 13)}</span>`;
-  }
-  return `<span class="ticks" title="${t('msg.delivered')}">${icon('check', 13)}</span>`;
-}
-
-function metaHtml(m, mine) {
-  const edited = m.edited ? `<span class="msg-edited">${t('msg.edited')}</span>` : '';
-  return `<div class="msg-meta"><span>${fmtTime(m.ts)}</span>${edited}${ticksHtml(m, mine)}</div>`;
-}
 
 /* ── панель действий ─────────────────────────────────────────
    Кнопки создаются только для сообщения под курсором/тапом.
@@ -2363,28 +1528,6 @@ function forwardSelected() {
   openForwardMany(list);
 }
 
-function toolsHtml(m, mine) {
-  const isText = m.type === 'text';
-  const canForward = ['text', 'image', 'file', 'voice', 'video', 'videoNote', 'album'].includes(m.type);
-  const canDelete = mine;
-  const tools = [
-    `<button type="button" data-act="reply" title="${t('msg.reply')}" aria-label="${t('msg.reply')}">${icon('reply', 15)}</button>`,
-    `<button type="button" data-act="react" title="${t('msg.react')}" aria-label="${t('msg.react')}">${icon('smile', 15)}</button>`,
-    `<button type="button" data-act="select" title="${t('msg.select')}" aria-label="${t('msg.select')}">${icon('check2', 15)}</button>`,
-    canForward ? `<button type="button" data-act="forward" title="${t('msg.forward')}" aria-label="${t('msg.forward')}">${icon('forward', 15)}</button>` : '',
-    `<button type="button" data-act="pin" title="${t('msg.pin')}" aria-label="${t('msg.pin')}">${icon('pin', 15)}</button>`,
-    isText ? `<button type="button" data-act="copy" title="${t('msg.copy')}" aria-label="${t('msg.copy')}">${icon('copy', 15)}</button>` : '',
-    mine && m.status === 'read' ? `<button type="button" data-act="readby" title="${t('msg.readBy')}" aria-label="${t('msg.readBy')}">${icon('users', 15)}</button>` : '',
-    mine && isText && m.cryptoVersion !== 2 ? `<button type="button" data-act="edit" title="${t('msg.edit')}" aria-label="${t('msg.edit')}">${icon('pencil', 15)}</button>` : '',
-    canDelete ? `<button type="button" data-act="del" title="${t('msg.remove')}" aria-label="${t('msg.remove')}">${icon('trash', 15)}</button>` : '',
-    !mine ? `<button type="button" data-act="report" title="${t('report.title')}" aria-label="${t('report.title')}">${icon('alert', 15)}</button>` : '',
-  ].join('');
-  return `<div class="tools">${tools}</div>`;
-}
-
-function rxPickHtml() {
-  return `<div class="rx-pick">${EMOJI_QUICK.map((e) => `<button data-pick="${e}">${e}</button>`).join('')}</div>`;
-}
 
 /* ── реакции ───────────────────────────────────────────────── */
 function toggleReaction(m, emoji) {

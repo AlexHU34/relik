@@ -63,7 +63,22 @@ const record = (name, ok, info = '') => {
 };
 
 async function launch(tag, port) {
-  const dir = mkdtempSync(join(tmpdir(), `relik-e2e-${tag}-`));
+  /* Chrome иногда не успевает подняться (или порт занят прошлым прогоном) —
+     пробуем несколько раз, иначе CI мигает красным без причины. */
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await launchOnce(tag, port, attempt);
+    } catch (err) {
+      lastErr = err;
+      await sleep(800 * attempt);
+    }
+  }
+  throw lastErr || new Error(`Chrome ${tag} не поднялся`);
+}
+
+async function launchOnce(tag, port, attempt) {
+  const dir = mkdtempSync(join(tmpdir(), `relik-e2e-${tag}-${attempt}-`));
   const child = spawn(CHROME, [
     '--headless=new',
     '--disable-gpu',
@@ -86,7 +101,10 @@ async function launch(tag, port) {
     } catch (e) { /* ещё грузится */ }
     if (!page) await sleep(250);
   }
-  if (!page) throw new Error(`Chrome ${tag} не поднялся`);
+  if (!page) {
+    try { child.kill(); } catch (e) { /* уже мёртв */ }
+    throw new Error(`Chrome ${tag} не поднялся`);
+  }
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => {
