@@ -77,3 +77,38 @@ test('nextLimit: шаг окна растёт и не уходит в NaN', () =
 test('размеры страниц: DOM больше серверной страницы', () => {
   assert.ok(PAGE_SIZE > SERVER_PAGE);
 });
+
+/* ── надёжность доставки: слияние сервера и локального outbox ── */
+
+test('слияние: локальное «удалено у меня» побеждает и прячет сообщение', () => {
+  const merged = mergeMessages([msg('a', 10)], [msg('a', 10, { localDeleted: true })]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].hidden, true);
+  assert.equal(merged[0].localDeleted, true);
+});
+
+test('слияние: истёкшее по TTL сообщение не возвращается с сервера', () => {
+  const merged = mergeMessages([msg('a', 10)], [msg('a', 10, { expired: true, hidden: true, localDeleted: true })]);
+  assert.equal(merged[0].expired, true);
+  assert.equal(merged[0].hidden, true);
+});
+
+test('слияние: ошибка отправки не теряется, если сервер прислал копию', () => {
+  const merged = mergeMessages([msg('a', 10)], [msg('a', 10, { status: 'error' })]);
+  assert.equal(merged[0].status, 'error', 'пользователь должен видеть «не отправлено»');
+});
+
+test('слияние: «отправляется» не перебивается серверным «отправлено»', () => {
+  const merged = mergeMessages([msg('a', 10)], [msg('a', 10, { status: 'sending' })]);
+  assert.equal(merged[0].status, 'sending');
+});
+
+test('слияние: дубликаты с сервера не размножают сообщение', () => {
+  const merged = mergeMessages([msg('a', 10), msg('a', 10)], [msg('a', 10), msg('a', 10)]);
+  assert.equal(merged.length, 1);
+});
+
+test('слияние: порядок всегда по времени, даже если пришло не по порядку', () => {
+  const merged = mergeMessages([msg('a', 30), msg('b', 10)], [msg('c', 20)]);
+  assert.deepEqual(merged.map((m) => m.id), ['b', 'c', 'a']);
+});

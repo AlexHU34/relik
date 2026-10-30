@@ -1,7 +1,7 @@
 {
-  "version": "1.31.0",
+  "version": "1.32.0",
   "released": "2026-10-30",
-  "notes": "1.31.0: chatView разрезан с 2848 до 1703 строк — вынесены разметка, пересылка, профиль; 14 новых тестов на разметку и прочтения (всего 85).",
+  "notes": "1.32.0: +6 тестов на слияние сообщений (91 всего), новый DEPLOY.md под сборку, e2e с ретраем Chrome.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }
