@@ -1,7 +1,7 @@
 {
-  "version": "1.27.0",
+  "version": "1.28.0",
   "released": "2026-10-30",
-  "notes": "1.27.0: измерения и страховка — KPI-бюджет сборки, chaos-тест отправки (10 000 сообщений, 30% потерь), web-vitals в телеметрии, лимит 400 строк на модуль, git-база проекта.",
+  "notes": "1.28.0: сборка на Vite (минификация, хеши, code-split), ESLint + проверка типов, проверка dist перед деплоем, исправлены пустой список чатов в демо и дубль ключа msg.forwarded.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }

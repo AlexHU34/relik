@@ -9,25 +9,24 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gyd8lVuxIG16k81U9PlY+pBsEUiO6pWGiVp/dWI3Jzs=' 'sha256-CpV3SDxMB7yPhe/CHD+L2ZoXTke1saQHnwfUm8s0GUc='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self' blob:; manifest-src 'self'">
   <meta name="description" content="Relik — приватный мессенджер, которому можно доверять">
   <title>Relik</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32" type="image/png">
-  <link rel="icon" href="assets/icons/favicon-48.png" sizes="48x48" type="image/png">
-  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="manifest" href="./assets/manifest-DiYcaPFD.json">
+  <link rel="icon" href="./assets/favicon-32-CXOIw-HK.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="./assets/favicon-48-DneR8WOl.png" sizes="48x48" type="image/png">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon-gc2qwoFq.png">
   <!-- Supabase: убираем лишний TLS-хендшейк перед первым запросом -->
   <link rel="preconnect" href="https://sumaysqzahgesifdevxu.supabase.co" crossorigin>
   <link rel="dns-prefetch" href="https://sumaysqzahgesifdevxu.supabase.co">
   <!-- Критичные модули грузим параллельно, чтобы не ждать цепочку импортов -->
-  <link rel="modulepreload" href="js/main.js">
-  <link rel="modulepreload" href="js/config.js">
-  <link rel="modulepreload" href="js/ui/state.js">
-  <link rel="modulepreload" href="js/ui/chatView.js">
-  <link rel="modulepreload" href="js/backend/messages.js">
-  <link rel="modulepreload" href="js/backend/auth.js">
+  <link rel="modulepreload" href="./assets/main-C_iCTOh0.js">
+  <link rel="modulepreload" href="./assets/config-mIiE5261.js">
+  <link rel="modulepreload" href="./assets/state-0qaezjC3.js">
+  <link rel="modulepreload" href="./assets/chatView-CCXCWfFH.js">
+  <link rel="modulepreload" href="./assets/messages-CVkGUqFQ.js">
+  <link rel="modulepreload" href="./assets/auth-CFrAD3A-.js">
   <!-- Шрифт локальный: без Google Fonts в критическом пути (в РФ он часто
        медленный или недоступен). Файлы — assets/fonts, объявления — css/fonts.css -->
-  <link rel="stylesheet" href="css/fonts.css">
-  <link rel="preload" href="assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./assets/inter-cyrillic-DqGufNeO.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./assets/inter-latin-Dx4kXJAl.woff2" as="font" type="font/woff2" crossorigin>
   <style>
     /* Мгновенный тёмный фон + заглушка загрузки: белого экрана не бывает никогда */
     html,body{background:#0b0e14;color:#e7eaf3}
@@ -146,19 +145,17 @@
       if (/(^|[?&])reset=1(&|$)/.test(location.search)) setTimeout(window.__relikReset, 200);
     })();
   </script>
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/layout.css">
-  <link rel="stylesheet" href="css/components/chat.css">
-  <link rel="stylesheet" href="css/components/composer.css">
-  <link rel="stylesheet" href="css/components/modals.css">
-  <link rel="stylesheet" href="css/components/call.css">
+  <script type="module" crossorigin src="./assets/index-C-weTiSJ.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/fingerprint-QOyKNwA2.js">
+  <link rel="modulepreload" crossorigin href="./assets/blocks-Dpnzb06w.js">
+  <link rel="stylesheet" crossorigin href="./assets/index-BUngaIog.css">
+  <link rel="stylesheet" crossorigin href="./assets/base-BxOl2HU4.css">
 </head>
 <body>
 
   <!-- ══════════ ЗАГЛУШКА ЗАГРУЗКИ (убирается после старта) ══════════ -->
   <div id="bootSplash" role="status" aria-live="polite">
-    <img src="assets/icons/icon-192.png" alt="">
+    <img src="./assets/icon-192-BeTextaT.png" alt="">
     <div class="bs-title">Relik</div>
     <div class="bs-spin" id="bsSpin"></div>
     <p class="bs-hint" id="bsHint">Загружаем приложение…</p>
@@ -184,7 +181,7 @@
         <div class="brand-aurora"></div>
         <div class="brand-inner">
           <div class="brand-mark">
-            <img src="assets/icons/icon-192.png" alt="Relik">
+            <img src="./assets/icon-192-BeTextaT.png" alt="Relik">
             <span>Relik</span>
           </div>
           <h1 class="brand-title" data-i18n="auth.headline">Переписка, которой доверяют.</h1>
@@ -218,7 +215,7 @@
 
       <section class="panel">
         <div class="auth-mobile-brand">
-          <img src="assets/icons/icon-192.png" alt="">
+          <img src="./assets/icon-192-BeTextaT.png" alt="">
           <div>
             <span>Relik</span>
             <em data-i18n="auth.headlineShort">Переписка, которой доверяют</em>
@@ -295,7 +292,7 @@
     <aside class="sidebar">
       <div class="side-head">
         <div class="side-logo" id="sideLogo">
-          <img src="assets/icons/icon-192.png" alt="">
+          <img src="./assets/icon-192-BeTextaT.png" alt="">
           <b>Relik</b>
         </div>
         <div class="side-actions">
@@ -623,7 +620,7 @@
         </div>
         <div class="about">
           <div class="top">
-            <img src="assets/icons/icon-192.png" alt="">
+            <img src="./assets/icon-192-BeTextaT.png" alt="">
             <div>
               <div class="nm">Relik</div>
               <div class="ver" id="verStr"></div>
@@ -1025,7 +1022,7 @@
   <!-- ══════════ PIN-КОД ══════════ -->
   <div class="pin-lock" id="pinLock" hidden>
     <div class="pin-card">
-      <img class="pin-logo" src="assets/icons/icon-192.png" alt="">
+      <img class="pin-logo" src="./assets/icon-192-BeTextaT.png" alt="">
       <div class="pin-title" data-i18n="pin.title">Введите PIN</div>
       <div class="pin-sub" id="pinSub" data-i18n="pin.sub">Код защищает переписку на этом устройстве</div>
       <div class="pin-dots" id="pinDots"></div>
@@ -1090,6 +1087,5 @@
       if (window.relikBoot) window.relikBoot.fail('Браузер не поддерживает современный JavaScript', 'Обновите браузер или откройте ссылку в Chrome / Safari.');
     });
   </script>
-  <script type="module" src="js/main.js"></script>
 </body>
 </html>
