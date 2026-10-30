@@ -61,7 +61,7 @@ a{color:var(--indigo);text-decoration:none}
   position:relative;overflow:hidden;
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
   padding:10px 18px;border-radius:var(--r-full);font-weight:600;font-size:var(--fs-sm);
-  background:var(--grad);color:#fff;
+  background:var(--grad);color:var(--on-accent);
   transition:transform var(--t-fast),box-shadow var(--t-fast),filter var(--t-fast);
   box-shadow:0 8px 22px -8px var(--accent-glow);
 }

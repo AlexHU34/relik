@@ -74,7 +74,7 @@
 /* Отправка / микрофон */
 .send-btn{
   width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;
-  background:var(--grad);color:#fff;box-shadow:0 6px 18px -6px var(--accent-glow);
+  background:var(--grad);color:var(--on-accent);box-shadow:0 6px 18px -6px var(--accent-glow);
   transition:transform var(--t-fast),filter var(--t-fast);
 }
 .send-btn:hover{filter:brightness(1.12);transform:translateY(-1px)}

@@ -30,6 +30,8 @@
   --accent:var(--indigo);
   --accent-soft:rgba(91,108,249,.15);
   --accent-glow:rgba(91,108,249,.4);
+  /* цвет текста на акцентной кнопке: выбран по контрасту (см. themes-contrast.test) */
+  --on-accent:#0b0e14;
 
   /* Статусы */
   --ok:#3ecf8e;

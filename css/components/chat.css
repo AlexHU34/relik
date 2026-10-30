@@ -100,7 +100,7 @@ html[data-motion="off"] .ticks.sending .ic{animation:none}
 
 /* Голосовое */
 .voice{display:flex;align-items:center;gap:10px;min-width:230px;padding:2px 2px}
-.v-play{width:40px;height:40px;border-radius:50%;background:var(--grad);color:#fff;display:grid;place-items:center;flex:none;transition:transform var(--t-fast);box-shadow:0 6px 16px -6px var(--accent-glow)}
+.v-play{width:40px;height:40px;border-radius:50%;background:var(--grad);color:var(--on-accent);display:grid;place-items:center;flex:none;transition:transform var(--t-fast);box-shadow:0 6px 16px -6px var(--accent-glow)}
 .v-play:active{transform:scale(.88)}
 .v-bars{display:flex;align-items:center;gap:2.5px;flex:1;height:28px}
 .v-bars i{width:3px;border-radius:2px;background:var(--tx-3);opacity:.5}
