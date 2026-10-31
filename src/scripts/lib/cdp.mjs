@@ -1,7 +1,7 @@
 /* Мини-клиент Chrome DevTools Protocol без зависимостей.
    Используется скриптами scripts/visual.mjs (и может — e2e.mjs).
    Требует установленный Chrome/Edge: путь можно задать в CHROME_PATH. */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,8 +50,11 @@ export async function launch({ port = 9333, size = [1280, 900], keep = false } =
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => {
-    ws.addEventListener('open', res, { once: true });
-    ws.addEventListener('error', rej, { once: true });
+    /* Если Chrome поднялся, но отладочная страница мертва (частый случай после
+       прошлых прогонов), ждать open() можно вечно — ограничиваем ожидание. */
+    const timer = setTimeout(() => rej(new Error('CDP: WebSocket не открылся за 8 с')), 8000);
+    ws.addEventListener('open', () => { clearTimeout(timer); res(); }, { once: true });
+    ws.addEventListener('error', (e) => { clearTimeout(timer); rej(e); }, { once: true });
   });
 
   let id = 0;
@@ -112,6 +115,13 @@ export async function launch({ port = 9333, size = [1280, 900], keep = false } =
     close() {
       try { ws.close(); } catch (e) { /* ignore */ }
       try { child.kill(); } catch (e) { /* ignore */ }
+      /* На Windows главный процесс Chrome часто переживает kill() и держит
+         порт отладки — следующий прогон тогда виснет на подключении. */
+      if (process.platform === 'win32' && child.pid) {
+        try {
+          spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+        } catch (e) { /* ignore */ }
+      }
       if (!keep) setTimeout(() => { try { rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ } }, 400);
     },
   };

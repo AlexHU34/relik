@@ -1,7 +1,7 @@
 {
-  "version": "1.46.0",
+  "version": "1.46.1",
   "released": "2026-10-31",
-  "notes": "1.46.0: SRI для вендорного SDK и integrity.json (SHA-256 всех файлов) + scripts/verify-live.mjs для проверки живого сайта.",
+  "notes": "1.46.1: исправлен порядок загрузки SDK (данные реальных аккаунтов снова загружаются), один Supabase-клиент на вкладку, 3 новых теста, устойчивый запуск e2e.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://relik.best/"
 }

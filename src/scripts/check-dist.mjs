@@ -112,6 +112,15 @@ const vendorAbs = path.join(DIST, 'js', 'vendor', 'supabase.js');
 if (fs.existsSync(vendorAbs)) {
   const want = 'sha384-' + createHash('sha384').update(fs.readFileSync(vendorAbs)).digest('base64');
   const tag = (html.match(/<script[^>]*src="js\/vendor\/supabase\.js"[^>]*>/) || [])[0] || '';
+  /* Скрипты выполняются в порядке документа даже с defer, поэтому тег SDK
+     обязан стоять раньше модуля: иначе supabaseClient.js создаётся, когда
+     window.supabase ещё нет, и весь обмен данными молча падает. */
+  const vendorAt = tag ? html.indexOf(tag) : -1;
+  const moduleAt = entry ? html.indexOf(entry) : -1;
+  if (vendorAt < 0) errors.push('index.html: нет тега js/vendor/supabase.js');
+  else if (moduleAt >= 0 && vendorAt > moduleAt) {
+    errors.push('index.html: supabase.js стоит ПОСЛЕ модуля приложения — SDK не успеет загрузиться');
+  }
   if (!/integrity=/.test(tag)) errors.push('index.html: у supabase.js нет SRI (integrity)');
   else if (!tag.includes(want)) errors.push('index.html: SRI supabase.js не совпадает с файлом');
 }

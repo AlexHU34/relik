@@ -153,6 +153,11 @@
   <link rel="stylesheet" href="css/components/composer.css">
   <link rel="stylesheet" href="css/components/modals.css">
   <link rel="stylesheet" href="css/components/call.css">
+  <!-- SDK лежит в <head> и грузится с defer: он больше не блокирует разбор страницы
+       и первую отрисовку, но гарантированно выполняется РАНЬШЕ модулей приложения
+       (деферентные скрипты идут в порядке документа). Иначе supabaseClient.js
+       создаётся, когда window.supabase ещё нет, и весь обмен данными молча падает. -->
+  <script defer src="js/vendor/supabase.js"></script>
 </head>
 <body>
 
@@ -1082,8 +1087,7 @@
     <span id="netText"></span>
   </div>
 
-  <!-- SDK грузим с defer: он больше не блокирует разбор страницы и первую отрисовку -->
-  <script defer src="js/vendor/supabase.js"></script>
+  <!-- SDK подключён в <head> (см. выше), чтобы он выполнялся до модулей -->
   <!-- qrcode.js (55 КБ) грузится по требованию из js/ui/chatView.js -->
   <script nomodule>
     document.addEventListener('DOMContentLoaded', function () {

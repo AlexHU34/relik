@@ -4,7 +4,7 @@
 
 ## Что нужно
 
-- Node.js 20+ (проверено на 24).
+- Node.js 20+ (проверено на 24; CI и `.nvmrc` — 22). Для воспроизводимых сборок держите тот же мажор Node, что в `.nvmrc`, и не удаляйте `package-lock.json`.
 - Проект Supabase (URL + publishable/anon key в `js/config.js`).
 - Репозиторий GitHub и включённый Pages: **Settings → Pages → Deploy from a branch → `main` / `/ (root)`**.
 - `.nojekyll` в корне сайта (сборка копирует его сама).
@@ -23,6 +23,7 @@ node scripts/check-all.mjs   # тесты, типы, линтер, бюджет�
 
 ```powershell
 node scripts/check-dist.mjs                       # ASSETS, 404, CSP, размер критического пути
+node scripts/reproducible.mjs                     # две сборки подряд → хеши совпадают
 py -m http.server 8100 --directory dist           # локальный «прод»
 node scripts/e2e.mjs --demo --url http://localhost:8100/
 ```
@@ -67,6 +68,18 @@ node scripts/verify-live.mjs https://relik.best/
 каждый файл на сервере. Ловит подмену JS, битый деплой и залипший кэш.
 В `index.html` у вендорного `supabase.js` стоит SRI: если файл изменят,
 браузер откажется его выполнять.
+
+## Воспроизводимость сборки
+
+```powershell
+node scripts/reproducible.mjs   # npm run check:repro
+```
+
+Дважды собирает проект с нуля (с `TZ=UTC`) и сравнивает SHA-256 всех 48 файлов
+из `integrity.json`. `check:repro` входит в CI, поэтому «плавающая» сборка
+(время в файле, `Math.random`, порядок обхода каталога) не пройдёт проверку.
+Для повторяемости между машинами нужны одинаковый мажор Node (`.nvmrc` = 22)
+и неизменённый `package-lock.json`.
 
 ## Откат
 

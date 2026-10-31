@@ -18,7 +18,7 @@
   <link rel="dns-prefetch" href="https://sumaysqzahgesifdevxu.supabase.co">
   <!-- Критичные модули грузим параллельно, чтобы не ждать цепочку импортов -->
   <link rel="modulepreload" href="./assets/main-Csdgdigl.js">
-  <link rel="modulepreload" href="./assets/config-CgP58gzh.js">
+  <link rel="modulepreload" href="./assets/config-Q-PAJqAO.js">
   <link rel="modulepreload" href="./assets/state-0qaezjC3.js">
   <link rel="modulepreload" href="./assets/chatView-Bvc9bLWP.js">
   <link rel="modulepreload" href="./assets/messages-BPwgSrPL.js">
@@ -145,7 +145,12 @@
       if (/(^|[?&])reset=1(&|$)/.test(location.search)) setTimeout(window.__relikReset, 200);
     })();
   </script>
-  <script type="module" crossorigin src="./assets/index-Cx2sbd6p.js"></script>
+  <!-- SDK лежит в <head> и грузится с defer: он больше не блокирует разбор страницы
+       и первую отрисовку, но гарантированно выполняется РАНЬШЕ модулей приложения
+       (деферентные скрипты идут в порядке документа). Иначе supabaseClient.js
+       создаётся, когда window.supabase ещё нет, и весь обмен данными молча падает. -->
+  <script defer src="js/vendor/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"></script>
+  <script type="module" crossorigin src="./assets/index-GPd5tRPP.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-ULIikjb-.css">
   <link rel="stylesheet" crossorigin href="./assets/base-BxOl2HU4.css">
 </head>
@@ -1077,8 +1082,7 @@
     <span id="netText"></span>
   </div>
 
-  <!-- SDK грузим с defer: он больше не блокирует разбор страницы и первую отрисовку -->
-  <script defer src="js/vendor/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"></script>
+  <!-- SDK подключён в <head> (см. выше), чтобы он выполнялся до модулей -->
   <!-- qrcode.js (55 КБ) грузится по требованию из js/ui/chatView.js -->
   <script nomodule>
     document.addEventListener('DOMContentLoaded', function () {

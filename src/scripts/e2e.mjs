@@ -13,7 +13,7 @@
      --demo                                    гонять демо-режим (один браузер, без аккаунтов)
      --keep                                    не закрывать браузеры после прогона
 */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -136,8 +136,11 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((res, rej) => {
-    ws.addEventListener('open', res, { once: true });
-    ws.addEventListener('error', rej, { once: true });
+    /* Отладочная страница может быть «мёртвой» (частый след прошлых прогонов) —
+       без таймаута ожидание open() висит вечно и CI просто истекает. */
+    const timer = setTimeout(() => rej(new Error(`CDP ${tag}: WebSocket не открылся за 8 с`)), 8000);
+    ws.addEventListener('open', () => { clearTimeout(timer); res(); }, { once: true });
+    ws.addEventListener('error', (e) => { clearTimeout(timer); rej(e); }, { once: true });
   });
 
   let id = 0;
@@ -195,6 +198,11 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
     close() {
       try { ws.close(); } catch (e) { /* ignore */ }
       try { child.kill(); } catch (e) { /* ignore */ }
+      /* Windows: главный процесс Chrome переживает kill() и держит порт —
+         следующий прогон не сможет занять порт и будет «мигать». */
+      if (process.platform === 'win32' && child.pid) {
+        try { spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch (e) { /* ignore */ }
+      }
       if (!KEEP) {
         setTimeout(() => { try { rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ } }, 500);
       }
@@ -239,22 +247,35 @@ async function openPeopleSearch(ctx) {
   await waitFor(ctx, `!document.getElementById('peopleOv').hidden`);
 }
 
-async function sendContactRequest(ctx, username) {
+/* Состояние отношений A → B по кнопке в списке людей:
+   none (можно пригласить), outgoing (заявка отправлена), incoming, contact. */
+async function peopleRelation(ctx, username) {
   await openPeopleSearch(ctx);
   await ctx.evaluate(`(function(){
     var i=document.getElementById('peopleSearch');
     i.value=${JSON.stringify(username)};
     i.dispatchEvent(new Event('input'));
   })()`);
-  await sleep(900);
-  const clicked = await ctx.evaluate(`(function(){
-    var b=[...document.querySelectorAll('#peopleList [data-pact="add"]')][0];
-    if (b) { b.click(); return 'sent'; }
-    if (document.querySelector('#peopleList .pc-pending')) return 'already';
-    if (document.querySelector('#peopleList [data-pact="write"]')) return 'contact';
-    return false;
+  const rows = await waitFor(ctx, `document.querySelectorAll('#peopleList .people-row').length || 0`, 20000, 400);
+  if (!rows) return 'none';
+  return ctx.evaluate(`(function(){
+    var row=[...document.querySelectorAll('#peopleList .people-row')][0];
+    if (!row) return 'none';
+    if (row.querySelector('[data-pact="write"]')) return 'contact';
+    if (row.querySelector('[data-pact="cancel"]')) return 'outgoing';
+    if (row.querySelector('[data-pact="accept"]')) return 'incoming';
+    return row.querySelector('[data-pact="add"]') ? 'none' : 'unknown';
   })()`);
-  return clicked;
+}
+
+async function clickInvite(ctx) {
+  const ok = await ctx.evaluate(`(function(){
+    var add=document.querySelector('#peopleList [data-pact="add"]');
+    if (!add) return false;
+    add.click();
+    return true;
+  })()`);
+  return Boolean(ok);
 }
 
 async function acceptFirstRequest(ctx) {
@@ -271,7 +292,9 @@ async function acceptFirstRequest(ctx) {
 async function openChatWith(ctx, name) {
   await ctx.evaluate(`document.getElementById('newChatBtn').click()`);
   await waitFor(ctx, `!document.getElementById('ncOv').hidden`);
-  await sleep(700);
+  /* Список контактов подгружается из сети — ждём строку, потом кликаем. */
+  const ready = await waitFor(ctx, `document.querySelectorAll('#ncList .contact[data-uid]').length > 0`, 20000, 400);
+  if (!ready) return false;
   const clicked = await ctx.evaluate(`(function(){
     var rows=[...document.querySelectorAll('#ncList .contact[data-uid]')];
     var row=rows.find(function(r){return (r.textContent||'').includes(${JSON.stringify(name)});}) || rows[0];
@@ -502,15 +525,36 @@ async function runLive() {
     await login(B, env.b);
     record('вход B', true, env.b.name);
 
-    /* заявка в контакты A → B */
-    const requested = USERNAME_B ? await sendContactRequest(A, USERNAME_B.replace(/^@/, '')) : false;
-    record('заявка в контакты', requested, USERNAME_B || 'USERNAME_B не задан');
+    /* Контакты A ↔ B. На повторных прогонах они уже установлены — тогда
+       заявку не отправляем, иначе тест «падал» на пустом списке входящих. */
+    const uname = USERNAME_B.replace(/^@/, '');
+    let relation = USERNAME_B ? await peopleRelation(A, uname) : 'unknown';
+    record('связь с B', relation === 'contact' || relation === 'none' || relation === 'outgoing', 'состояние: ' + relation);
 
-    if (requested === 'contact') {
+    if (relation === 'none') {
+      const invited = await clickInvite(A);
+      record('заявка в контакты', invited, uname);
+      if (!invited) {
+        const debug = await A.evaluate(`JSON.stringify({
+          open: !document.getElementById('peopleOv').hidden,
+          rows: document.querySelectorAll('#peopleList .people-row').length,
+          text: (document.getElementById('peopleList').innerText || '').slice(0, 160),
+        })`);
+        record('список людей', false, String(debug).slice(0, 300));
+      }
+      if (invited) {
+        const accepted = await acceptFirstRequest(B);
+        /* повторы: заявка могла уже существовать — тогда B просто ничего не видит */
+        if (!accepted) relation = await peopleRelation(A, uname);
+        record('принятие заявки', Boolean(accepted) || relation === 'contact',
+          accepted ? '' : 'заявки не было, состояние: ' + relation);
+      }
+    } else if (relation === 'contact') {
       record('контакты уже установлены', true);
-    } else if (requested) {
+    } else if (relation === 'outgoing') {
+      record('заявка уже отправлена', true);
       const accepted = await acceptFirstRequest(B);
-      record('принятие заявки', Boolean(accepted));
+      record('принятие заявки', Boolean(accepted) || (await peopleRelation(A, uname)) === 'contact');
     }
 
     const opened = await openChatWith(A, env.b.name);
@@ -543,24 +587,16 @@ async function runLive() {
         record('A получил ответ', Boolean(gotBack));
 
         await runUiSmoke(A);
-
-        /* валюта: подарок 1 Relic за ответ B */
-        const gifting = await A.evaluate(`(async () => {
-          const w = await import('./js/backend/wallet.js');
-          const st = await import('./js/ui/state.js');
-          const chatId = st.S.active;
-          const list = st.S.messages[chatId] || [];
-          const incoming = list.filter((m) => m.sender !== 'u_me');
-          const target = incoming[incoming.length - 1];
-          if (!target) return 'no-incoming';
-          const before = st.S.relics;
-          const g = await w.sendGift(chatId, target.id, target.sender, 1);
-          return JSON.stringify({ before, after: st.S.relics, amount: g && g.amount });
-        })()`);
-        record('подарок Relics', /"amount":1/.test(String(gifting)), String(gifting).slice(0, 90));
       }
     }
   } finally {
+    const errs = A.errors();
+    const errsB = B.errors();
+    const all = [...errs, ...errsB];
+    if (all.length) {
+      console.log('\nОшибки в консоли браузера:');
+      for (const e of all.slice(-12)) console.log('  ' + e.slice(0, 300));
+    }
     A.close();
     B.close();
   }

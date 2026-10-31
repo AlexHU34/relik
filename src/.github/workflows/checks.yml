@@ -37,6 +37,9 @@ jobs:
       - name: Проверка собранного dist
         run: node scripts/check-dist.mjs
 
+      - name: Воспроизводимость сборки (два прогона, сравнение хешей)
+        run: node scripts/reproducible.mjs
+
       - name: UI-смоук в браузере (демо)
         run: |
           python3 -m http.server 8123 --directory dist >/dev/null 2>&1 &
