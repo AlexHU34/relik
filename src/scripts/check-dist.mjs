@@ -98,7 +98,16 @@ for (const c of critical) {
 const cssEntry = critical.filter((c) => c.endsWith('.css')).map((c) => path.join(DIST, c.replace(/^\.?\//, '')));
 const cssBytes = cssEntry.reduce((a, f) => a + (fs.existsSync(f) ? fs.statSync(f).size : 0), 0);
 
-/* ── 7. Мелочи ─────────────────────────────────────────────── */
+/* ── 8. Домен: если CNAME есть, он должен быть валидным ─────── */
+const cnamePath = path.join(DIST, 'CNAME');
+if (fs.existsSync(cnamePath)) {
+  const host = fs.readFileSync(cnamePath, 'utf8').trim();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host)) errors.push(`CNAME: некорректный домен «${host}»`);
+} else {
+  warnings.push('CNAME нет — сайт отдаётся с github.io');
+}
+
+/* ── 9. Мелочи ─────────────────────────────────────────────── */
 const maps = walk(DIST).filter((f) => f.endsWith('.map'));
 if (maps.length) warnings.push(`в dist ${maps.length} sourcemap — лишний вес`);
 if (!exists('.nojekyll')) warnings.push('.nojekyll отсутствует — GitHub Pages может включить Jekyll');

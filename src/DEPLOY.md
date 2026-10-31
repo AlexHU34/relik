@@ -42,7 +42,7 @@ powershell -ExecutionPolicy Bypass -File C:\67\publish-github.ps1 "что изм
 5. копирует `dist/` в корень зеркала, а исходники — в `src/`;
 6. коммитит и пушит в `github.com/AlexHU34/relik` (`main`).
 
-Через ~1 минуту: <https://alexhu34.github.io/relik/>.
+Через ~1 минуту: <https://relik.best/>.
 Проверка: `sw.js` → `const VER = 'relik-vX.Y.Z'`, `index.html` → `assets/index-<hash>.js` (200).
 
 ## Как устроен репозиторий

@@ -40,6 +40,14 @@ for (const f of statics) {
   else console.warn(`  ! нет ${f}`);
 }
 
+/* CNAME включаем только когда домен уже настроен в DNS:
+   иначе GitHub Pages переключится на несуществующий адрес и сайт «пропадёт». */
+if (fs.existsSync(path.join(ROOT, 'CNAME'))) {
+  copyFile(path.join(ROOT, 'CNAME'), path.join(DIST, 'CNAME'));
+} else {
+  log('CNAME нет — публикуем на github.io');
+}
+
 /* Вендоры грузятся по жёсткому пути (script src / new URL), их копируем как есть. */
 for (const f of ['supabase.js', 'qrcode.js']) {
   const src = path.join(ROOT, 'js', 'vendor', f);

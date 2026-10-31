@@ -3,5 +3,5 @@
   "released": "2026-10-31",
   "notes": "1.43.0: ленивая загрузка — экран входа не тянет код чата (boot/app.js после входа), входной чанк 235 -> 59 КБ, критический путь 640 -> 260 КБ.",
   "download": "https://github.com/AlexHU34/relik/releases",
-  "web": "https://alexhu34.github.io/relik/"
+  "web": "https://relik.best/"
 }

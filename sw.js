@@ -2,6 +2,7 @@
 const VER = 'relik-v1.43.0';
 const ASSETS = [
   './.nojekyll',
+  './CNAME',
   './admin.html',
   './assets/app-DmaIe3gO.js',
   './assets/apple-touch-icon-gc2qwoFq.png',
