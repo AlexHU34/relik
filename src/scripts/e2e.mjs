@@ -142,11 +142,17 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
 
   let id = 0;
   const pending = new Map();
+  const events = [];
   ws.addEventListener('message', (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) {
       pending.get(m.id)(m.result || {});
       pending.delete(m.id);
+      return;
+    }
+    if (m.method) {
+      events.push(m);
+      if (events.length > 300) events.shift();
     }
   });
   const send = (method, params = {}) => new Promise((resolve) => {
@@ -154,6 +160,9 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
     pending.set(n, resolve);
     ws.send(JSON.stringify({ id: n, method, params }));
   });
+  await send('Runtime.enable');
+  await send('Log.enable');
+  await send('Page.enable');
 
   const evaluate = async (expression) => {
     const r = await send('Runtime.evaluate', {
@@ -174,6 +183,15 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
 
   return {
     tag, port, dir, child, ws, send, evaluate,
+    events,
+    errors() {
+      return events
+        .filter((e) => e.method === 'Runtime.exceptionThrown' || e.method === 'Log.entryAdded')
+        .map((e) => (e.method === 'Runtime.exceptionThrown'
+          ? 'exception: ' + (e.params?.exceptionDetails?.exception?.description || e.params?.exceptionDetails?.text)
+          : e.params?.entry?.level + ': ' + e.params?.entry?.text))
+        .filter((s) => /error|warn/i.test(s));
+    },
     close() {
       try { ws.close(); } catch (e) { /* ignore */ }
       try { child.kill(); } catch (e) { /* ignore */ }
@@ -370,9 +388,14 @@ async function runDemo() {
        появляется позже, чем экран приложения — ждём его, иначе шаг «плавает» */
     await waitFor(ctx, `document.querySelectorAll('.chat-item').length > 0`, 15000);
 
+    const sidebarState = await ctx.evaluate(`({
+      items: document.querySelectorAll('.chat-item').length,
+      text: (document.getElementById('sideList')?.innerText || '').slice(0, 120),
+      hash: location.hash,
+    })`);
     await ctx.evaluate(`document.querySelector('.chat-item')?.click()`);
     const opened = await waitFor(ctx, `!document.getElementById('chatActive').hidden`, 8000);
-    record('открытие чата', Boolean(opened));
+    record('открытие чата', Boolean(opened), JSON.stringify(sidebarState));
 
     const marker = 'e2e-' + Date.now();
     await typeAndSend(ctx, marker);
@@ -435,6 +458,11 @@ async function runDemo() {
 
     await runUiSmoke(ctx);
   } finally {
+    const errs = ctx.errors();
+    if (errs.length) {
+      console.log('\nОшибки в консоли браузера:');
+      for (const e of errs.slice(-12)) console.log('  ' + e.slice(0, 300));
+    }
     ctx.close();
   }
 }

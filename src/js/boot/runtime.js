@@ -7,6 +7,12 @@ import { toast } from '../ui/toast.js';
 import { sweepExpired } from '../backend/expiry.js';
 import { ensurePersistentStorage, autoPruneMedia } from '../db/mediaCache.js';
 
+/* Заглушка загрузки из index.html убирается, как только что-то показано */
+export function bootDone() {
+  document.documentElement.dataset.boot = 'done';
+  try { if (window.relikBoot) window.relikBoot.done(); } catch (e) { /* ignore */ }
+}
+
 
 /* ── Плашка состояния сети ─────────────────────────────────── */
 export function initNetBar() {

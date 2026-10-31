@@ -7,10 +7,12 @@
 ```
 js/
   config.js          константы, ключи Supabase, флаги (CRYPTO_V2)
-  main.js            запуск: сессия, realtime, глобальные обработчики (~680 строк)
+  main.js            точка входа: тема, язык, экран входа (~120 строк)
   boot/
     auth.js          экран входа, регистрация, код доступа, верификация
-    runtime.js       плашка сети, обновление SW, обслуживание хранилища
+    runtime.js       плашка сети, обновление SW, обслуживание хранилища, bootDone
+    app.js           ПРИЛОЖЕНИЕ (грузится динамически после входа): чат, сайдбар,
+                     модалки, realtime, восстановление сессии
   core/
     outbox.js        ЧИСТАЯ логика очереди исходящих (состояния, backoff, dedupe)
   ui/
@@ -72,7 +74,6 @@ js/
    чинится PWA-манифест. Деплой идёт из `dist/` (`publish-github.ps1`).
 
 ## Как ходит сообщение
-
 **Отправка:** `composer.sendCurrent` → `backend/messages.sendMessage` (шифрование v1/v2) →
 Supabase → локальная копия в IndexedDB → `chatView.deliverMessage` → `appendToFeed` или
 `renderMessages`.

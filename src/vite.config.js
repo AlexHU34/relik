@@ -23,6 +23,9 @@ export default defineConfig({
     assetsInlineLimit: 2048,
     cssCodeSplit: true,
     sourcemap: false,
+    /* Не прогреваем динамические чанки: экран входа не должен тянуть код чата.
+       Браузер догрузит их в момент входа (параллельно по графу модулей). */
+    modulePreload: false,
     rollupOptions: {
       input,
       output: {

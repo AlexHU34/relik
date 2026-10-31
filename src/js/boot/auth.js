@@ -9,10 +9,7 @@ import { idb } from '../db/idb.js';
 import { ME } from '../data/mock.js';
 import { sb } from '../backend/supabaseClient.js';
 import { signUp, signIn, authHealth, authErrorMessage, isValidUsername, isUsernameTaken, verifySignupCode } from '../backend/auth.js';
-import { setReencryptPassword, openRecoveryFlow } from '../ui/keyRecovery.js';
 import { logEvent } from '../backend/telemetry.js';
-import { route } from '../ui/router.js';
-import { renderSidebar } from '../ui/sidebar.js';
 
 let hooks = { enterApp: async () => {} };
 export function bindAuthHooks(next = {}) { hooks = { ...hooks, ...next }; }
@@ -196,7 +193,7 @@ export function initAuth() {
         } else {
           try {
             S.me = await signIn(email, pass);
-            setReencryptPassword(pass);
+            import('../ui/keyRecovery.js').then((m) => m.setReencryptPassword(pass)).catch(() => {});
           } catch (err) {
             if (/confirm|not confirmed/i.test(err.message || '')) {
               showVerify(email);
@@ -217,7 +214,7 @@ export function initAuth() {
 
       await hooks.enterApp(authMode === 'login' ? 'auth.welcomeLogin' : 'auth.welcomeSignup');
       if (S.me?.keyError) {
-        setTimeout(() => openRecoveryFlow({ force: true, password: pass }), 600);
+        setTimeout(() => import('../ui/keyRecovery.js').then((m) => m.openRecoveryFlow({ force: true, password: pass })).catch(() => {}), 600);
       }
     } catch (err) {
       const friendly = authErrorMessage(err);
@@ -388,11 +385,3 @@ export function wireVerify() {
   });
 }
 
-export function routeAfterLogin() {
-  if (!location.hash || location.hash.startsWith('#/auth') || location.hash === '#/') {
-    location.hash = '#/app';
-  } else {
-    route();
-  }
-  renderSidebar();
-}

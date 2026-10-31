@@ -1,49 +1,41 @@
-/* Relik — точка входа: сборка экранов, вход, демо-сценарий */
-import { APP, SUPABASE } from './config.js';
-import { t, initI18n, applyDom } from './i18n/i18n.js';
-import { idb } from './db/idb.js';
-import { seedIfEmpty, USERS, demoMessage } from './data/mock.js';
-import { S, chatById } from './ui/state.js';
-import { $ } from './ui/utils.js';
-import { applyA11y } from './ui/a11y.js';
-import { icon } from './ui/icons.js';
-import { toast } from './ui/toast.js';
-import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from './ui/sidebar.js';
-import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from './ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from './ui/composer.js';
-import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, closeTransientOverlays } from './ui/modals.js';
-import { openRecoveryFlow, maybePromptBackup } from './ui/keyRecovery.js';
-import { sweepExpired } from './backend/expiry.js';
-import { initPalette, openPalette } from './ui/palette.js';
-import { initRecovery } from './ui/recovery.js';
-import { seedDemoRequests } from './backend/contacts.js';
-import { initTelemetry, logEvent } from './backend/telemetry.js';
-import { initNetBar, initServiceWorker, scheduleStorageUpkeep } from './boot/runtime.js';
-import {
-  initAuth, paintAuth, animateWelcome, routeAfterLogin, isRealBackend, bindAuthHooks,
-} from './boot/auth.js';
-
-bindAuthHooks({ enterApp });
-import { loadBlocks } from './backend/blocks.js';
-import { initRouter, route, showApp, showAuth } from './ui/router.js';
-import { applyTheme, currentTheme } from './ui/themes.js';
-import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js';
-import { initDevice } from './ui/device.js';
-import { maybeShowIosHint } from './ui/iosHint.js';
-import { sb } from './backend/supabaseClient.js';
-import { signOut, restoreSession, updateLastSeen, saveAvatar } from './backend/auth.js';
-import { retryPendingProfile } from './backend/auth.js';
-import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from './backend/messages.js';
-import { playMessage } from './ui/sounds.js';
-import { notifyMessage } from './ui/notify.js';
-import { initCalls, stopCalls } from './ui/calls.js';
-import { initPin, armPin } from './ui/pin.js';
-import { applyPrefs, isMuted, applyRemotePrefs } from './ui/prefs.js';
-import { enablePrefsSync, loadRemotePrefs } from './backend/prefsSync.js';
-import { clearGroupKeyCache } from './backend/groupKeys.js';
-import { clearMediaObjectUrls } from './backend/storage.js';
-import { ensureDeviceV2, clearDeviceV2 } from './backend/devices.js';
-import { clearV2Sessions } from './backend/v2Messages.js';
-import { CRYPTO_V2 } from './config.js';
+/* Relik — приложение после входа: экран чата, сайдбар, модалки, realtime.
+   Грузится динамически из main.js, чтобы экран входа не тянул код чата. */
+import { SUPABASE, CRYPTO_V2 } from '../config.js';
+import { t, applyDom } from '../i18n/i18n.js';
+import { idb } from '../db/idb.js';
+import { seedIfEmpty, USERS, demoMessage } from '../data/mock.js';
+import { S, chatById } from '../ui/state.js';
+import { $ } from '../ui/utils.js';
+import { applyA11y } from '../ui/a11y.js';
+import { icon } from '../ui/icons.js';
+import { toast } from '../ui/toast.js';
+import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from '../ui/sidebar.js';
+import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from '../ui/chatView.js';
+import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from '../ui/composer.js';
+import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, closeTransientOverlays } from '../ui/modals.js';
+import { openRecoveryFlow, maybePromptBackup } from '../ui/keyRecovery.js';
+import { sweepExpired } from '../backend/expiry.js';
+import { initPalette, openPalette } from '../ui/palette.js';
+import { initRecovery } from '../ui/recovery.js';
+import { seedDemoRequests } from '../backend/contacts.js';
+import { paintAuth, animateWelcome, isRealBackend } from './auth.js';
+import { loadBlocks } from '../backend/blocks.js';
+import { initRouter, route, showApp, showAuth } from '../ui/router.js';
+import { sb } from '../backend/supabaseClient.js';
+import { signOut, restoreSession, updateLastSeen, saveAvatar, retryPendingProfile } from '../backend/auth.js';
+import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from '../backend/messages.js';
+import { playMessage } from '../ui/sounds.js';
+import { notifyMessage } from '../ui/notify.js';
+import { initCalls, stopCalls } from '../ui/calls.js';
+import { initPin, armPin } from '../ui/pin.js';
+import { isMuted, applyRemotePrefs } from '../ui/prefs.js';
+import { applyTheme, currentTheme } from '../ui/themes.js';
+import { bootDone } from './runtime.js';
+import { enablePrefsSync, loadRemotePrefs } from '../backend/prefsSync.js';
+import { clearGroupKeyCache } from '../backend/groupKeys.js';
+import { clearMediaObjectUrls } from '../backend/storage.js';
+import { ensureDeviceV2, clearDeviceV2 } from '../backend/devices.js';
+import { clearV2Sessions } from '../backend/v2Messages.js';
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
 function paintChrome() {
@@ -144,6 +136,16 @@ async function enterApp(welcomeKey) {
   syncPrefsFromCloud().catch(() => {});
 }
 
+
+/* Куда вести после входа: в чат или по сохранённой ссылке. */
+export function routeAfterLogin() {
+  if (!location.hash || location.hash.startsWith('#/auth') || location.hash === '#/') {
+    location.hash = '#/app';
+  } else {
+    route();
+  }
+  renderSidebar();
+}
 
 /* PWA-ярлыки: ./?action=new|settings|search — открываем нужный экран
    после входа и убираем action из URL, чтобы он не срабатывал снова. */
@@ -411,37 +413,12 @@ const withTimeout = (p, ms) => Promise.race([
 ]);
 
 /* Заглушка загрузки из index.html убирается, как только что-то показано */
-function bootDone() {
-  document.documentElement.dataset.boot = 'done';
-  try { if (window.relikBoot) window.relikBoot.done(); } catch (e) { /* ignore */ }
-}
+let uiReady = false;
 
-
-/* ── запуск ── */
-async function boot() {
-  initTelemetry();
-  logEvent('boot', { ua: navigator.userAgent.slice(0, 120) });
-  initI18n();
-  applyDom();
-
-  /* тема и шрифт — до первого рендера */
-  applyPrefs();
-  applyTheme(currentTheme(), false);
-  applySavedFont();
-  if (currentFontId() === 'custom') {
-    try { await restoreCustomFont(); } catch (e) { /* ignore */ }
-  }
-
-  /* раскладка подстраивается автоматически: телефон / планшет / компьютер */
-  initDevice();
-
-  /* сеть и обновления */
-  initNetBar();
-  initServiceWorker();
-  scheduleStorageUpkeep();
-  maybeShowIosHint();
-
-  /* Весь UI собираем сразу, не дожидаясь сети */
+/* Всё, что нужно экрану приложения. Вызывается один раз. */
+function initUi() {
+  if (uiReady) return;
+  uiReady = true;
   initSidebar();
   initChatView();
   initComposer();
@@ -449,7 +426,6 @@ async function boot() {
   initPalette();
   initRecovery();
   initRouter();
-  initAuth();
   initPin();
   initChrome();
   paintChrome();
@@ -468,7 +444,7 @@ async function boot() {
   /* при смене чата/экрана закрываем открытые окна (как в Telegram) */
   window.addEventListener('hashchange', () => {
     closeTransientOverlays();
-    if (location.hash === '#/app' || location.hash === '' || location.hash === '#/') {
+    if (location.hash === '#/app' || location.hash === '' || location.hash === '/') {
       setTimeout(animateWelcome, 60);
     }
   });
@@ -476,127 +452,122 @@ async function boot() {
   /* тик: пересчитать времена в списке */
   setInterval(touchSidebar, 30000);
 
-  /* тик: обновление presence (если есть реальный бэкенд) */
   if (isRealBackend) {
     setInterval(updateLastSeen, 30000);
-    /* при возврате в окно — обновить чаты и статусы */
-  window.addEventListener('focus', () => {
-    if (S.me) reloadChats().then(() => retryOutbox()).catch(() => {});
-    validateSession();
-    refreshRequests().catch(() => {});
-  });
+    window.addEventListener('focus', () => {
+      if (S.me) reloadChats().then(() => retryOutbox()).catch(() => {});
+      validateSession();
+      refreshRequests().catch(() => {});
+    });
   }
+}
 
-  /* сервис-воркер регистрируется в initServiceWorker() выше */
-
-  if (isRealBackend) {
-    /* Из кэша показываем мгновенно, сессию проверяем в фоне */
-    const cachedMe = await quick(idb.get('settings', 'me'), 2000);
-    if (cachedMe?.value) S.me = cachedMe.value;
-
-    if (S.me) {
-      S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
-      S.chatsLoading = !S.chats.length;
-      showApp();
-      armPin();
-      renderSidebar(true);
-      startGlobalRealtime();
-      initCalls();
-      syncPrefsFromCloud().catch(() => {});
-      if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
-      maybeDemo();
-      handlePwaAction();
-      reloadChats()
-        .then(() => { S.chatsLoading = false; renderSidebar(true); })
-        .catch(() => { S.chatsLoading = false; renderSidebar(true); });
-    } else {
-      showAuth();
-    }
-
-    route();
-    renderSidebar();
-    paintEmptyChips();
-    animateWelcome();
-    bootDone();                       // ← экран уже на месте, белой заглушки больше нет
-    if (S.me) validateSession(true);
-
-    /* дальше — только фон: сеть может быть медленной или недоступной */
-    withTimeout(restoreSession(), 12000)
-      .then(async (m) => {
-        if (!m) {
-          if (S.me) {                 // кэш был, но сессия протухла
-            S.me = null;
-            S.chats = [];
-            showAuth();
-          }
-          return;
-        }
-        const fresh = !S.me || S.me.id !== m.id;
-        const cachedAvatar = !fresh && S.me?.avatar ? S.me.avatar : null;
-        S.me = m;
-        /* аватар, сохранённый раньше только в браузере, досохраняем на бэкенд */
-        if (!m.avatar && cachedAvatar) {
-          S.me.avatar = cachedAvatar;
-          saveAvatar(cachedAvatar).catch((err) => console.warn('Avatar sync failed:', err));
-        }
-        idb.put('settings', { key: 'me', value: S.me }).catch(() => {});
-        if (m.keyMissing && m.hasRecovery) {
-          /* локального ключа нет (новое устройство / чистка браузера),
-             но резервная копия фразой есть — предлагаем восстановить */
-          setTimeout(() => openRecoveryFlow({ force: true }), 900);
-        } else if (!m.keyMissing && m.hasRecovery === false) {
-          setTimeout(() => maybePromptBackup().catch(() => {}), 2000);
-        }
-        if (fresh) {
-          showApp();
-          armPin();
-          renderSidebar();
-          initCalls();
-          startGlobalRealtime();
-          syncPrefsFromCloud().catch(() => {});
-      if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
-          maybeDemo();
-          route();
-          handlePwaAction();
-        }
-        reloadChats().then(() => retryOutbox()).catch(() => {});
-      })
-      .catch((err) => console.warn('Session check failed:', err));
-
-    /* проверка доступности сервера: без связи/VPN покажем понятное сообщение */
-    probeServer();
-    return;
-  }
-
-  /* ── демо-режим на IndexedDB ── */
-  try {
+/* После входа или восстановления сессии. */
+export async function startApp(welcomeKey) {
+  initUi();
+  if (!isRealBackend) {
+    /* демо: чаты и профиль лежат в IndexedDB, бэкенда нет */
     S.users = USERS;
     S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
-    const meRec = await quick(idb.get('settings', 'me'), 2000);
-    S.me = meRec?.value || null;
-    /* Сид генерирует превью и занимает пару секунд — не держим им первую отрисовку.
-       Когда закончит, перечитываем список чатов. */
+    if (!S.me) {
+      const meRec = await quick(idb.get('settings', 'me'), 2000);
+      S.me = meRec?.value || null;
+    }
+    /* Первый запуск демо: наполняем базу в фоне и перечитываем список */
     seedIfEmpty().then(() => reloadChats()).catch(() => {});
-  } catch (err) {
-    console.error('Demo init error:', err);
+  }
+  await enterApp(welcomeKey);
+}
+
+/* Запуск по кэшу: чаты показываем сразу, сессию проверяем в фоне. */
+export async function bootApp() {
+  initUi();
+
+  if (isRealBackend) {
+    if (!S.me) {
+      const cachedMe = await quick(idb.get('settings', 'me'), 2000);
+      if (cachedMe?.value) S.me = cachedMe.value;
+    }
+    S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
+    S.chatsLoading = !S.chats.length;
+  } else {
+    S.users = USERS;
+    S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
+    if (!S.me) {
+      const meRec = await quick(idb.get('settings', 'me'), 2000);
+      S.me = meRec?.value || null;
+    }
+    /* Сид генерирует превью пару секунд — не держим им первую отрисовку. */
+    seedIfEmpty().then(() => reloadChats()).catch(() => {});
   }
 
-  if (S.me) {
-    showApp();
-    armPin();
-    maybeDemo();
-    seedDemoRequests(S.users).then(() => refreshRequests()).catch(() => {});
-    startGlobalRealtime();
-    initCalls();
-    handlePwaAction();
-  } else {
-    showAuth();
-  }
+  if (!S.me) { showAuth(); bootDone(); return; }
+
+  showApp();
+  armPin();
+  renderSidebar(true);
+  startGlobalRealtime();
+  initCalls();
+  syncPrefsFromCloud().catch(() => {});
+  if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
+  maybeDemo();
   route();
   renderSidebar();
   paintEmptyChips();
   animateWelcome();
   bootDone();
+  handlePwaAction();
+  reloadChats().then(() => retryOutbox()).catch(() => {});
+
+  if (!isRealBackend) {
+    seedDemoRequests(S.users).then(() => refreshRequests()).catch(() => {});
+    return;
+  }
+
+  validateSession(true);
+
+  /* дальше — только фон: сеть может быть медленной или недоступной */
+  withTimeout(restoreSession(), 12000)
+    .then(async (m) => {
+      if (!m) {
+        if (S.me) {                 // кэш был, но сессия протухла
+          S.me = null;
+          S.chats = [];
+          showAuth();
+        }
+        return;
+      }
+      const fresh = !S.me || S.me.id !== m.id;
+      const cachedAvatar = !fresh && S.me?.avatar ? S.me.avatar : null;
+      S.me = m;
+      if (!m.avatar && cachedAvatar) {
+        S.me.avatar = cachedAvatar;
+        saveAvatar(cachedAvatar).catch((err) => console.warn('Avatar sync failed:', err));
+      }
+      idb.put('settings', { key: 'me', value: S.me }).catch(() => {});
+      if (m.keyMissing && m.hasRecovery) {
+        setTimeout(() => openRecoveryFlow({ force: true }), 900);
+      } else if (!m.keyMissing && m.hasRecovery === false) {
+        setTimeout(() => maybePromptBackup().catch(() => {}), 2000);
+      }
+      if (fresh) {
+        showApp();
+        armPin();
+        renderSidebar();
+        initCalls();
+        startGlobalRealtime();
+        syncPrefsFromCloud().catch(() => {});
+        if (CRYPTO_V2.enabled) ensureDeviceV2().catch(() => {});
+        maybeDemo();
+        route();
+        handlePwaAction();
+      }
+      reloadChats().then(() => retryOutbox()).catch(() => {});
+    })
+    .catch((err) => console.warn('Session check failed:', err));
+
+  /* проверка доступности сервера: без связи/VPN покажем понятное сообщение */
+  probeServer();
 }
 
 /* Тихая проверка сервера: не показываем ложное «нет сети».
@@ -673,12 +644,3 @@ if ('serviceWorker' in navigator) {
     } catch (err) { /* ignore */ }
   });
 }
-
-/* Заголовок и версия */
-document.title = APP.name;
-console.info(`%cRelik v${APP.version}`, 'color:#5b6cf9;font-weight:bold', `· ${APP.phase}`);
-
-boot().catch((err) => {
-  console.error('Boot failed:', err);
-  if (window.relikBoot) window.relikBoot.fail('Не удалось запустить Relik', err && err.message ? err.message : err);
-});

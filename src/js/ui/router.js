@@ -7,16 +7,9 @@ import { joinConversation } from '../backend/chats.js';
 import { SUPABASE } from '../config.js';
 import { currentDevice } from './device.js';
 import { markTiming } from '../backend/telemetry.js';
+import { showAuth, showApp } from './screens.js';
 
-export function showAuth(on = true) {
-  $('#authView').hidden = !on;
-  $('#appView').hidden = on;
-}
-
-export function showApp() {
-  $('#authView').hidden = true;
-  $('#appView').hidden = false;
-}
+export { showAuth, showApp };
 
 export function route() {
   const h = location.hash;

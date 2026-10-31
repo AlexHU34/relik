@@ -25,16 +25,17 @@ const DATA = new Set(['js/i18n/ru.js', 'js/i18n/en.js']);
 
 /* Файлы, которые ещё не разрезаны. Значения только уменьшаются. */
 const LEGACY = {
-  'js/ui/chatView.js': 1703,
-  'js/ui/modals.js': 704,
-  'js/ui/modals/settings.js': 452,
-  'js/ui/composer.js': 716,
-  'js/main.js': 1156,
-  'js/backend/messages.js': 786,
-  'js/ui/calls.js': 640,
-  'js/ui/palette.js': 518,
   'js/backend/auth.js': 494,
+  'js/backend/messages.js': 786,
+  'js/boot/app.js': 646,
   'js/crypto/v2/protocol.js': 436,
+  'js/main.js': 116,
+  'js/ui/calls.js': 640,
+  'js/ui/chatView.js': 1476,
+  'js/ui/composer.js': 716,
+  'js/ui/modals.js': 704,
+  'js/ui/modals/settings.js': 447,
+  'js/ui/palette.js': 518,
   'js/ui/sidebar.js': 442,
 };
 
