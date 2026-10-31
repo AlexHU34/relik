@@ -57,17 +57,18 @@ export async function deriveChatKey(myPrivateKey, theirPublicKey) {
   );
 }
 
-/* ── Шифрование сообщения AES-GCM ── */
-export async function encryptMessage(key, plaintext) {
+/* ── Шифрование сообщения AES-GCM ──
+   aad привязывает шифртекст к чату, отправителю и id сообщения:
+   сервер не сможет переставить или подменить шифртекст. */
+export async function encryptMessage(key, plaintext, aad = null) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const enc = new TextEncoder();
   const data = enc.encode(plaintext);
 
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    data
-  );
+  const params = { name: 'AES-GCM', iv };
+  if (aad) params.additionalData = enc.encode(String(aad));
+
+  const ciphertext = await crypto.subtle.encrypt(params, key, data);
 
   return {
     iv: keygen.toBase64(iv),
@@ -75,16 +76,16 @@ export async function encryptMessage(key, plaintext) {
   };
 }
 
-/* ── Дешифрование сообщения AES-GCM ── */
-export async function decryptMessage(key, ivBase64, ciphertextBase64) {
+/* ── Дешифрование сообщения AES-GCM ──
+   Старые сообщения (без AAD) вызывающий читает вторым вызовом без aad. */
+export async function decryptMessage(key, ivBase64, ciphertextBase64, aad = null) {
   const iv = keygen.fromBase64(ivBase64);
   const ciphertext = keygen.fromBase64(ciphertextBase64);
 
-  const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ciphertext
-  );
+  const params = { name: 'AES-GCM', iv };
+  if (aad) params.additionalData = new TextEncoder().encode(String(aad));
+
+  const decrypted = await crypto.subtle.decrypt(params, key, ciphertext);
 
   const dec = new TextDecoder();
   return dec.decode(decrypted);

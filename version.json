@@ -1,7 +1,7 @@
 {
-  "version": "1.44.1",
+  "version": "1.45.0",
   "released": "2026-10-31",
-  "notes": "1.44.1: ссылки в пушах, письмах и документации переведены на relik.best.",
+  "notes": "1.45.0: шифртекст привязан к чату/отправителю/id (AAD), бэкап ключа PBKDF2 600k с обратной совместимостью, 6 новых тестов.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://relik.best/"
 }

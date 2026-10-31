@@ -25,25 +25,25 @@ export async function getTheirPublicKey(theirPublicKeyJwk) {
 }
 
 /* ── Шифрование сообщения для личного чата ── */
-export async function encryptForChat(text, myPrivateKey, theirPublicKey) {
+export async function encryptForChat(text, myPrivateKey, theirPublicKey, aad = null) {
   const chatKey = await ecdh.deriveChatKey(myPrivateKey, theirPublicKey);
-  return await ecdh.encryptMessage(chatKey, text);
+  return await ecdh.encryptMessage(chatKey, text, aad);
 }
 
 /* ── Дешифрование сообщения из личного чата ── */
-export async function decryptFromChat(iv, ciphertext, myPrivateKey, theirPublicKey) {
+export async function decryptFromChat(iv, ciphertext, myPrivateKey, theirPublicKey, aad = null) {
   const chatKey = await ecdh.deriveChatKey(myPrivateKey, theirPublicKey);
-  return await ecdh.decryptMessage(chatKey, iv, ciphertext);
+  return await ecdh.decryptMessage(chatKey, iv, ciphertext, aad);
 }
 
 /* ── Шифрование для группы (v1: общий ключ группы) ── */
-export async function encryptForGroup(text, groupKey) {
-  return await ecdh.encryptMessage(groupKey, text);
+export async function encryptForGroup(text, groupKey, aad = null) {
+  return await ecdh.encryptMessage(groupKey, text, aad);
 }
 
 /* ── Дешифрование для группы ── */
-export async function decryptFromGroup(iv, ciphertext, groupKey) {
-  return await ecdh.decryptMessage(groupKey, iv, ciphertext);
+export async function decryptFromGroup(iv, ciphertext, groupKey, aad = null) {
+  return await ecdh.decryptMessage(groupKey, iv, ciphertext, aad);
 }
 
 /* ── Генерация ключа группы ── */

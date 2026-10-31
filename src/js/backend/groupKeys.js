@@ -297,19 +297,30 @@ export async function rotateGroupKey(chatId, userIds = null) {
 }
 
 /* ── Шифрование / дешифрование сообщения группы ───────────── */
-export async function encryptGroupText(chatId, text) {
+export async function encryptGroupText(chatId, text, aad = null) {
   const latest = await getLatestGroupKey(chatId, true);
   const key = latest?.key || await createGroupKey(chatId);
   if (!key) return null;
-  return await encryptForGroup(text, key);
+  return await encryptForGroup(text, key, aad);
 }
 
-export async function decryptGroupText(chatId, iv, ciphertext) {
+export async function decryptGroupText(chatId, iv, ciphertext, aad = null) {
   if (!chatId || !iv || !ciphertext) return null;
+
+  /* Сообщения, отправленные до привязки AAD, читаются без неё. */
+  const tryKey = async (key) => {
+    try {
+      return await decryptFromGroup(iv, ciphertext, key, aad);
+    } catch (e) {
+      if (!aad) throw e;
+      return await decryptFromGroup(iv, ciphertext, key, null);
+    }
+  };
+
   let keys = await loadGroupKeys(chatId);
   for (const item of keys) {
     try {
-      return await decryptFromGroup(iv, ciphertext, item.key);
+      return await tryKey(item.key);
     } catch (e) { /* другая версия ключа — пробуем следующую */ }
   }
   /* Возможно, ключ ротировали на другом устройстве — обновляем список */
@@ -318,7 +329,7 @@ export async function decryptGroupText(chatId, iv, ciphertext) {
     keys = await loadGroupKeys(chatId, { refresh: true });
     for (const item of keys) {
       try {
-        const text = await decryptFromGroup(iv, ciphertext, item.key);
+        const text = await tryKey(item.key);
         retryRefreshAt.delete(chatId);
         return text;
       } catch (e) { /* всё ещё не тот ключ */ }

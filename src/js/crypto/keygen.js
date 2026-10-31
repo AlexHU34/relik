@@ -52,8 +52,10 @@ export async function importPrivateKey(jwkStr) {
   );
 }
 
-/* ── PBKDF2: деривация ключа из пароля (для шифрования бэкапа приватного ключа) ── */
-export async function deriveKeyFromPassword(password, salt) {
+/* ── PBKDF2: деривация ключа из пароля (для шифрования бэкапа приватного ключа) ──
+   600 000 итераций — рекомендация OWASP для PBKDF2-SHA256 (2026).
+   Число итераций сохраняется рядом с бэкапом, чтобы старые записи (100k) читались. */
+export async function deriveKeyFromPassword(password, salt, iterations = 600000) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -67,7 +69,7 @@ export async function deriveKeyFromPassword(password, salt) {
     {
       name: 'PBKDF2',
       salt: salt,
-      iterations: 100000,
+      iterations,
       hash: 'SHA-256',
     },
     keyMaterial,

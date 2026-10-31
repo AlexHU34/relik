@@ -6,7 +6,8 @@ import * as keygen from './keygen.js';
 /* ── Шифрование приватного ключа паролем ── */
 export async function encryptPrivateKeyWithPassword(privateKeyJwk, password) {
   const salt = keygen.generateSalt();
-  const key = await keygen.deriveKeyFromPassword(password, salt);
+  const iterations = 600000;
+  const key = await keygen.deriveKeyFromPassword(password, salt, iterations);
 
   const encrypted = await keygen.encryptAES(key, JSON.stringify(privateKeyJwk));
 
@@ -14,6 +15,7 @@ export async function encryptPrivateKeyWithPassword(privateKeyJwk, password) {
     salt: keygen.toBase64(salt),
     iv: keygen.toBase64(new Uint8Array(encrypted.iv)),
     ciphertext: keygen.toBase64(new Uint8Array(encrypted.ciphertext)),
+    iter: iterations,
   };
 }
 
@@ -23,7 +25,9 @@ export async function decryptPrivateKeyWithPassword(encryptedBackup, password) {
   const iv = keygen.fromBase64(encryptedBackup.iv);
   const ciphertext = keygen.fromBase64(encryptedBackup.ciphertext);
 
-  const key = await keygen.deriveKeyFromPassword(password, salt);
+  /* старые бэкапы делались с 100 000 итераций и без поля iter */
+  const iterations = Number(encryptedBackup.iter) || 100000;
+  const key = await keygen.deriveKeyFromPassword(password, salt, iterations);
   const decrypted = await keygen.decryptAES(key, iv, ciphertext);
 
   const dec = new TextDecoder();

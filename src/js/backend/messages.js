@@ -25,6 +25,14 @@ const MEDIA_PREFIX = '__relik_media__:';
 const READ_PREFIX = '__relik_read__:';
 const TTL_PREFIX = '__relik_ttl__:';
 
+/* AAD: привязка шифртекста к чату, отправителю и id сообщения.
+   Сервер с доступом к базе не сможет переставить или подменить шифртекст
+   между чатами/сообщениями. Формат должен совпадать при шифровании и чтении. */
+export function aadForMessage(m) {
+  if (!m || !m.id || !m.conversation_id || !m.sender_id) return null;
+  return `relik-v1|${m.conversation_id}|${m.sender_id}|${m.id}`;
+}
+
 export function encodePoll(poll) {
   return POLL_PREFIX + JSON.stringify(poll);
 }
@@ -224,15 +232,22 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
     else text = v2.text;
   } else if (keyPair && theirPubKey && m.iv && chatKind === 'dm') {
+    /* AAD привязывает шифртекст к чату/отправителю/id. Старые сообщения
+       (до этой привязки) читаем вторым вызовом без AAD. */
+    const aad = aadForMessage(m);
     try {
-      text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+      text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey, aad);
     } catch (err) {
-      console.error('Decrypt error:', err);
-      text = '';
-      decryptFailed = true;
+      try {
+        text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+      } catch (err2) {
+        console.error('Decrypt error:', err2);
+        text = '';
+        decryptFailed = true;
+      }
     }
   } else if (m.iv && chatKind === 'group') {
-    const plain = await decryptGroupText(m.conversation_id, m.iv, m.ciphertext);
+    const plain = await decryptGroupText(m.conversation_id, m.iv, m.ciphertext, aadForMessage(m));
     if (plain === null) { text = ''; decryptFailed = true; }
     else text = plain;
   }
@@ -424,14 +439,15 @@ export async function buildMessageRow({
 
     if (!v2) {
       const keyPair = await getKeyPair();
+      const aad = aadForMessage({ id: msgId, conversation_id: chatId, sender_id: senderId });
       if (chatKind === 'dm' && theirPublicKeyJwk) {
         if (!keyPair) throw new Error('No key pair found');
         const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
-        const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey);
+        const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey, aad);
         ciphertext = encrypted.ciphertext;
         iv = encrypted.iv;
       } else if (chatKind === 'group') {
-        const encrypted = await encryptGroupText(chatId, text);
+        const encrypted = await encryptGroupText(chatId, text, aad);
         if (encrypted) {
           ciphertext = encrypted.ciphertext;
           iv = encrypted.iv;
@@ -498,14 +514,16 @@ export async function editMessage(messageId, newText, chatKind = 'dm', theirPubl
     const keyPair = await getKeyPair();
     if (keyPair) {
       const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
-      const encrypted = await encryptForChat(newText, keyPair.privateKey, theirPubKey);
+      const aad = aadForMessage({ id: messageId, conversation_id: await conversationOfMessage(messageId), sender_id: S.me?.id });
+      const encrypted = await encryptForChat(newText, keyPair.privateKey, theirPubKey, aad);
       ciphertext = encrypted.ciphertext;
       iv = encrypted.iv;
     }
   } else if (SUPABASE.url && SUPABASE.anonKey && chatKind === 'group') {
     const chatId = await conversationOfMessage(messageId);
     if (chatId) {
-      const encrypted = await encryptGroupText(chatId, newText);
+      const aad = aadForMessage({ id: messageId, conversation_id: chatId, sender_id: S.me?.id });
+      const encrypted = await encryptGroupText(chatId, newText, aad);
       if (encrypted) {
         ciphertext = encrypted.ciphertext;
         iv = encrypted.iv;
@@ -596,7 +614,11 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               const keyPair = await getKeyPair();
               const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
               if (keyPair && theirPubKey) {
-                text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+                try {
+                  text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey, aadForMessage(m));
+                } catch (e) {
+                  text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+                }
               }
             } catch (err) {
               console.error('Decrypt error:', err);
@@ -604,7 +626,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               decryptFailed = true;
             }
           } else if (m.iv && chatKind === 'group') {
-            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
+            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext, aadForMessage(m));
             if (plain === null) { text = ''; decryptFailed = true; }
             else text = plain;
           }
@@ -645,7 +667,11 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               const keyPair = await getKeyPair();
               const theirPubKey = theirPublicKeyJwk ? await getTheirPublicKey(theirPublicKeyJwk) : null;
               if (keyPair && theirPubKey) {
-                text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+                try {
+                  text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey, aadForMessage(m));
+                } catch (e) {
+                  text = await decryptFromChat(m.iv, m.ciphertext, keyPair.privateKey, theirPubKey);
+                }
               }
             } catch (err) {
               console.error('Decrypt error:', err);
@@ -653,7 +679,7 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
               decryptFailed = true;
             }
           } else if (m.iv && chatKind === 'group') {
-            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext);
+            const plain = await decryptGroupText(chatId, m.iv, m.ciphertext, aadForMessage(m));
             if (plain !== null) text = plain;
             else { text = ''; decryptFailed = true; }
           }
@@ -727,13 +753,18 @@ export async function previewTextFor(row, chat) {
   if (!row.iv) return previewOfText(row.ciphertext || '…');
   try {
     if (chat && chat.kind === 'group') {
-      const plain = await decryptGroupText(chat.id, row.iv, row.ciphertext);
+      const plain = await decryptGroupText(chat.id, row.iv, row.ciphertext, aadForMessage(row));
       if (plain !== null) return previewOfText(plain);
     } else if (chat && chat.publicKey) {
       const keyPair = await getKeyPair();
       if (keyPair) {
         const theirPubKey = await getTheirPublicKey(chat.publicKey);
-        const text = await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey);
+        let text;
+        try {
+          text = await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey, aadForMessage(row));
+        } catch (e) {
+          text = await decryptFromChat(row.iv, row.ciphertext, keyPair.privateKey, theirPubKey);
+        }
         return previewOfText(text);
       }
     }
