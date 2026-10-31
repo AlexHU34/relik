@@ -1,7 +1,7 @@
 {
-  "version": "1.38.0",
+  "version": "1.39.0",
   "released": "2026-10-31",
-  "notes": "1.38.0: main.js 1156 -> 684 — экран входа, регистрация и код доступа вынесены в boot/auth.js.",
+  "notes": "1.39.0: chatView 1703 -> 1512 — голосовые и режим выбора вынесены в отдельные модули.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }

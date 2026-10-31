@@ -40,6 +40,11 @@ import {
   applyReadState, sendReadUpto, scheduleDemoRead, openReadInfo,
   refreshMessageStatus, bindReadHooks,
 } from './chat/receipts.js';
+import { playVoice, cycleSpeed } from './chat/voice.js';
+import {
+  exitSelect, startSelect, toggleSelect, syncSelectBar, copyText, copySelected, deleteSelected,
+  forwardSelected, isSelectMode, selectedIds, bindSelectHooks,
+} from './chat/select.js';
 
 bindReadHooks({
   getEls: () => els,
@@ -58,14 +63,14 @@ import {
   warnPeerKeyChange, reportMessage, acceptFingerprint,
 } from './chat/profile.js';
 import {
-  openForward, openForwardMany, forwardToMany, toggleForwardTarget, bindForwardHooks,
+  openForward, forwardToMany, toggleForwardTarget, bindForwardHooks,
 } from './chat/forward.js';
 import {
   msgHtml, tallyReactions, ticksHtml, metaHtml, toolsHtml, rxPickHtml, votePollOption,
   refreshMessageReactions, refreshPollCard, bindRenderView, bindRenderHooks,
 } from './chat/render.js';
 
-bindRenderView(() => ({ searchIndex, selectMode, selectedMsgs, toolsOpen }));
+bindRenderView(() => ({ searchIndex, selectMode: isSelectMode(), selectedMsgs: selectedIds(), toolsOpen }));
 bindRenderHooks({
   getEls: () => els,
   votePoll: (m, i) => votePoll(m, i),
@@ -74,8 +79,18 @@ bindRenderHooks({
 });
 export { refreshMessageReactions, refreshPollCard };
 
+bindSelectHooks({
+  getEls: () => els,
+  byId: (id) => byId(id),
+  escapeId: (id) => nonzeroEscape(id),
+  closeTools: () => closeTools(),
+  closeReact: () => closeReact(),
+  renderMessages: () => renderMessages(),
+  renderSidebar: () => renderSidebar(),
+  renderPin: () => renderPin(),
+});
+
 let els = {};
-const playing = new Map(); // msgId -> {timer, i, bars}
 let loadingOlder = false;
 let searchQuery = '';
 let searchHits = [];
@@ -88,8 +103,6 @@ let pollTimer = null;           // страховочный опрос акти�
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
 let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
-let selectMode = false;         // режим выбора нескольких сообщений
-const selectedMsgs = new Set(); // id выбранных сообщений
 let autoScrolling = false;
 let showLocked = false;         // показывать недоступные (нерасшифрованные) сообщения
 let groupMigrationWarned = false;
@@ -103,7 +116,7 @@ export function initChatView() {
   /* Панель действий: показываем только у сообщения под курсором.
      На тач-устройствах её открывает тап (см. onMsgClick). */
   els.msgs.addEventListener('pointerover', (e) => {
-    if (selectMode) return;
+    if (isSelectMode()) return;
     if (e.pointerType === 'touch') return;
     const el = e.target.closest?.('.msg');
     if (!el || el.contains(e.relatedTarget)) return;
@@ -346,7 +359,7 @@ export function initChatView() {
 
   /* двойной клик по сообщению — ответ */
   els.msgs.addEventListener('dblclick', (e) => {
-    if (selectMode) return;
+    if (isSelectMode()) return;
     if (e.target.closest('a,button,input,textarea,.msg-img')) return;
     const msgEl = e.target.closest('.msg');
     const m = msgEl && byId(msgEl.dataset.mid);
@@ -411,7 +424,7 @@ export function initChatView() {
   /* Esc закрывает панель действий/реакции, не трогая остальные слои */
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (selectMode) { exitSelect(); return; }
+    if (isSelectMode()) { exitSelect(); return; }
     if (!toolsOpen && !S.reactOpen) return;
     closeTools();
     closeReact();
@@ -419,7 +432,7 @@ export function initChatView() {
 }
 
 function onMsgClick(e) {
-  if (selectMode) {
+  if (isSelectMode()) {
     const pick = e.target.closest('.msg');
     if (pick) {
       e.preventDefault();
@@ -1232,7 +1245,7 @@ export function renderMessages(opts = {}) {
 
   renderPin();
   updateToBottom();
-  if (selectMode) syncSelectBar();
+  if (isSelectMode()) syncSelectBar();
 }
 
 /* ── поиск ─────────────────────────────────────────────────── */
@@ -1396,137 +1409,6 @@ function toggleTools(el, m) {
   showTools(el);
 }
 
-/* ── выбор нескольких сообщений ────────────────────────────── */
-function syncSelectBar() {
-  const bar = $('#selectBar');
-  if (!bar) return;
-  bar.hidden = !selectMode;
-  if (!selectMode) return;
-  const n = selectedMsgs.size;
-  const count = $('#selCount');
-  if (count) count.textContent = n ? t('select.count').replace('{n}', String(n)) : t('select.hint');
-  ['selForward', 'selCopy', 'selDelete'].forEach((id) => {
-    const b = $('#' + id);
-    if (b) b.disabled = n === 0;
-  });
-}
-
-function startSelect(m) {
-  selectMode = true;
-  selectedMsgs.clear();
-  if (m?.id) selectedMsgs.add(m.id);
-  closeTools();
-  closeReact();
-  const holder = els.msgs;
-  holder?.classList.add('selecting');
-  holder?.querySelectorAll('.msg[data-mid]').forEach((el) => {
-    el.classList.add('selectable');
-    el.classList.toggle('selected', selectedMsgs.has(el.dataset.mid));
-  });
-  syncSelectBar();
-}
-
-function exitSelect() {
-  selectMode = false;
-  selectedMsgs.clear();
-  const holder = els.msgs;
-  holder?.classList.remove('selecting');
-  holder?.querySelectorAll('.msg[data-mid]').forEach((el) => el.classList.remove('selectable', 'selected'));
-  syncSelectBar();
-}
-
-function toggleSelect(id) {
-  if (!byId(id)) return;
-  if (selectedMsgs.has(id)) selectedMsgs.delete(id);
-  else selectedMsgs.add(id);
-  const el = els.msgs?.querySelector(`.msg[data-mid="${nonzeroEscape(id)}"]`);
-  el?.classList.toggle('selected', selectedMsgs.has(id));
-  syncSelectBar();
-}
-
-function selectedList() {
-  return [...selectedMsgs].map((id) => byId(id)).filter(Boolean);
-}
-
-async function copyText(text) {
-  if (navigator.clipboard?.writeText) {
-    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fallback */ }
-  }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    ta.remove();
-    return ok;
-  } catch (e) {
-    return false;
-  }
-}
-
-async function copySelected() {
-  const text = selectedList()
-    .map((m) => m.text || snippet(m))
-    .filter(Boolean)
-    .join('\n\n');
-  if (!text) { toast(t('select.nothing')); return; }
-  if (await copyText(text)) {
-    toast(t('select.copied'), { type: 'success' });
-    exitSelect();
-  } else {
-    toast(t('toast.error'), { type: 'error' });
-  }
-}
-
-async function deleteSelected() {
-  const list = selectedList();
-  if (!list.length) return;
-  let ok = false;
-  try {
-    const { confirmAction } = await import('./dialog.js');
-    ok = await confirmAction({
-      title: t('select.deleteTitle'),
-      text: t('select.deleteText'),
-      ok: t('select.deleteOk'),
-      danger: true,
-    });
-  } catch (e) { /* ignore */ }
-  if (!ok) return;
-
-  const ids = new Set(list.map((m) => m.id));
-  for (const m of list) {
-    clearTtlTimer(m.id);
-    m.hidden = true;
-    m.localDeleted = true;
-  }
-  await idb.bulkPut('messages', list).catch(() => {});
-  const chat = chatById(S.active);
-  if (chat) {
-    if (chat.pin && ids.has(chat.pin.id)) {
-      delete chat.pin;
-      idb.del('settings', 'pin:' + chat.id).catch(() => {});
-    }
-    const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
-    chat.last = last ? { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' } : null;
-    await idb.put('chats', chat).catch(() => {});
-  }
-  exitSelect();
-  renderMessages();
-  renderSidebar();
-  renderPin();
-  toast(t('select.deleted').replace('{n}', String(list.length)), { type: 'success' });
-}
-
-function forwardSelected() {
-  const list = selectedList();
-  if (!list.length) return;
-  exitSelect();
-  openForwardMany(list);
-}
 
 
 /* ── реакции ───────────────────────────────────────────────── */
@@ -1536,79 +1418,6 @@ function toggleReaction(m, emoji) {
   sendReaction(m, emoji, !mine);
 }
 
-/* ── голосовые: реальное аудио или демо-анимация ───────────── */
-const audioEls = new Map();
-
-function playVoice(m, btn) {
-  const voiceEl = btn.closest('.voice');
-  const bars = voiceEl ? voiceEl.querySelectorAll('.v-bars i') : [];
-
-  const src = safeMediaSrc(m.voice?.src, 'audio');
-  if (src) {
-    let audio = audioEls.get(m.id);
-    if (!audio) {
-      audio = new Audio(src);
-      audio.playbackRate = m.voice.rate || 1;
-      audioEls.set(m.id, audio);
-      audio.addEventListener('ended', () => {
-        btn.innerHTML = icon('play', 17);
-        bars.forEach((b) => b.classList.remove('on'));
-      });
-      audio.addEventListener('timeupdate', () => {
-        const p = audio.duration ? audio.currentTime / audio.duration : 0;
-        const upto = Math.round(p * bars.length);
-        bars.forEach((b, i) => b.classList.toggle('on', i < upto));
-      });
-    }
-    if (audio.paused) {
-      audioEls.forEach((a, id) => { if (id !== m.id) a.pause(); });
-      audio.play().catch(() => {});
-      btn.innerHTML = icon('pause', 17);
-    } else {
-      audio.pause();
-      btn.innerHTML = icon('play', 17);
-    }
-    return;
-  }
-
-  /* демо-анимация для старых сообщений без src */
-  const st = playing.get(m.id);
-  if (st) {
-    clearInterval(st.timer);
-    playing.delete(m.id);
-    btn.innerHTML = icon('play', 17);
-    bars.forEach((i) => i.classList.remove('on'));
-    return;
-  }
-  const total = bars.length;
-  const step = Math.max(60, ((m.voice?.dur || 3) * 1000) / total);
-  const state = { i: 0, timer: 0, bars };
-  state.timer = setInterval(() => {
-    bars.forEach((b) => b.classList.remove('on'));
-    for (let k = 0; k <= state.i && k < total; k++) bars[k].classList.add('on');
-    state.i++;
-    if (state.i >= total) {
-      clearInterval(state.timer);
-      playing.delete(m.id);
-      btn.innerHTML = icon('play', 17);
-      bars.forEach((b) => b.classList.remove('on'));
-    }
-  }, step);
-  playing.set(m.id, state);
-  btn.innerHTML = icon('pause', 17);
-}
-
-/* ── скорость голосового ─────────────────────────────────── */
-function cycleSpeed(m, btn) {
-  const rates = [1, 1.5, 2];
-  const cur = m.voice.rate || 1;
-  const next = rates[(rates.indexOf(cur) + 1) % rates.length];
-  m.voice.rate = next;
-  btn.textContent = next + '×';
-  btn.dataset.speed = String(next);
-  const audio = audioEls.get(m.id);
-  if (audio) audio.playbackRate = next;
-}
 
 /* ── переход к цитате ──────────────────────────────────────── */
 function jumpTo(id) {
