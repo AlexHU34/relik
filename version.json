@@ -1,7 +1,7 @@
 {
-  "version": "1.33.0",
-  "released": "2026-10-30",
-  "notes": "1.33.0: modals.js 1759 -> 1283 — настройки и лайтбокс вынесены в отдельные модули, e2e зелёный.",
+  "version": "1.34.0",
+  "released": "2026-10-31",
+  "notes": "1.34.0: composer.js 1577 -> 716 — outbox, медиа, отложенные и опросы в отдельных модулях; e2e зелёный.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }

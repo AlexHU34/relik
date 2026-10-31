@@ -28,7 +28,7 @@ const LEGACY = {
   'js/ui/chatView.js': 1703,
   'js/ui/modals.js': 1283,
   'js/ui/modals/settings.js': 452,
-  'js/ui/composer.js': 1577,
+  'js/ui/composer.js': 716,
   'js/main.js': 1156,
   'js/backend/messages.js': 786,
   'js/ui/calls.js': 640,
