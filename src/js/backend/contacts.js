@@ -79,7 +79,19 @@ export async function listRequests() {
       .limit(200),
     10000,
     'contacts',
-  );
+  ).catch(async (err) => {
+    /* один повтор: после «холодного» входа первая выборка иногда не успевает */
+    if (!/timeout/i.test(String(err?.message || ''))) throw err;
+    return await withTimeout(
+      sb.from('contact_requests')
+        .select('id, from_user, to_user, status, created_at')
+        .or(`from_user.eq.${me},to_user.eq.${me}`)
+        .order('created_at', { ascending: false })
+        .limit(200),
+      15000,
+      'contacts (повтор)',
+    );
+  });
 
   if (error) throw error;
   return split((data || []).map(norm), me);

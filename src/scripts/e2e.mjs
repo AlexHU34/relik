@@ -593,9 +593,20 @@ async function runLive() {
       await B.evaluate(`window.dispatchEvent(new Event('focus'))`);
       await sleep(1500);
       const bOpened = await openChatWith(B, env.a.name);
-      const got = bOpened
+      let got = bOpened
         ? await waitFor(B, `document.body.innerText.includes(${JSON.stringify(marker)})`, 25000)
         : null;
+      if (!got) {
+        /* Сеть до Supabase иногда «залипает» на первом запросе после входа.
+           Один перезаход (как сделал бы человек) обычно всё лечит. */
+        await B.evaluate(`location.reload()`);
+        await sleep(6000);
+        await waitFor(B, `!document.getElementById('appView').hidden`, 30000, 500);
+        const second = await openChatWith(B, env.a.name);
+        if (second) {
+          got = await waitFor(B, `document.body.innerText.includes(${JSON.stringify(marker)})`, 25000);
+        }
+      }
       record('B получил сообщение', Boolean(got), got ? '' : 'не найдено в ленте B');
 
       if (bOpened) {
