@@ -108,6 +108,7 @@ let pollTimer = null;           // страховочный опрос акти�
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
 let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
+let toolsHideTimer = 0;         // пауза перед удалением панели (чтобы до неё дотянулись)
 let autoScrolling = false;
 let showLocked = false;         // показывать недоступные (нерасшифрованные) сообщения
 let groupMigrationWarned = false;
@@ -121,6 +122,7 @@ export function initChatView() {
   /* Панель действий: показываем только у сообщения под курсором.
      На тач-устройствах её открывает тап (см. onMsgClick). */
   els.msgs.addEventListener('pointerover', (e) => {
+    clearTimeout(toolsHideTimer);
     if (isSelectMode()) return;
     if (e.pointerType === 'touch') return;
     const el = e.target.closest?.('.msg');
@@ -132,7 +134,13 @@ export function initChatView() {
     const el = e.target.closest?.('.msg');
     if (!el || el.contains(e.relatedTarget)) return;
     if (el.classList.contains('tools-open') || el.classList.contains('react-open')) return;
-    el.querySelectorAll(':scope > .bubble > .tools').forEach((t) => t.remove());
+    /* Небольшая пауза: курсор успевает перейти с сообщения на панель,
+       даже если между ними остаётся зазор. */
+    clearTimeout(toolsHideTimer);
+    toolsHideTimer = setTimeout(() => {
+      if (el.classList.contains('tools-open') || el.classList.contains('react-open')) return;
+      el.querySelectorAll(':scope > .bubble > .tools').forEach((node) => node.remove());
+    }, 160);
   });
   let earlierTimer = 0;
   els.msgs.addEventListener('scroll', () => {
@@ -1370,6 +1378,7 @@ function paintDecryptBar() {
    длинной ленты уходило на невидимые панели. */
 function showTools(el) {
   if (!el) return;
+  clearTimeout(toolsHideTimer);
   const m = byId(el.dataset.mid);
   if (!m || m.deleted || m.decryptFailed) return;
   const bubble = el.querySelector(':scope > .bubble');
@@ -1378,6 +1387,7 @@ function showTools(el) {
 }
 
 function closeTools() {
+  clearTimeout(toolsHideTimer);
   toolsOpen = null;
   const holder = els.msgs;
   if (!holder) return;

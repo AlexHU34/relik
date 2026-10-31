@@ -1,7 +1,7 @@
 {
-  "version": "1.41.0",
+  "version": "1.42.0",
   "released": "2026-10-31",
-  "notes": "1.41.0: индикаторы чата (закреп, «печатает», скринридер) вынесены в chat/indicators.js; добавлен ARCHITECTURE.md с картой модулей.",
+  "notes": "1.42.0: меню действий сообщения — сбоку от пузыря, с «мостиком» и паузой на уход курсора (больше не пропадает); 4 новых шага e2e.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }

@@ -392,6 +392,47 @@ async function runDemo() {
 
     record('лента не сломалась', Number(before) >= 1, 'сообщений: ' + before);
 
+    /* Панель действий: появляется при наведении, не исчезает мгновенно при
+       уходе курсора (есть пауза, чтобы до неё дотянуться) и стоит сбоку,
+       а не над сообщением. Синтетические pointer-события проверяют саму логику. */
+    const toolsState = await ctx.evaluate(`(async () => {
+      const el = [...document.querySelectorAll('#chatActive .msg')].find((m) => m.querySelector('.bubble'));
+      if (!el) return null;
+      const bubble = el.querySelector('.bubble');
+      const r = bubble.getBoundingClientRect();
+      const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+      const ev = (type, target, related) => target.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, pointerType: 'mouse', clientX: r.left + 6, clientY: r.top + 6, relatedTarget: related,
+      }));
+
+      ev('pointerover', bubble, document.body);
+      await wait(60);
+      const shown = !!bubble.querySelector('.tools');
+
+      ev('pointerout', bubble, document.body);
+      await wait(90);
+      const duringGrace = !!bubble.querySelector('.tools');
+
+      const tools = bubble.querySelector('.tools');
+      let side = null;
+      if (tools) {
+        const tr = tools.getBoundingClientRect();
+        side = { left: Math.round(tr.left), right: Math.round(tr.right), bubbleRight: Math.round(r.right), bubbleTop: Math.round(r.top), toolsTop: Math.round(tr.top) };
+        ev('pointerover', tools, bubble);
+      }
+      await wait(260);
+      const afterReturn = !!bubble.querySelector('.tools');
+      return { shown, duringGrace, afterReturn, side };
+    })()`);
+    if (toolsState) {
+      record('меню действий появляется при наведении', Boolean(toolsState.shown));
+      record('меню не исчезает мгновенно при уходе курсора', Boolean(toolsState.duringGrace));
+      record('меню остаётся, если вернуться на него', Boolean(toolsState.afterReturn));
+      const side = toolsState.side;
+      const isSide = !!side && side.left >= side.bubbleRight;
+      record('меню стоит сбоку от сообщения', isSide, side ? JSON.stringify(side) : 'нет данных');
+    }
+
     await runUiSmoke(ctx);
   } finally {
     ctx.close();
