@@ -1,13 +1,13 @@
 {
-  "version": "1.36.0",
-  "generatedAt": "2026-10-31T16:56:57.910Z",
-  "modules": 83,
-  "loc": 19459,
-  "jsBytes": 759876,
-  "jsGzip": 200220,
-  "bootModules": 83,
-  "bootBytes": 774122,
-  "bootGzip": 205801,
+  "version": "1.37.0",
+  "generatedAt": "2026-10-31T17:57:28.687Z",
+  "modules": 84,
+  "loc": 19483,
+  "jsBytes": 760991,
+  "jsGzip": 200518,
+  "bootModules": 84,
+  "bootBytes": 775238,
+  "bootGzip": 206178,
   "bootMissing": [],
   "vendorEagerBytes": 218252,
   "vendorEagerGzip": 55586,
@@ -15,5 +15,5 @@
   "cssGzip": 22818,
   "maxFile": "js/ui/chatView.js",
   "maxFileLines": 1703,
-  "assets": 108
+  "assets": 109
 }
