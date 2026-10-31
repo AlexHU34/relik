@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import net from 'node:net';
 
 const argv = process.argv.slice(2);
 const has = (n) => argv.includes(`--${n}`);
@@ -62,7 +63,35 @@ const record = (name, ok, info = '') => {
   console.log(`${ok ? '  OK  ' : ' FAIL '} ${name}${info ? ' — ' + info : ''}`);
 };
 
+/* Занят ли порт отладки (например, зависшим Chrome прошлого прогона). */
+function portBusy(port) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ port, host: '127.0.0.1' });
+    let settled = false;
+    const done = (busy) => {
+      if (settled) return;
+      settled = true;
+      try { sock.destroy(); } catch (e) { /* уже закрыт */ }
+      resolve(busy);
+    };
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
+    sock.setTimeout(400, () => done(false));
+  });
+}
+
+async function freePort(start) {
+  const base = Number(start) || 9341;
+  for (let i = 0; i < 20; i += 1) {
+    if (!(await portBusy(base + i))) return base + i;
+  }
+  return base;
+}
+
 async function launch(tag, port) {
+  /* Прошлый прогон мог оставить Chrome на этом порту — тогда новый
+     подключился бы к чужому браузеру и все шаги «падали». Берём свободный. */
+  port = await freePort(port);
   /* Chrome иногда не успевает подняться (или порт занят прошлым прогоном) —
      пробуем несколько раз, иначе CI мигает красным без причины. */
   let lastErr = null;
@@ -77,8 +106,7 @@ async function launch(tag, port) {
   throw lastErr || new Error(`Chrome ${tag} не поднялся`);
 }
 
-async function launchOnce(tag, port, attempt) {
-  const dir = mkdtempSync(join(tmpdir(), `relik-e2e-${tag}-${attempt}-`));
+async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tmpdir(), `relik-e2e-${tag}-${attempt}-`));
   const child = spawn(CHROME, [
     '--headless=new',
     '--disable-gpu',
