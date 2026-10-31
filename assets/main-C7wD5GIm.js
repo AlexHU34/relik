@@ -15,9 +15,9 @@ import { setReencryptPassword, openRecoveryFlow, maybePromptBackup } from './ui/
 import { sweepExpired } from './backend/expiry.js';
 import { initPalette, openPalette } from './ui/palette.js';
 import { initRecovery } from './ui/recovery.js';
-import { ensurePersistentStorage, autoPruneMedia } from './db/mediaCache.js';
 import { seedDemoRequests } from './backend/contacts.js';
 import { initTelemetry, logEvent } from './backend/telemetry.js';
+import { initNetBar, initServiceWorker, scheduleStorageUpkeep } from './boot/runtime.js';
 import { loadBlocks } from './backend/blocks.js';
 import { initRouter, route, showApp, showAuth } from './ui/router.js';
 import { applyTheme, currentTheme } from './ui/themes.js';
@@ -790,104 +790,6 @@ function bootDone() {
   try { if (window.relikBoot) window.relikBoot.done(); } catch (e) { /* ignore */ }
 }
 
-/* ── Плашка состояния сети ─────────────────────────────────── */
-function initNetBar() {
-  const bar = $('#netBar');
-  const text = $('#netText');
-  const ic = $('#netIc');
-  if (!bar || !text || !ic) return;
-
-  let offline = navigator.onLine === false;
-  let hideTimer = 0;
-
-  const paint = (state, message) => {
-    clearTimeout(hideTimer);
-    bar.hidden = false;
-    bar.classList.remove('ok', 'bad');
-    if (state) bar.classList.add(state);
-    ic.innerHTML = icon(state === 'ok' ? 'checkCircle' : 'wifiOff', 15);
-    text.textContent = message;
-  };
-
-  const showOffline = () => paint('bad', t('net.offline'));
-  const showRestored = () => {
-    paint('ok', t('net.restored'));
-    hideTimer = setTimeout(() => { bar.hidden = true; }, 2600);
-  };
-
-  if (offline) showOffline();
-
-  window.addEventListener('offline', () => {
-    offline = true;
-    showOffline();
-  });
-  window.addEventListener('online', () => {
-    if (!offline) return;
-    offline = false;
-    showRestored();
-    sweepExpired().catch(() => {});
-  });
-  document.addEventListener('relik:lang', () => {
-    if (offline) showOffline();
-  });
-}
-
-/* ── Обновление service worker: показываем «Обновить» ───────── */
-function initServiceWorker() {
-  if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
-
-  let hadController = !!navigator.serviceWorker.controller;
-
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    /* первый controller — это первая установка, а не обновление */
-    if (!hadController) { hadController = true; return; }
-    toast(t('update.available'), {
-      type: 'warn',
-      duration: 0,
-      action: { label: t('update.reload'), onClick: () => location.reload() },
-    });
-  });
-
-  navigator.serviceWorker.register('sw.js').then((reg) => {
-    const notifyWaiting = () => {
-      if (!reg.waiting) return;
-      toast(t('update.available'), {
-        type: 'warn',
-        duration: 0,
-        action: {
-          label: t('update.reload'),
-          onClick: () => {
-            reg.waiting?.postMessage({ type: 'SKIP_WAITING' });
-            location.reload();
-          },
-        },
-      });
-    };
-    if (reg.waiting) notifyWaiting();
-    reg.addEventListener('updatefound', () => {
-      const nw = reg.installing;
-      if (!nw) return;
-      nw.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) notifyWaiting();
-      });
-    });
-  }).catch(() => {});
-}
-
-/* ── Обслуживание хранилища в фоне (не тормозит запуск) ───── */
-function scheduleStorageUpkeep() {
-  const run = () => {
-    ensurePersistentStorage().catch(() => {});
-    autoPruneMedia().then((res) => {
-      if (res && res.removed) console.info(`Media cache: removed ${res.removed} file(s)`);
-    }).catch(() => {});
-  };
-  if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(run, { timeout: 8000 });
-  } else {
-    setTimeout(run, 2500);
-  }
-}
 
 /* ── запуск ── */
 async function boot() {

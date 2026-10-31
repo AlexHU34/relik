@@ -1,7 +1,7 @@
 {
-  "version": "1.36.0",
+  "version": "1.37.0",
   "released": "2026-10-31",
-  "notes": "1.36.0: modals.js 1759 -> 704 — контакты, поиск людей и заявки вынесены в модуль; e2e зелёный.",
+  "notes": "1.37.0: фоновая обвязка main.js вынесена в boot/runtime.js; e2e ждёт загрузку приложения (а не 3.5 с) — не падает на медленном сиде.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }

@@ -349,7 +349,12 @@ async function runDemo() {
   const ctx = await launch('demo', 9341);
   try {
     await ctx.send('Page.navigate', { url: BASE + '?demo=1' });
-    await sleep(3500);
+    /* Ждём именно загрузки приложения, а не фиксированные 3.5 с:
+       на слабой машине демо-сид с генерацией превью занимает дольше,
+       и дальше все шаги падали «просто так». */
+    const booted = await waitFor(ctx, `window.__relikLoaded === true`, 30000);
+    if (!booted) throw new Error('приложение не загрузилось за 30 с');
+    await sleep(600);
     const hasAuth = await ctx.evaluate(`!document.getElementById('authView').hidden`);
     if (hasAuth) {
       await ctx.evaluate(`(function(){
