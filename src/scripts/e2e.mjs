@@ -146,6 +146,7 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
   let id = 0;
   const pending = new Map();
   const events = [];
+  const httpErrors = [];
   ws.addEventListener('message', (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) {
@@ -156,6 +157,15 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
     if (m.method) {
       events.push(m);
       if (events.length > 300) events.shift();
+      /* HTTP-ошибки (401/403/500) видно только по URL — без этого в консоли
+         остаётся бесполезное «Failed to load resource». */
+      if (m.method === 'Network.responseReceived') {
+        const r = m.params?.response || {};
+        if (r.status >= 400) {
+          httpErrors.push(`${r.status} ${String(r.url || '').slice(0, 160)}`);
+          if (httpErrors.length > 40) httpErrors.shift();
+        }
+      }
     }
   });
   const send = (method, params = {}) => new Promise((resolve) => {
@@ -165,6 +175,7 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
   });
   await send('Runtime.enable');
   await send('Log.enable');
+  await send('Network.enable');
   await send('Page.enable');
 
   const evaluate = async (expression) => {
@@ -187,6 +198,8 @@ async function launchOnce(tag, port, attempt) {  const dir = mkdtempSync(join(tm
   return {
     tag, port, dir, child, ws, send, evaluate,
     events,
+    /* HTTP-ошибки с адресами — для разбора «401 без подробностей» */
+    httpErrors() { return httpErrors.slice(-12); },
     errors() {
       return events
         .filter((e) => e.method === 'Runtime.exceptionThrown' || e.method === 'Log.entryAdded')
@@ -257,7 +270,18 @@ async function peopleRelation(ctx, username) {
     i.dispatchEvent(new Event('input'));
   })()`);
   const rows = await waitFor(ctx, `document.querySelectorAll('#peopleList .people-row').length || 0`, 20000, 400);
-  if (!rows) return 'none';
+  if (!rows) {
+    /* первый запрос после простоя бывает медленным — жмём «Повторить», если есть */
+    const retried = await ctx.evaluate(`(function(){
+      var b=document.querySelector('#peopleList [data-retry-people]');
+      if (!b) return false;
+      b.click();
+      return true;
+    })()`);
+    if (retried) {
+      await waitFor(ctx, `document.querySelectorAll('#peopleList .people-row').length || 0`, 20000, 400);
+    }
+  }
   return ctx.evaluate(`(function(){
     var row=[...document.querySelectorAll('#peopleList .people-row')][0];
     if (!row) return 'none';
@@ -596,6 +620,11 @@ async function runLive() {
     if (all.length) {
       console.log('\nОшибки в консоли браузера:');
       for (const e of all.slice(-12)) console.log('  ' + e.slice(0, 300));
+    }
+    const http = [...A.httpErrors(), ...B.httpErrors()];
+    if (http.length) {
+      console.log('\nHTTP-ответы с ошибкой:');
+      for (const e of [...new Set(http)].slice(0, 12)) console.log('  ' + e);
     }
     A.close();
     B.close();

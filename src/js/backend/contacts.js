@@ -10,6 +10,17 @@ import { S } from '../ui/state.js';
 const real = () => !!(SUPABASE.url && SUPABASE.anonKey);
 const LOCAL_KEY = 'contacts';
 
+/* Сеть до Supabase бывает медленной или «залипшей» (особенно первый запрос
+   после простоя): без ограничения список людей вечно висит на «Загружаем…».
+   Ограничиваем ожидание и показываем ошибку с кнопкой «Повторить». */
+function withTimeout(promise, ms, label) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: timeout ${Math.round(ms / 1000)} с`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /* ── локальное (демо) хранилище ── */
 async function localRead() {
   const rec = await idb.get('settings', LOCAL_KEY);
@@ -37,7 +48,11 @@ export async function contactsReady() {
   if (!real()) return true;
   if (readyCache !== null) return readyCache;
   try {
-    const { error } = await sb.from('contact_requests').select('id').limit(1);
+    const { error } = await withTimeout(
+      sb.from('contact_requests').select('id').limit(1),
+      8000,
+      'contacts',
+    );
     readyCache = !error || !/42P01|does not exist|schema cache|relation/i.test(error.message || '');
   } catch (err) {
     readyCache = false;
@@ -55,12 +70,16 @@ export async function listRequests() {
     return split(all, me);
   }
 
-  const { data, error } = await sb
-    .from('contact_requests')
-    .select('id, from_user, to_user, status, created_at')
-    .or(`from_user.eq.${me},to_user.eq.${me}`)
-    .order('created_at', { ascending: false })
-    .limit(200);
+  const { data, error } = await withTimeout(
+    sb
+      .from('contact_requests')
+      .select('id, from_user, to_user, status, created_at')
+      .or(`from_user.eq.${me},to_user.eq.${me}`)
+      .order('created_at', { ascending: false })
+      .limit(200),
+    10000,
+    'contacts',
+  );
 
   if (error) throw error;
   return split((data || []).map(norm), me);

@@ -262,6 +262,7 @@ export async function paintPeople() {
   if (!users.length) {
     wrap.innerHTML = `<div class="nc-hint">${t(failed ? 'people.error' : (q ? 'people.empty' : 'people.hintEmpty'))}
       ${failed ? `<div class="nc-err">${esc(failed)}</div>` : ''}
+      ${failed ? `<button class="btn btn-ghost" type="button" data-retry-people>${t('newchat.retry')}</button>` : ''}
     </div>`;
     return;
   }
@@ -320,6 +321,8 @@ export async function paintRequests() {
 
 /* действия в обоих окнах */
 export async function peopleAction(e) {
+  /* кнопка «Повторить» после сетевой ошибки в списке людей */
+  if (e.target.closest('[data-retry-people]')) { await paintPeople(); return; }
   const btn = e.target.closest('[data-pact]');
   if (!btn) {
     /* клик по строке контакта — открыть переписку */

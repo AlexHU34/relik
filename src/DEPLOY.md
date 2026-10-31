@@ -81,6 +81,20 @@ node scripts/reproducible.mjs   # npm run check:repro
 Для повторяемости между машинами нужны одинаковый мажор Node (`.nvmrc` = 22)
 и неизменённый `package-lock.json`.
 
+## Почта и SMTP (письма Supabase)
+
+Домен `relik.best` обслуживается в Beget (раздел **Почта**). Свой SMTP нужен,
+чтобы письма подтверждения и сброса пароля не уходили в спам и не упирались
+в лимит бесплатного SMTP Supabase.
+
+1. В панели Beget → Почта → создать ящик (`no-reply@relik.best` или `support@relik.best`),
+   пароль сгенерировать кнопкой и сохранить в менеджере паролей.
+2. Supabase → **Authentication → Emails → SMTP Settings**: host `smtp.beget.com`,
+   port `465` (SSL) или `587` (STARTTLS), username — полный адрес ящика,
+   password — пароль ящика, sender — тот же адрес.
+3. Проверить: Authentication → Users → «Send password recovery» на тестовый адрес.
+4. Пароль ящика **не** хранить в репозитории и не присылать в чат — только в панели Supabase.
+
 ## Откат
 
 - Быстро: `cd C:\67\relik-github; git revert HEAD; git push`.

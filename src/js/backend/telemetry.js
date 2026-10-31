@@ -42,6 +42,9 @@ async function flush() {
   timer = null;
   if (!queue.length) return;
   if (sent >= MAX_PER_SESSION) { queue = []; return; }
+  /* До входа user_id ещё нет — запись упрётся в RLS (401) и засорит консоль
+     у всех, кто просто открыл страницу. Копим до появления сессии. */
+  if (!S.me?.id) { queue = []; return; }
   if (!(await tableReady())) { queue = []; return; }
 
   const batch = queue.splice(0, 20);
