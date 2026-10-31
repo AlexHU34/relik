@@ -26,7 +26,7 @@
 
 ```
 Браузер
-  ├── статика  → GitHub Pages (alexhu34.github.io/relik)   ← резерв: Caddy на VPS
+  ├── статика  → GitHub Pages (relik.best)   ← резерв: Caddy на VPS
   ├── API      → Supabase (Postgres + Auth + Storage + Realtime), регион EU
   ├── звонки   → coturn на VPS (62.113.99.46, Beget, СПб)
   └── push     → relik-push на VPS (pull-модель, входящий HTTPS не нужен)
@@ -111,7 +111,7 @@ curl -s localhost:8099/healthz | head -c 600
   инфраструктуры; при сбое запуск падает и GitHub пишет письмо владельцу
   репозитория (проверить: вкладка Actions → Health → Run workflow);
 - **с графиком и SMS** — бесплатный UptimeRobot / BetterStack на
-  `https://alexhu34.github.io/relik/tools/status.html` (интервал 5 мин,
+  `https://relik.best/tools/status.html` (интервал 5 мин,
   keyword «Статус») и на резервное зеркало.
 
 Рекомендую включить оба: Actions почти ничего не стоит, а UptimeRobot даёт
@@ -121,7 +121,7 @@ curl -s localhost:8099/healthz | head -c 600
 
 ## 5. Читаем статус правильно
 
-Откройте `https://alexhu34.github.io/relik/tools/status.html`.
+Откройте `https://relik.best/tools/status.html`.
 
 | Строка | Плохо, если | Что делать |
 |---|---|---|
@@ -143,7 +143,7 @@ curl -s localhost:8099/healthz | head -c 600
 
 ### 6.1. «Сайт не открывается» (GitHub Pages)
 
-1. Проверить, что файлы живы: `curl -I https://alexhu34.github.io/relik/index.html`.
+1. Проверить, что файлы живы: `curl -I https://relik.best/index.html`.
 2. Открыть https://www.githubstatus.com — если авария у GitHub, переключить DNS
    на зеркало (оно уже работает: `https://relik.62-113-99-46.nip.io/`).
    Свой домен красивее: `A-запись relik.домен.ru → 62.113.99.46`, TTL 300.
@@ -266,10 +266,10 @@ node scripts/relik-health.mjs --json
 node scripts/ice-check.mjs
 
 # сквозной сценарий в браузере (демо, без аккаунтов)
-node scripts/e2e.mjs --demo --url https://alexhu34.github.io/relik/
+node scripts/e2e.mjs --demo --url https://relik.best/
 ```
 
-На телефоне: `https://alexhu34.github.io/relik/tools/preflight.html` →
+На телефоне: `https://relik.best/tools/preflight.html` →
 кнопка «Скопировать отчёт».
 
 ---

@@ -11,7 +11,7 @@
 - ✅ TURN-сервер (coturn) с проверенным relay, TCP-фолбэк.
 - ✅ Дашборд статуса `tools/status.html`.
 - ⬜ Ежедневный бэкап БД (см. раздел 4).
-- ⬜ Мониторинг извне: uptime-робот на `https://alexhu34.github.io/relik/` и `/tools/status.html`.
+- ⬜ Мониторинг извне: uptime-робот на `https://relik.best/` и `/tools/status.html`.
 
 ## 2. Модерация
 

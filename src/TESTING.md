@@ -20,7 +20,7 @@ node scripts/e2e.mjs --demo     # вход, чат, отправка + UI-смо
 node scripts/relik-health.mjs   # боевой сервис: сайт, Auth, REST, Storage, Realtime, TURN
 ```
 
-Последние две можно запускать с `--url https://alexhu34.github.io/relik/` — тогда
+Последние две можно запускать с `--url https://relik.best/` — тогда
 проверяется бой, а не локальная копия.
 
 ---

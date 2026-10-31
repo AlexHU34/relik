@@ -41,7 +41,7 @@ iPhone 390×844, планшет 768×1024), затем интерфейс оце
 cd C:\67\relik\scripts\ui-shots
 npm install
 node shots.mjs            # локальный сайт на :8096
-node shots.mjs https://alexhu34.github.io/relik
+node shots.mjs https://relik.best
 ```
 
 Скриншоты складываются в `scripts/ui-shots/shots/`.

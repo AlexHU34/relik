@@ -9,8 +9,8 @@
    Мониторинг (всё опционально, по умолчанию включён):
      MONITOR=0                — выключить проверки
      MONITOR_INTERVAL=60000   — период проверок, мс
-     MONITOR_FRONT=https://alexhu34.github.io/relik/index.html
-     MONITOR_VERSION_URL=https://alexhu34.github.io/relik/version.json
+     MONITOR_FRONT=https://relik.best/index.html
+     MONITOR_VERSION_URL=https://relik.best/version.json
      SUPABASE_ANON_KEY=...    — если задан, проверки идут от anon (как у клиента)
      TELEGRAM_BOT_TOKEN=...   — алерты в Telegram
      TELEGRAM_CHAT_ID=...     — куда слать (личный chat_id или -100...)
@@ -38,8 +38,8 @@ const {
   INTERVAL = '3000',
   MONITOR = '1',
   MONITOR_INTERVAL = '60000',
-  MONITOR_FRONT = 'https://alexhu34.github.io/relik/index.html',
-  MONITOR_VERSION_URL = 'https://alexhu34.github.io/relik/version.json',
+  MONITOR_FRONT = 'https://relik.best/index.html',
+  MONITOR_VERSION_URL = 'https://relik.best/version.json',
   SUPABASE_ANON_KEY = '',
   TELEGRAM_BOT_TOKEN = '',
   TELEGRAM_CHAT_ID = '',

@@ -36,7 +36,7 @@ const {
   MAIL_FROM = 'Relik <relik.support@yandex.ru>',
   MAIL_REPLY_TO = '',
   SUPABASE_URL = '',
-  APP_URL = 'https://alexhu34.github.io/relik/',
+  APP_URL = 'https://relik.best/',
   SEND_EMAIL_HOOK_SECRET = '',
   DRY_RUN = '',
   MAX_BODY_BYTES = '20000',

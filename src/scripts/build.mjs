@@ -86,7 +86,7 @@ if (!version) throw new Error('не нашёл version в js/config.js');
 
 const files = walk(DIST)
   .map((f) => './' + path.relative(DIST, f).replace(/\\/g, '/'))
-  .filter((f) => f !== './sw.js')
+  .filter((f) => f !== './sw.js' && f !== './CNAME')
   .sort();
 
 let sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');

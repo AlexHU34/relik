@@ -47,9 +47,9 @@ const tokenNew = String(Math.floor(100000 + Math.random() * 900000));
 const emailData = {
   token,
   token_hash: crypto.randomBytes(20).toString('hex'),
-  redirect_to: 'https://alexhu34.github.io/relik/',
+  redirect_to: 'https://relik.best/',
   email_action_type: ACTION,
-  site_url: 'https://alexhu34.github.io/relik/',
+  site_url: 'https://relik.best/',
   token_new: '',
   token_hash_new: '',
   old_email: '',

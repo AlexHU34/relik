@@ -1,7 +1,7 @@
 {
-  "version": "1.44.0",
+  "version": "1.44.1",
   "released": "2026-10-31",
-  "notes": "1.44.0: экран входа прокручивается на низком окне (был обрезан из-за body overflow:hidden), + e2e-проверка.",
+  "notes": "1.44.1: ссылки в пушах, письмах и документации переведены на relik.best.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://relik.best/"
 }

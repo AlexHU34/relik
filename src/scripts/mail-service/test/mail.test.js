@@ -8,7 +8,7 @@ const secretB64 = crypto.randomBytes(32).toString('base64');
 process.env.SEND_EMAIL_HOOK_SECRET = 'v1,whsec_' + secretB64;
 process.env.MAIL_FROM = 'Relik <relik.support@yandex.ru>';
 process.env.SUPABASE_URL = 'https://example.supabase.co';
-process.env.APP_URL = 'https://alexhu34.github.io/relik/';
+process.env.APP_URL = 'https://relik.best/';
 process.env.DRY_RUN = '1';
 process.env.MAIL_PROVIDER = 'brevo';
 
@@ -65,8 +65,8 @@ test('buildJobs signup produces one code email', () => {
       token: '123456',
       token_hash: 'hash',
       email_action_type: 'signup',
-      redirect_to: 'https://alexhu34.github.io/relik/',
-      site_url: 'https://alexhu34.github.io/relik/',
+      redirect_to: 'https://relik.best/',
+      site_url: 'https://relik.best/',
     },
   });
   assert.equal(jobs.length, 1);
@@ -88,7 +88,7 @@ test('recovery link points to the /relik/ app, not the site root', () => {
   });
   assert.equal(jobs.length, 1);
   assert.match(jobs[0].link, /auth\/v1\/verify/);
-  assert.match(jobs[0].link, /redirect_to=https%3A%2F%2Falexhu34.github.io%2Frelik%2F/);
+  assert.match(jobs[0].link, /redirect_to=https%3A%2F%2Frelik.best%2F/);
 });
 
 test('buildJobs email_change produces two codes and maps hashes correctly', () => {
