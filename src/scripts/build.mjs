@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { build } from 'vite';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,6 +75,20 @@ if (fs.existsSync(distAssets)) {
 const indexPath = path.join(DIST, 'index.html');
 let indexHtml = fs.readFileSync(indexPath, 'utf8');
 indexHtml = indexHtml.replace(/href="\.?\/?assets\/manifest-[^"]+\.json"/g, 'href="./manifest.json"');
+
+/* SRI для вендорного SDK: если файл подменят (сервер, CDN, кэш),
+   браузер откажется его выполнять. Хеш считается от того, что реально в dist. */
+const vendorSdk = path.join(DIST, 'js', 'vendor', 'supabase.js');
+if (fs.existsSync(vendorSdk)) {
+  const sri = 'sha384-' + createHash('sha384').update(fs.readFileSync(vendorSdk)).digest('base64');
+  if (/src="js\/vendor\/supabase\.js"/.test(indexHtml) && !/supabase\.js"[^>]*integrity=/.test(indexHtml)) {
+    indexHtml = indexHtml.replace(
+      /(<script[^>]*src="js\/vendor\/supabase\.js"[^>]*?)(\s*>)/,
+      (m, attrs, end) => `${attrs} integrity="${sri}" crossorigin="anonymous"${end}`,
+    );
+    log('SRI для supabase.js');
+  }
+}
 fs.writeFileSync(indexPath, indexHtml);
 if (!/href="\.?\/?manifest\.json"/.test(indexHtml)) {
   console.warn('  ! ссылка на manifest.json не найдена в index.html — проверьте PWA');
@@ -97,6 +112,17 @@ sw = sw.replace(
 );
 if (!sw.includes(`relik-v${version}`)) throw new Error('sw.js: не удалось подставить VER');
 fs.writeFileSync(path.join(DIST, 'sw.js'), sw);
+
+/* ── integrity.json: SHA-256 каждого файла сборки ─────────────
+   Любой может проверить, что сайт отдаёт ровно то, что собрано из исходников
+   (scripts/verify-live.mjs). Файл создаётся последним и сам себя не хеширует. */
+const integrity = { version, generatedAt: new Date().toISOString(), algorithm: 'sha256', files: {} };
+for (const abs of walk(DIST).sort()) {
+  const relFile = './' + path.relative(DIST, abs).replace(/\\/g, '/');
+  if (relFile === './integrity.json') continue;
+  integrity.files[relFile] = createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
+}
+fs.writeFileSync(path.join(DIST, 'integrity.json'), JSON.stringify(integrity, null, 2) + '\n');
 
 /* ── Итог ─────────────────────────────────────────────────── */
 const total = files.reduce((a, f) => a + fs.statSync(path.join(DIST, f.replace(/^\.\//, ''))).size, 0);

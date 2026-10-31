@@ -1,12 +1,13 @@
 {
   "name": "relik",
-  "version": "1.45.0",
+  "version": "1.46.0",
   "private": true,
   "type": "module",
   "description": "Relik — приватный мессенджер (статика, без фреймворка)",
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build.mjs",
+    "verify:live": "node scripts/verify-live.mjs",
     "preview": "vite preview --port 8097",
     "test": "node scripts/test.mjs",
     "lint": "eslint .",

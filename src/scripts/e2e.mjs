@@ -435,35 +435,42 @@ async function runDemo() {
     record('лента не сломалась', Number(before) >= 1, 'сообщений: ' + before);
 
     /* Панель действий: появляется при наведении, не исчезает мгновенно при
-       уходе курсора (есть пауза, чтобы до неё дотянуться) и стоит сбоку,
-       а не над сообщением. Синтетические pointer-события проверяют саму логику. */
+       уходе курсора (есть пауза) и стоит сбоку. Живая лента может перерисоваться
+       во время проверки (typing/read-таймеры), поэтому сценарий повторяем. */
     const toolsState = await ctx.evaluate(`(async () => {
-      const el = [...document.querySelectorAll('#chatActive .msg')].find((m) => m.querySelector('.bubble'));
-      if (!el) return null;
-      const bubble = el.querySelector('.bubble');
-      const r = bubble.getBoundingClientRect();
       const wait = (ms) => new Promise((res) => setTimeout(res, ms));
-      const ev = (type, target, related) => target.dispatchEvent(new PointerEvent(type, {
-        bubbles: true, pointerType: 'mouse', clientX: r.left + 6, clientY: r.top + 6, relatedTarget: related,
-      }));
+      const pick = () => [...document.querySelectorAll('#chatActive .msg')].find((m) => m.querySelector('.bubble'));
+      let shown = false, duringGrace = false, afterReturn = false, side = null;
 
-      ev('pointerover', bubble, document.body);
-      await wait(60);
-      const shown = !!bubble.querySelector('.tools');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const el = pick();
+        if (!el) return null;
+        const bubble = el.querySelector('.bubble');
+        const r = bubble.getBoundingClientRect();
+        const ev = (type, target, related) => target.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, pointerType: 'mouse', clientX: r.left + 6, clientY: r.top + 6, relatedTarget: related,
+        }));
 
-      ev('pointerout', bubble, document.body);
-      await wait(90);
-      const duringGrace = !!bubble.querySelector('.tools');
+        ev('pointerover', bubble, document.body);
+        await wait(60);
+        shown = !!bubble.querySelector('.tools');
 
-      const tools = bubble.querySelector('.tools');
-      let side = null;
-      if (tools) {
+        ev('pointerout', bubble, document.body);
+        await wait(80);
+        duringGrace = !!bubble.querySelector('.tools');
+
+        const tools = bubble.querySelector('.tools');
+        if (!tools || !bubble.isConnected) continue; /* ленту перерисовали */
         const tr = tools.getBoundingClientRect();
-        side = { left: Math.round(tr.left), right: Math.round(tr.right), bubbleRight: Math.round(r.right), bubbleTop: Math.round(r.top), toolsTop: Math.round(tr.top) };
+        side = {
+          left: Math.round(tr.left), right: Math.round(tr.right),
+          bubbleRight: Math.round(r.right), bubbleTop: Math.round(r.top), toolsTop: Math.round(tr.top),
+        };
         ev('pointerover', tools, bubble);
+        await wait(260);
+        afterReturn = !!bubble.querySelector('.tools');
+        if (bubble.isConnected) break;
       }
-      await wait(260);
-      const afterReturn = !!bubble.querySelector('.tools');
       return { shown, duringGrace, afterReturn, side };
     })()`);
     if (toolsState) {

@@ -107,7 +107,35 @@ if (fs.existsSync(cnamePath)) {
   warnings.push('CNAME нет — сайт отдаётся с github.io');
 }
 
-/* ── 9. Мелочи ─────────────────────────────────────────────── */
+/* ── 9. Целостность: SRI вендора и манифест хешей ───────────── */
+const vendorAbs = path.join(DIST, 'js', 'vendor', 'supabase.js');
+if (fs.existsSync(vendorAbs)) {
+  const want = 'sha384-' + createHash('sha384').update(fs.readFileSync(vendorAbs)).digest('base64');
+  const tag = (html.match(/<script[^>]*src="js\/vendor\/supabase\.js"[^>]*>/) || [])[0] || '';
+  if (!/integrity=/.test(tag)) errors.push('index.html: у supabase.js нет SRI (integrity)');
+  else if (!tag.includes(want)) errors.push('index.html: SRI supabase.js не совпадает с файлом');
+}
+
+const integrityPath = path.join(DIST, 'integrity.json');
+if (!fs.existsSync(integrityPath)) {
+  errors.push('integrity.json отсутствует — нельзя проверить целостность сборки');
+} else {
+  const manifest = JSON.parse(fs.readFileSync(integrityPath, 'utf8'));
+  const listed = manifest.files || {};
+  for (const [relFile, hash] of Object.entries(listed)) {
+    const abs = path.join(DIST, relFile.replace(/^\.\//, ''));
+    if (!fs.existsSync(abs)) { errors.push(`integrity: ${relFile} — нет в dist`); continue; }
+    const actual = createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
+    if (actual !== hash) errors.push(`integrity: ${relFile} — хеш не совпадает`);
+  }
+  for (const abs of walk(DIST)) {
+    const relFile = './' + path.relative(DIST, abs).replace(/\\/g, '/');
+    if (relFile === './integrity.json') continue;
+    if (!listed[relFile]) errors.push(`integrity: ${relFile} — не описан в манифесте`);
+  }
+}
+
+/* ── 10. Мелочи ─────────────────────────────────────────────── */
 const maps = walk(DIST).filter((f) => f.endsWith('.map'));
 if (maps.length) warnings.push(`в dist ${maps.length} sourcemap — лишний вес`);
 if (!exists('.nojekyll')) warnings.push('.nojekyll отсутствует — GitHub Pages может включить Jekyll');

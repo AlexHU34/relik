@@ -57,6 +57,17 @@ powershell -ExecutionPolicy Bypass -File C:\67\publish-github.ps1 "что изм
 - CI (`Checks`) выполняет `npm ci`, `check-all`, сборку, `check-dist` и UI-смоук **в `src/`**.
 - Менять код нужно только в `C:\67\relik`; `relik-github` — зеркало, руками не правим.
 
+## Проверка целостности после деплоя
+
+```powershell
+node scripts/verify-live.mjs https://relik.best/
+```
+
+Скрипт скачивает `integrity.json` (манифест SHA-256 всех файлов сборки) и сверяет
+каждый файл на сервере. Ловит подмену JS, битый деплой и залипший кэш.
+В `index.html` у вендорного `supabase.js` стоит SRI: если файл изменят,
+браузер откажется его выполнять.
+
 ## Откат
 
 - Быстро: `cd C:\67\relik-github; git revert HEAD; git push`.

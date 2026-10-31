@@ -1,7 +1,7 @@
 {
-  "version": "1.45.0",
+  "version": "1.46.0",
   "released": "2026-10-31",
-  "notes": "1.45.0: шифртекст привязан к чату/отправителю/id (AAD), бэкап ключа PBKDF2 600k с обратной совместимостью, 6 новых тестов.",
+  "notes": "1.46.0: SRI для вендорного SDK и integrity.json (SHA-256 всех файлов) + scripts/verify-live.mjs для проверки живого сайта.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://relik.best/"
 }
