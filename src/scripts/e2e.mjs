@@ -375,6 +375,25 @@ async function runDemo() {
     await sleep(600);
     const hasAuth = await ctx.evaluate(`!document.getElementById('authView').hidden`);
     if (hasAuth) {
+      /* Регресс: на низком окне форма входа должна прокручиваться,
+         а не обрезаться (body{overflow:hidden}). */
+      await ctx.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280, height: 620, deviceScaleFactor: 1, mobile: false,
+      });
+      await sleep(400);
+      const scrollState = await ctx.evaluate(`(() => {
+        const a = document.getElementById('authView');
+        const can = a.scrollHeight - a.clientHeight;
+        const before = a.scrollTop;
+        a.scrollTop = 9999;
+        const after = a.scrollTop;
+        a.scrollTop = before;
+        return { can, after };
+      })()`);
+      record('окно входа прокручивается на низком экране', Boolean(scrollState && scrollState.can > 20 && scrollState.after > 0), JSON.stringify(scrollState));
+      await ctx.send('Emulation.clearDeviceMetricsOverride', {});
+      await sleep(250);
+
       await ctx.evaluate(`(function(){
         document.getElementById('authEmail').value='ui@relik.app';
         document.getElementById('authPass').value='123456';

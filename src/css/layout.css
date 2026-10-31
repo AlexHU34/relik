@@ -4,8 +4,12 @@
    ============================================================ */
 
 /* ---------- Экран входа (премиальный сплит) ---------- */
-.auth{position:relative;z-index:1;min-height:100dvh;display:grid;place-items:center;padding:clamp(12px,2.5vw,40px);overflow:auto}
+/* height + overflow-y: форма входа выше окна (маленький экран, зум) должна
+   прокручиваться. margin-block:auto центрирует карточку, но не срезает верх,
+   когда она не помещается. */
+.auth{position:relative;z-index:1;height:100dvh;display:flex;justify-content:center;align-items:flex-start;padding:clamp(12px,2.5vw,40px);overflow-y:auto;overscroll-behavior:contain}
 .auth-shell{
+  margin-block:auto;
   width:min(1060px,100%);display:grid;grid-template-columns:1.02fr .98fr;
   border:1px solid var(--line);border-radius:30px;overflow:hidden;
   background:var(--surface);box-shadow:0 50px 140px -50px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.02) inset;
