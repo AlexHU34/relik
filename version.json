@@ -1,7 +1,7 @@
 {
-  "version": "1.35.0",
+  "version": "1.36.0",
   "released": "2026-10-31",
-  "notes": "1.35.0: modals.js 1759 -> 1074 (управление группой, общие хелперы), e2e выбирает свободный порт — меньше ложных падений.",
+  "notes": "1.36.0: modals.js 1759 -> 704 — контакты, поиск людей и заявки вынесены в модуль; e2e зелёный.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }

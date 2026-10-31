@@ -26,7 +26,7 @@ const DATA = new Set(['js/i18n/ru.js', 'js/i18n/en.js']);
 /* Файлы, которые ещё не разрезаны. Значения только уменьшаются. */
 const LEGACY = {
   'js/ui/chatView.js': 1703,
-  'js/ui/modals.js': 1074,
+  'js/ui/modals.js': 704,
   'js/ui/modals/settings.js': 452,
   'js/ui/composer.js': 716,
   'js/main.js': 1156,

@@ -1,6 +1,11 @@
 /* Relik — маленькие общие помощники модальных окон. */
 import { S } from '../state.js';
 
+/* Спрятать оверлей (все окна закрываются одинаково). */
+export function closeOv(ov) {
+  if (ov) ov.hidden = true;
+}
+
 /* Дополнить S.users профилями из ответа сервера (по id, без дублей). */
 export function mergeUsers(list) {
   for (const u of list) {
