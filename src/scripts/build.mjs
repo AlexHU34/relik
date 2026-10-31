@@ -53,6 +53,24 @@ if (fs.existsSync(icons)) {
   log('assets/icons → dist/assets/icons');
 }
 
+/* Vite копирует manifest.json в assets/ и переписывает ссылку в HTML.
+   Внутри манифеста пути к иконкам относительные («assets/icons/...»),
+   поэтому из /assets/ они превращаются в /assets/assets/icons/... (404).
+   Возвращаем ссылку на корневой manifest.json и убираем копию. */
+const distAssets = path.join(DIST, 'assets');
+if (fs.existsSync(distAssets)) {
+  for (const f of fs.readdirSync(distAssets)) {
+    if (/^manifest-.*\.json$/.test(f)) fs.unlinkSync(path.join(distAssets, f));
+  }
+}
+const indexPath = path.join(DIST, 'index.html');
+let indexHtml = fs.readFileSync(indexPath, 'utf8');
+indexHtml = indexHtml.replace(/href="\.?\/?assets\/manifest-[^"]+\.json"/g, 'href="./manifest.json"');
+fs.writeFileSync(indexPath, indexHtml);
+if (!/href="\.?\/?manifest\.json"/.test(indexHtml)) {
+  console.warn('  ! ссылка на manifest.json не найдена в index.html — проверьте PWA');
+}
+
 /* ── sw.js: ASSETS собираем из фактического dist ───────────── */
 const cfg = fs.readFileSync(path.join(ROOT, 'js', 'config.js'), 'utf8');
 const version = (cfg.match(/version:\s*'([\d.]+)'/) || [])[1];

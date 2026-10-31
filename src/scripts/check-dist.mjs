@@ -61,6 +61,15 @@ const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'u
 for (const icon of manifest.icons || []) {
   if (!exists(icon.src)) errors.push(`manifest.json: ${icon.src} — 404`);
 }
+/* Манифест должен подключаться из корня: из assets/ относительные пути к
+   иконкам ломаются (получается /assets/assets/icons/...). */
+if (!/href=["']\.?\/?manifest\.json["']/.test(html)) {
+  errors.push('index.html: ссылка на manifest.json переписана сборкой (PWA-иконки не найдутся)');
+}
+if (fs.existsSync(path.join(DIST, 'assets'))) {
+  const dup = fs.readdirSync(path.join(DIST, 'assets')).filter((f) => /^manifest-.*\.json$/.test(f));
+  if (dup.length) errors.push(`в dist/assets остался дубль манифеста: ${dup.join(', ')}`);
+}
 
 /* ── 5. CSP: хеши inline-скриптов совпадают ────────────────── */
 const meta = html.match(/<meta[^>]+http-equiv=["']Content-Security-Policy["'][^>]*>/i);

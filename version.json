@@ -1,7 +1,7 @@
 {
-  "version": "1.39.0",
+  "version": "1.40.0",
   "released": "2026-10-31",
-  "notes": "1.39.0: chatView 1703 -> 1512 — голосовые и режим выбора вынесены в отдельные модули.",
+  "notes": "1.40.0: исправлен PWA-манифест в сборке (иконки отдавали 404 из-за /assets/assets/icons), добавлена проверка в check-dist.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://alexhu34.github.io/relik/"
 }
