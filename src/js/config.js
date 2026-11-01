@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.49.0',
+  version: '1.50.0',
   phase: 'Приватный мессенджер',
 };
 
@@ -55,6 +55,10 @@ export const PUSH = {
    можно включить true — новые личные сообщения пойдут по v2. */
 export const CRYPTO_V2 = {
   enabled: false,
+  /* Групповые sender keys (crypto_version = 3): нужен
+     supabase/group_sender_keys.sql и проверка на двух устройствах.
+     Пока false — группы идут прежним общим ключом (group_keys). */
+  groupsEnabled: false,
   prekeys: 20,
 };
 

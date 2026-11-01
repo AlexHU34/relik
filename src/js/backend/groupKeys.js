@@ -280,8 +280,12 @@ export async function shareGroupKey(chatId, userId) {
   }
 }
 
-/* Ротация: новый ключ знают только оставшиеся участники */
+/* Ротация: новый ключ знают только оставшиеся участники.
+   Заодно сбрасываем sender keys: состав изменился — старая цепочка не годится. */
 export async function rotateGroupKey(chatId, userIds = null) {
+  /* sender keys не зависят от наличия group_keys: сбрасываем всегда */
+  const { resetSenderKeys } = await import('./senderKeys.js');
+  await resetSenderKeys(chatId).catch(() => {});
   if (!(await hasGroupKeysTable())) return null;
   const ids = userIds || await memberIdsOf(chatId);
   if (!ids.length) return null;

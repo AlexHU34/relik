@@ -3,7 +3,7 @@
 
 import { sb } from './supabaseClient.js';
 import { idb, newId } from '../db/idb.js';
-import { SUPABASE, CRYPTO_V2 } from '../config.js';
+import { SUPABASE } from '../config.js';
 import { S } from '../ui/state.js';
 import { t } from '../i18n/i18n.js';
 import {
@@ -13,7 +13,9 @@ import {
   decryptFromChat,
 } from '../crypto/encryption.js';
 import { encryptGroupText, decryptGroupText } from './groupKeys.js';
-import { encryptV2Dm, decryptV2Row, isV2Row } from './v2Messages.js';
+import { decryptV2Row, isV2Row } from './v2Messages.js';
+import { decryptGroupSenderKey, isV3Row } from './senderKeys.js';
+import { aadForMessage, sealMessageText } from './messageSeal.js';
 
 /* Опросы и голоса передаются обычными сообщениями с префиксом —
    так они остаются E2E-зашифрованными и не требуют новых таблиц. */
@@ -25,13 +27,9 @@ const MEDIA_PREFIX = '__relik_media__:';
 const READ_PREFIX = '__relik_read__:';
 const TTL_PREFIX = '__relik_ttl__:';
 
-/* AAD: привязка шифртекста к чату, отправителю и id сообщения.
-   Сервер с доступом к базе не сможет переставить или подменить шифртекст
-   между чатами/сообщениями. Формат должен совпадать при шифровании и чтении. */
-export function aadForMessage(m) {
-  if (!m || !m.id || !m.conversation_id || !m.sender_id) return null;
-  return `relik-v1|${m.conversation_id}|${m.sender_id}|${m.id}`;
-}
+/* AAD для сообщений живёт в messageSeal.js (вместе с выбором шифрования),
+   здесь реэкспорт — им пользуются и другие модули бэкенда. */
+export { aadForMessage };
 
 export function encodePoll(poll) {
   return POLL_PREFIX + JSON.stringify(poll);
@@ -208,9 +206,9 @@ async function chatKeys(theirPublicKeyJwk) {
 
 /* ── Строка из Supabase → сообщение приложения (с дешифровкой) ── */
 async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
-  /* Свои v2-сообщения нельзя расшифровать чужой ratchet-сессией:
-     берём локальную копию (текст/медиа), если она есть. */
-  if (isV2Row(m) && m.sender_id === S.me?.id) {
+  /* Свои v2/v3-сообщения нельзя расшифровать чужой ratchet-сессией (а v3 —
+     вообще нельзя: chain уже сдвинут): берём локальную копию, если она есть. */
+  if ((isV2Row(m) || isV3Row(m)) && m.sender_id === S.me?.id) {
     const cached = await idb.get('messages', m.id);
     if (cached) {
       return {
@@ -219,7 +217,7 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
         edited: !!m.edited,
         status: cached.status === 'error' || cached.status === 'sending' ? 'sent' : cached.status,
         ts: cached.ts || Number(m.envelope?.ts) || Date.now(),
-        cryptoVersion: 2,
+        cryptoVersion: isV3Row(m) ? 3 : 2,
       };
     }
   }
@@ -227,7 +225,11 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
   let text = m.ciphertext;
   let decryptFailed = false;
 
-  if (isV2Row(m)) {
+  if (isV3Row(m)) {
+    const g3 = await decryptGroupSenderKey(m);
+    if (!g3 || g3.failed) { text = ''; decryptFailed = true; }
+    else text = g3.text;
+  } else if (isV2Row(m)) {
     const v2 = await decryptV2Row(m);
     if (!v2 || v2.failed) { text = ''; decryptFailed = true; }
     else text = v2.text;
@@ -266,7 +268,8 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
     deleted: m.deleted,
   });
   if (decryptFailed) msg.decryptFailed = true;
-  if (isV2Row(m)) msg.cryptoVersion = 2;
+  if (isV3Row(m)) msg.cryptoVersion = 3;
+  else if (isV2Row(m)) msg.cryptoVersion = 2;
   return msg;
 }
 
@@ -399,6 +402,7 @@ export async function sendMessage(chatId, text, replyToId = null, chatKind = 'dm
     deleted: false,
   });
   if (row.crypto_version === 2) msg.cryptoVersion = 2;
+  if (row.crypto_version === 3) msg.cryptoVersion = 3;
   return msg;
 }
 
@@ -423,50 +427,11 @@ export async function buildMessageRow({
   }
 
   const now = Date.now();
-  let ciphertext = '';
-  let iv = '';
-  let v2 = null;
-
-  if (SUPABASE.url && SUPABASE.anonKey) {
-    if (chatKind === 'dm' && CRYPTO_V2.enabled && peerUserId) {
-      try {
-        v2 = await encryptV2Dm({ chatId, peerUserId, senderId, text, messageId: msgId, ts: now });
-      } catch (err) {
-        console.warn('v2 encrypt failed, fallback to v1:', err?.message || err);
-        v2 = null;
-      }
-    }
-
-    if (!v2) {
-      const keyPair = await getKeyPair();
-      const aad = aadForMessage({ id: msgId, conversation_id: chatId, sender_id: senderId });
-      if (chatKind === 'dm' && theirPublicKeyJwk) {
-        if (!keyPair) throw new Error('No key pair found');
-        const theirPubKey = await getTheirPublicKey(theirPublicKeyJwk);
-        const encrypted = await encryptForChat(text, keyPair.privateKey, theirPubKey, aad);
-        ciphertext = encrypted.ciphertext;
-        iv = encrypted.iv;
-      } else if (chatKind === 'group') {
-        const encrypted = await encryptGroupText(chatId, text, aad);
-        if (encrypted) {
-          ciphertext = encrypted.ciphertext;
-          iv = encrypted.iv;
-        } else {
-          ciphertext = text;
-          iv = '';
-        }
-      } else {
-        ciphertext = text;
-        iv = '';
-      }
-    } else {
-      ciphertext = v2.ciphertext;
-      iv = v2.iv;
-    }
-  } else {
-    ciphertext = text;
-    iv = '';
-  }
+  /* v1/v2/v3 — вся логика выбора в messageSeal.js (messages.js на лимите строк) */
+  const sealed = await sealMessageText({
+    chatId, text, chatKind, theirPublicKeyJwk, messageId: msgId, senderId, peerUserId, ts: now,
+  });
+  const { ciphertext, iv, v2, v3 } = sealed;
 
   const row = {
     id: msgId,
@@ -476,13 +441,17 @@ export async function buildMessageRow({
     iv,
     reply_to: replyToId,
   };
-  if (v2) {
+  if (v3) {
+    row.crypto_version = 3;
+    row.sender_device = v3.senderDevice;
+    row.envelope = v3.envelope;
+  } else if (v2) {
     row.crypto_version = 2;
     row.sender_device = v2.senderDevice;
     row.envelope = v2.envelope;
   }
 
-  return { row, ts: v2 ? v2.envelope.ts : now };
+  return { row, ts: v3 ? now : v2 ? v2.envelope.ts : now };
 }
 
 /* ── Редактирование сообщения ── */
@@ -500,7 +469,9 @@ export async function editMessage(messageId, newText, chatKind = 'dm', theirPubl
   /* v2 использует одноразовые message keys — правка на месте невозможна */
   try {
     const { data: meta } = await sb.from('messages').select('crypto_version').eq('id', messageId).maybeSingle();
-    if (Number(meta?.crypto_version) === 2) throw new Error('Editing v2 messages is not supported yet');
+    if (Number(meta?.crypto_version) === 2 || Number(meta?.crypto_version) === 3) {
+      throw new Error('Editing v2 messages is not supported yet');
+    }
   } catch (err) {
     if (/not supported/i.test(err?.message || '')) throw err;
     /* нет колонки/сети — продолжаем как v1 */
@@ -727,6 +698,14 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
 /* ── Realtime-подписка на все сообщения пользователя (RLS фильтрует) ── */
 /* Текст для превью входящего сообщения (с расшифровкой, если возможно) */
 export async function previewTextFor(row, chat) {
+  if (isV3Row(row)) {
+    if (row.sender_id === S.me?.id) {
+      const cached = await idb.get('messages', row.id);
+      if (cached) return previewOfText(cached.wire || cached.text || '');
+    }
+    const g3 = await decryptGroupSenderKey(row).catch(() => null);
+    return g3 && !g3.failed ? previewOfText(g3.text) : ':';
+  }
   if (isV2Row(row)) {
     if (row.sender_id === S.me?.id) {
       const cached = await idb.get('messages', row.id);

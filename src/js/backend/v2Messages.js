@@ -108,8 +108,9 @@ export async function encryptV2Dm({ chatId, peerUserId, senderId, text, messageI
 }
 
 /* Зашифровать текст для одного устройства: сессия Double Ratchet,
-   при первом сообщении — X3DH-заголовок. */
-async function sealForDevice({ chatId, local, target, senderId, text, messageId, tsValue }) {
+   при первом сообщении — X3DH-заголовок. Экспортируется: этим же путём
+   раздаются групповые sender keys (см. backend/senderKeys.js). */
+export async function sealForDevice({ chatId, local, target, senderId, text, messageId, tsValue }) {
   let session = await loadSession(chatId, target.deviceId);
   let first = null;
 
@@ -145,19 +146,12 @@ async function sealForDevice({ chatId, local, target, senderId, text, messageId,
   };
 }
 
-/* Расшифровать строку сообщения v2. null — это не v2.
-   { failed: true } — v2, но ключей/сессии нет. */
-export async function decryptV2Row(row) {
-  if (!isV2Row(row)) return null;
-  const env = row.envelope;
+/* Открыть «коробку» от конкретного устройства. Общая часть для личных
+   сообщений и для раздачи групповых sender keys: отличается только AAD —
+   в него входит messageId, поэтому одна сессия живёт на оба случая. */
+export async function openBox({ chatId, senderId, remoteDevice, messageId, ts, box }) {
   const local = await localDevice();
-  if (!local?.privateBundle) return { failed: true };
-  const box = pickBox(env, local.deviceId);
-  if (!box) return { failed: true };
-
-  const chatId = row.conversation_id;
-  const senderId = row.sender_id;
-  const remoteDevice = env.fromDevice;
+  if (!local?.privateBundle || !box) return { failed: true };
   if (!chatId || !senderId || !remoteDevice) return { failed: true };
 
   try {
@@ -189,16 +183,36 @@ export async function decryptV2Row(row) {
       senderId,
       senderDevice: remoteDevice,
       recipientDevice: local.deviceId,
-      messageId: row.id,
-      ts: env.ts,
+      messageId,
+      ts,
     });
     const plain = await ratchetDecrypt(session.state, box.header, box.iv, box.ct, aad);
     await saveSession(chatId, remoteDevice, session.state);
     return { text: new TextDecoder().decode(plain) };
   } catch (err) {
-    console.warn('v2 decrypt failed:', err?.message || err);
+    console.warn('v2 open failed:', err?.message || err);
     return { failed: true };
   }
+}
+
+/* Расшифровать строку сообщения v2. null — это не v2.
+   { failed: true } — v2, но ключей/сессии нет. */
+export async function decryptV2Row(row) {
+  if (!isV2Row(row)) return null;
+  const env = row.envelope;
+  const local = await localDevice();
+  if (!local?.privateBundle) return { failed: true };
+  const box = pickBox(env, local.deviceId);
+  if (!box) return { failed: true };
+
+  return openBox({
+    chatId: row.conversation_id,
+    senderId: row.sender_id,
+    remoteDevice: env.fromDevice,
+    messageId: row.id,
+    ts: env.ts,
+    box,
+  });
 }
 
 /* Удалить ratchet-сессии при выходе/очистке. */
