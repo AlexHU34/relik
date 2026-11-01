@@ -95,6 +95,13 @@ node scripts/reproducible.mjs   # npm run check:repro
 3. Проверить: Authentication → Users → «Send password recovery» на тестовый адрес.
 4. Пароль ящика **не** хранить в репозитории и не присылать в чат — только в панели Supabase.
 
+**Текущее состояние (проверено 01.11.2026):** ящик `support@relik.best` создан, SMTP
+`smtp.beget.com:465` проверен прямым подключением (AUTH OK, письмо доставлено),
+SPF `v=spf1 redirect=beget.com` работает. DKIM **не включён** — в панели Beget
+переключателя нет; при необходимости включается через поддержку Beget
+(нужна TXT-запись `beget._domainkey.relik.best`). Без DKIM письма доходят,
+но у Gmail выше шанс попасть в «Спам».
+
 ## Откат
 
 - Быстро: `cd C:\67\relik-github; git revert HEAD; git push`.
