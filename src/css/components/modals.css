@@ -471,3 +471,38 @@ html[data-device="phone"] .decrypt-bar{margin:0 6px 6px}
 .sec-nav button:hover{background:var(--surface-3);color:var(--tx)}
 .sec-nav button.on{background:var(--accent-soft);border-color:var(--accent-glow);color:var(--tx)}
 @media (hover:none){.sec-nav button{min-height:40px}}
+
+/* ── Онбординг первого запуска (js/ui/onboarding.js) ───────── */
+.ob-ov{
+  position:fixed;inset:0;z-index:1300;display:grid;place-items:center;
+  padding:20px;background:rgba(6,8,14,.72);backdrop-filter:blur(10px);
+}
+.ob-card{
+  width:min(440px,100%);padding:26px 22px 20px;text-align:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-xl);
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.8);
+}
+.ob-art{
+  width:56px;height:56px;margin:0 auto 14px;display:grid;place-items:center;
+  border-radius:var(--r-lg);color:var(--on-accent);
+  background:var(--grad);box-shadow:0 14px 32px -14px var(--accent-glow);
+}
+.ob-card h2{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}
+.ob-text{margin:0;color:var(--tx-2);font-size:var(--fs-sm);line-height:1.6}
+.ob-dots{display:flex;gap:6px;justify-content:center;margin:18px 0 0}
+.ob-dots i{width:6px;height:6px;border-radius:var(--r-full);background:var(--line-2);transition:width var(--t-fast),background var(--t-fast)}
+.ob-dots i.on{width:16px;background:var(--accent)}
+.ob-actions{display:grid;gap:8px;margin-top:18px}
+.ob-actions .btn{width:100%}
+.ob-copy{
+  padding:10px 18px;border-radius:var(--r-full);font-size:var(--fs-sm);font-weight:600;
+  color:var(--tx);background:var(--surface-2);border:1px solid var(--line-2);cursor:pointer;
+}
+.ob-copy:hover{background:var(--surface-3)}
+.ob-skip{
+  padding:8px;border:0;background:transparent;color:var(--tx-3);cursor:pointer;
+  font-size:var(--fs-xs);text-decoration:underline;text-underline-offset:3px;
+}
+.ob-skip:hover{color:var(--tx-2)}
+@media (max-width:520px){.ob-card{padding:22px 18px 16px}}
+@media (prefers-reduced-motion:reduce){.ob-dots i,.ob-card{transition:none}}

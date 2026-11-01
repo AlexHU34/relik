@@ -60,6 +60,9 @@ let failed = 0;
 const FIXED_TS = Date.UTC(2026, 9, 27, 12, 0, 0);
 await ctx.send('Page.addScriptToEvaluateOnNewDocument', {
   source: `(function(){
+    /* Онбординг первого запуска не должен попадать в снимки: это состояние
+       «уже видел», иначе каждый прогон начинался бы с модалки. */
+    try { localStorage.setItem('relik.onboarded.v1', '1'); } catch (e) {}
     var FIXED = ${FIXED_TS};
     var Real = Date;
     function Fake(...a){ return a.length ? new Real(...a) : new Real(FIXED); }

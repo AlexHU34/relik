@@ -729,4 +729,16 @@ export default {
   'recovery.text': 'The interface recovered itself. If something still looks broken, reload the app.',
   'recovery.reload': 'Reload',
   'recovery.check': 'Run checks',
+
+  /* First-run onboarding */
+  'ob.step1Title': 'Welcome to Relik',
+  'ob.step1Text': 'Private messaging with no ads and no tracking. Calls, files, voice notes and groups are all free.',
+  'ob.step2Title': 'Your keys stay with you',
+  'ob.step2Text': 'Messages are encrypted on your device. The server only sees ciphertext and cannot read your chats.',
+  'ob.step3Title': 'Invite your people',
+  'ob.step3Text': 'Send an invite link: they open it, sign up, and you can message each other right away.',
+  'ob.next': 'Next',
+  'ob.done': 'Done',
+  'ob.skip': 'Skip',
+  'ob.copy': 'Copy link',
 };

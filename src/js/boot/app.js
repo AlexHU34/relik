@@ -17,6 +17,7 @@ import { openRecoveryFlow, maybePromptBackup } from '../ui/keyRecovery.js';
 import { sweepExpired } from '../backend/expiry.js';
 import { initPalette, openPalette } from '../ui/palette.js';
 import { initRecovery } from '../ui/recovery.js';
+import { maybeShowOnboarding } from '../ui/onboarding.js';
 import { seedDemoRequests } from '../backend/contacts.js';
 import { paintAuth, animateWelcome, isRealBackend } from './auth.js';
 import { initRouter, route, showApp, showAuth } from '../ui/router.js';
@@ -121,6 +122,7 @@ async function enterApp(welcomeKey) {
 
   animateWelcome();
   toast(t(welcomeKey));
+  maybeShowOnboarding();
   $('#authPass').value = '';
   maybeDemo();
   startGlobalRealtime();
@@ -409,6 +411,7 @@ export async function bootApp() {
   paintEmptyChips();
   animateWelcome();
   bootDone();
+  maybeShowOnboarding();
   handlePwaAction();
   reloadChats().then(() => retryOutbox()).catch(() => {});
 

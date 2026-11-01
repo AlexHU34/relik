@@ -330,6 +330,18 @@ async function openChatWith(ctx, name) {
   return Boolean(await waitFor(ctx, `!document.getElementById('chatActive').hidden`, 15000));
 }
 
+/* Первый запуск показывает онбординг (3 экрана). Он должен показываться
+   один раз и не мешать дальше: закрываем его до основных проверок. */
+async function dismissOnboarding(ctx) {
+  const shown = await ctx.evaluate(`!!document.getElementById('obOv') && !document.getElementById('obOv').hidden`);
+  if (!shown) return false;
+  for (let i = 0; i < 3; i += 1) {
+    await ctx.evaluate(`document.getElementById('obNext')?.click()`);
+    await sleep(140);
+  }
+  return true;
+}
+
 async function typeAndSend(ctx, text) {
   const sent = await ctx.evaluate(`(function(){
     var ta=document.getElementById('ta');
@@ -450,6 +462,11 @@ async function runDemo() {
     }
       record('вход в демо', Boolean(await ctx.evaluate(`!document.getElementById('appView').hidden`)));
 
+    /* Онбординг первого запуска: показан один раз, закрывается кнопкой */
+    const obShown = await dismissOnboarding(ctx);
+    record('онбординг первого запуска', Boolean(obShown));
+    record('онбординг закрылся', Boolean(await ctx.evaluate(`document.getElementById('obOv')?.hidden !== false`)));
+
     /* демо-данные сеются асинхронно: на холодном GitHub Pages список чатов
        появляется позже, чем экран приложения — ждём его, иначе шаг «плавает» */
     await waitFor(ctx, `document.querySelectorAll('.chat-item').length > 0`, 15000);
@@ -546,8 +563,10 @@ async function runLive() {
   try {
     await login(A, env.a);
     record('вход A', true, env.a.name);
+    await dismissOnboarding(A);
     await login(B, env.b);
     record('вход B', true, env.b.name);
+    await dismissOnboarding(B);
 
     /* Контакты A ↔ B. На повторных прогонах они уже установлены — тогда
        заявку не отправляем, иначе тест «падал» на пустом списке входящих. */
