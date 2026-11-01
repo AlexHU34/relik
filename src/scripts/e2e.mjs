@@ -449,6 +449,11 @@ async function runUiSmoke(ctx) {
       .map((b) => b.id || b.className);
     out.namelessList = out.nameless.join(', ');
     out.nameless = out.nameless.length;
+    /* Демо — это и есть «из кэша», метка там только путала бы.
+       В живом прогоне метка законна (сеть могла пропасть) — не проверяем. */
+    out.cacheLabel = /[?&]demo=1/.test(location.search)
+      ? /из кэша/i.test(document.body.innerText || '')
+      : false;
     return out;
   })()`);
 
@@ -461,6 +466,7 @@ async function runUiSmoke(ctx) {
   record('поиск по чатам фильтрует и очищается', Boolean(r.search));
   record('папки фильтруют и возвращают список', Boolean(r.folders));
   record('у иконочных кнопок есть подписи для диктора', r.nameless === 0, 'без подписи: ' + r.nameless + (r.namelessList ? ' (' + r.namelessList + ')' : ''));
+  record('в демо нет метки «из кэша»', r.cacheLabel === false);
 }
 
 async function runDemo() {

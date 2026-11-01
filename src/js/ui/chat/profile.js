@@ -13,7 +13,8 @@ import { isBlocked, blockUser, unblockUser } from '../../backend/blocks.js';
 import { confirmAction } from '../dialog.js';
 import { renderSidebar } from '../sidebar.js';
 import { syncExpanded, setLabel } from '../a11y.js';
-import { openLightbox, openGroupManager } from '../modals.js';
+import { openLightbox } from '../modals/lightbox.js';
+import { openGroupManager } from '../lazyModals.js';
 import { fingerprintForPair } from '../../crypto/fingerprint.js';
 import { paintTtl } from './ttl.js';
 

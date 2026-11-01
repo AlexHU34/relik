@@ -8,8 +8,15 @@ import { SUPABASE } from '../../config.js';
 import { toast } from '../toast.js';
 import { loadChats } from '../sidebar.js';
 import { searchUsers, createDmChat, profilesByIds } from '../../backend/chats.js';
-import { listRequests, sendRequest, respondRequest, cancelRequest, removeContact, contactsReady, subscribeRequests, seedDemoRequests } from '../../backend/contacts.js';
+import { sendRequest, respondRequest, cancelRequest, removeContact, contactsReady } from '../../backend/contacts.js';
 import { mergeUsers, closeOv } from './shared.js';
+import { refreshRequests, onRequestsChanged } from '../reqBadge.js';
+
+/* Заявка пришла по realtime — обновляем открытые окна (если они есть). */
+onRequestsChanged(() => {
+  if ($('#reqOv') && !$('#reqOv').hidden) paintRequests();
+  if ($('#peopleOv') && !$('#peopleOv').hidden) paintPeople();
+});
 
 
 export function openNewChat() {
@@ -144,35 +151,9 @@ export async function openDmWith(uid) {
   }
 }
 
-/* ── Поиск людей и заявки в контакты ───────────────────────── */
-
-/* обновить заявки и счётчик на конверте */
-export async function refreshRequests() {
-  if (!S.me) return { incoming: [], outgoing: [], contacts: [] };
-  let data = { incoming: [], outgoing: [], contacts: [] };
-  try {
-    /* в демо-режиме один раз показываем входящую заявку, чтобы был виден механизм */
-    if (!(SUPABASE.url && SUPABASE.anonKey)) await seedDemoRequests(S.users);
-    data = await listRequests();
-  } catch (err) {
-    console.error('Contact requests error:', err);
-  }
-  S.reqIn = data.incoming || [];
-  S.reqOut = data.outgoing || [];
-  S.contacts = data.contacts || [];
-  updateReqBadge();
-  return data;
-}
-
-export function updateReqBadge() {
-  const badge = $('#reqBadge');
-  if (!badge) return;
-  const n = S.reqIn.length;
-  badge.textContent = n > 99 ? '99+' : String(n);
-  badge.hidden = n === 0;
-  const btn = $('#requestsBtn');
-  if (btn) btn.classList.toggle('has-requests', n > 0);
-}
+/* ── Поиск людей и заявки в контакты ─────────────────────────
+   refreshRequests/updateReqBadge/startContactRealtime живут в ../reqBadge.js:
+   счётчик и опрос нужны с первого экрана, до загрузки этого модуля. */
 
 export function openPeople() {
   if (!$('#peopleOv')) return;
@@ -368,18 +349,4 @@ export async function peopleAction(e) {
   await refreshRequests();
   if (!$('#peopleOv').hidden) paintPeople();
   if (!$('#reqOv').hidden) paintRequests();
-}
-
-/* realtime: пришла заявка — показать сразу */
-let reqSub = null;
-export function startContactRealtime() {
-  if (reqSub) return;
-  reqSub = subscribeRequests(async (payload) => {
-    await refreshRequests();
-    if (payload?.eventType === 'INSERT' && $('#reqOv').hidden) {
-      toast(t('req.toastNew'));
-    }
-    if (!$('#peopleOv').hidden) paintPeople();
-    if (!$('#reqOv').hidden) paintRequests();
-  });
 }

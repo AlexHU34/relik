@@ -6,8 +6,12 @@ import { SUPABASE, CRYPTO_V2 } from '../config.js';
 import { idb } from '../db/idb.js';
 import { S } from '../ui/state.js';
 import { generateDeviceBundle } from '../crypto/v2/protocol.js';
+import { generateEcdh, exportPublic, exportPrivate } from '../crypto/v2/protocol.js';
+import { pickActiveDevices, needsTouch } from '../crypto/v2/devicePolicy.js';
 
 const LOCAL_KEY = 'deviceV2';
+/* Ниже этого числа одноразовых prekey не хватает на «холодные» чаты. */
+const MIN_PREKEYS = 5;
 
 function newDeviceId() {
   return crypto.randomUUID ? crypto.randomUUID() : 'd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -73,22 +77,85 @@ export async function ensureDeviceV2() {
       });
       if (otpErr) console.warn('prekeys publish:', otpErr.message);
     }
+    local.publishedAt = Date.now();
+    await saveLocal(local);
+  } else if (needsTouch(local.publishedAt)) {
+    /* Устройство живое — продлеваем метку, иначе через DEVICE_MAX_AGE_DAYS
+       оно выпадет из fan-out и перестанет получать сообщения. */
+    const { error: touchErr } = await sb.from('device_keys')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('user_id', S.me.id)
+      .eq('device_id', local.deviceId);
+    if (touchErr) console.warn('device_keys touch:', touchErr.message);
+    else { local.publishedAt = Date.now(); await saveLocal(local); }
+    await replenishPrekeys(local).catch(() => 0);
   }
 
   return local;
 }
 
-/* Публичные bundle всех устройств пользователя */
+/* Дополнить запас одноразовых prekey: после первых «холодных» чатов они
+   кончаются, и новые собеседники остаются без OPK (X3DH слабее). */
+export async function replenishPrekeys(local = null) {
+  if (!CRYPTO_V2?.enabled || !sb || !S.me?.id) return 0;
+  const me = local || await localDevice();
+  if (!me?.deviceId) return 0;
+
+  let have = 0;
+  try {
+    const { count, error } = await sb.from('one_time_prekeys')
+      .select('prekey_id', { count: 'exact', head: true })
+      .eq('user_id', S.me.id)
+      .eq('device_id', me.deviceId);
+    if (error) {
+      if (!/does not exist|schema cache/i.test(error.message || '')) console.warn('prekeys count:', error.message);
+      return 0;
+    }
+    have = Number(count) || 0;
+  } catch (e) {
+    return 0;
+  }
+  if (have >= MIN_PREKEYS) return 0;
+
+  const want = Math.max(MIN_PREKEYS, Number(CRYPTO_V2.prekeys) || 20) - have;
+  const rows = [];
+  const priv = [...(me.privateBundle?.oneTimePrekeys || [])];
+  const pub = [...(me.publicBundle?.oneTimePrekeys || [])];
+  const base = Date.now();
+  for (let i = 0; i < want; i++) {
+    const pair = await generateEcdh();
+    const id = (base + i) % 2147483647;
+    const key = await exportPublic(pair);
+    rows.push({ user_id: S.me.id, device_id: me.deviceId, prekey_id: id, public_key: key });
+    priv.push({ id, key: await exportPrivate(pair) });
+    pub.push({ id, key });
+  }
+  const { error: insErr } = await sb.from('one_time_prekeys').upsert(rows, {
+    onConflict: 'user_id,device_id,prekey_id',
+    ignoreDuplicates: true,
+  });
+  if (insErr) {
+    console.warn('prekeys replenish:', insErr.message);
+    return 0;
+  }
+  me.privateBundle = { ...me.privateBundle, oneTimePrekeys: priv };
+  me.publicBundle = { ...me.publicBundle, oneTimePrekeys: pub };
+  await saveLocal(me);
+  return rows.length;
+}
+
+/* Публичные bundle устройств пользователя: только «живые» и не больше лимита
+   (см. crypto/v2/devicePolicy.js — фан-аут не должен расти бесконечно). */
 export async function loadDeviceBundles(userId) {
   if (!sb || !userId) return [];
   const { data, error } = await sb
     .from('device_keys')
-    .select('user_id, device_id, identity_key, identity_sign_key, signed_prekey_id, signed_prekey, signed_prekey_sig')
+    .select('user_id, device_id, identity_key, identity_sign_key, signed_prekey_id, signed_prekey, signed_prekey_sig, updated_at')
     .eq('user_id', userId)
     .order('updated_at', { ascending: false })
-    .limit(10);
+    .limit(20);
   if (error) throw error;
-  return (data || []).map((row) => ({
+  const mapped = (data || []).map((row) => ({
     userId: row.user_id,
     deviceId: row.device_id,
     identityKey: row.identity_key,
@@ -96,7 +163,9 @@ export async function loadDeviceBundles(userId) {
     signedPrekeyId: row.signed_prekey_id,
     signedPrekey: row.signed_prekey,
     signedPrekeySig: row.signed_prekey_sig,
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
   }));
+  return pickActiveDevices(mapped);
 }
 
 /* Атомарно забрать одноразовый prekey получателя (RPC из crypto_v2.sql) */

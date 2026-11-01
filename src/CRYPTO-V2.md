@@ -1,6 +1,6 @@
 # Relik — проект протокола v2 (X3DH + Double Ratchet)
 
-Статус: **ядро и dual-read wire-up реализованы, отправка v2 выключена флагом**. SQL: `supabase/crypto_v2.sql`. Флаг: `CRYPTO_V2.enabled` в `js/config.js`.
+Статус: **ядро и dual-read wire-up реализованы, fan-out на устройства есть, отправка v2 выключена флагом**. SQL: `supabase/crypto_v2.sql`. Флаг: `CRYPTO_V2.enabled` в `js/config.js`.
 
 ## 1. Зачем
 
@@ -122,10 +122,11 @@ AAD собирается канонически (length-prefixed) и прове�
 1. ~~Дизайн-ревью и тест-векторы~~ — ядро и тесты готовы (`js/crypto/v2/protocol.js`, 24 selftest).
 2. ~~SQL-миграция + RLS + RPC для one-time prekeys~~ — `supabase/crypto_v2.sql`.
 3. ~~Модуль X3DH + ratchet + тесты без UI~~ — готово.
-4. Мультидевайс-регистрация и публикация prekeys — `js/backend/devices.js` готов, включается флагом.
+4. ~~Мультидевайс-регистрация и публикация prekeys~~ — `js/backend/devices.js`: `ensureDeviceV2` продлевает `updated_at` раз в сутки, `replenishPrekeys` докидывает одноразовые ключи, когда их меньше пяти. Включается флагом.
 5. ~~Двухрежимная отправка/чтение v1+v2~~ — реализовано за флагом, требует проверки на двух аккаунтах.
-6. UI safety numbers на все устройства.
-7. Групповые sender keys.
-8. Аудит и только потом включение по умолчанию.
+6. ~~Fan-out конверта на устройства~~ — `encryptV2Dm` кладёт по коробке на каждое устройство получателя и на свои (кроме отправителя), `js/crypto/v2/envelope.js`; политика `js/crypto/v2/devicePolicy.js`: окно активности 45 дней и не больше 8 устройств, чтобы конверт не пух.
+7. UI safety numbers на все устройства.
+8. Групповые sender keys (сейчас группы только v1).
+9. Аудит и только потом включение по умолчанию.
 
 Пока флаг `CRYPTO_V2.enabled = false`, действует `CRYPTO.md` и протокол v1.

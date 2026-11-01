@@ -1,13 +1,15 @@
 /* Relik — представление чата: шапка, лента, пузыри, реакции, голос */
-import { S, user, chatTitle, chatById, bus } from './state.js';
-import { $, esc, fmtDay, avatarHtml, snippet } from './utils.js';
+import { S, user, chatById, bus } from './state.js';
+import { $, fmtDay, snippet } from './utils.js';
 import { syncExpanded } from './a11y.js';
 import { registerActiveSync, syncActiveNow } from './activeSync.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';
 import { SUPABASE } from '../config.js';
-import { openLightbox } from './modals.js';
+import { openLightbox } from './modals/lightbox.js';
+import { initNetBadge, markCached, markLive } from './netBadge.js';
+import { renderHeader } from './chat/head.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
 import { renderSidebar } from './sidebar.js';
@@ -115,6 +117,8 @@ let groupMigrationWarned = false;
 
 /* ── инициализация и делегирование ─────────────────────────── */
 export function initChatView() {
+  /* метка «из кэша» живёт в строке статуса — перерисовываем шапку при смене */
+  initNetBadge(() => { if (S.active) renderHeader(); });
   els.msgs = $('#msgs');
   els.toBottom = $('#toBottom');
   els.toBottom.innerHTML = icon('arrowDown', 18);
@@ -970,6 +974,7 @@ export async function openChat(id) {
         await updateReadReceipt(id).catch(() => {});
         setReadAt(id);
         sendReadUpto(id);
+        markLive();
         /* зависшие в «отправляется» после аварийного закрытия — пробуем дослать */
         if (navigator.onLine !== false) {
           S.messages[id]
@@ -984,7 +989,7 @@ export async function openChat(id) {
           renderSidebar();
         }
       })
-      .catch((err) => console.error('Load messages error:', err));
+      .catch((err) => { markCached(); console.error('Load messages error:', err); });
   }
 
   // Подписываемся на Realtime
@@ -1101,35 +1106,7 @@ export function showChat() {
 
 
 /* ── шапка чата ────────────────────────────────────────────── */
-function renderHeader() {
-  const chat = chatById(S.active);
-  const isDm = chat.kind === 'dm';
-  const callBtn = $('#callBtn');
-  const videoBtn = $('#videoCallBtn');
-  if (callBtn) callBtn.hidden = !isDm;
-  if (videoBtn) videoBtn.hidden = !isDm;
-  const u = isDm
-    ? (S.users.find((x) => x.id === chat.userId) || { name: chat.title || '…', hue: chat.hue ?? 0, seen: 'offline' })
-    : null;
-  $('#chatWhoAvatar').innerHTML = avatarHtml(u || { name: chat.title, hue: chat.hue ?? 5 }, { online: u?.seen === 'online' });
-  $('#chatWhoName').innerHTML = esc(chatTitle(chat));
-  const st = $('#chatWhoStatus');
-  st.classList.remove('online');
-  if (isDm) {
-    const uname = u.username ? '@' + u.username : '';
-    if (u.seen === 'online') {
-      st.textContent = uname ? `${uname} · ${t('chat.online')}` : t('chat.online');
-      st.classList.add('online');
-    } else {
-      st.textContent = uname || t('chat.' + u.seen);
-    }
-  } else {
-    st.textContent = t('chat.members').replace('{n}', String((chat.members?.length || 0) + 1));
-  }
-  /* Кнопка шапки — единственный элемент без текстовой подписи для диктора */
-  const whoBtn = $('#chatWho');
-  if (whoBtn) whoBtn.setAttribute('aria-label', `${chatTitle(chat)}, ${st.textContent}`);
-}
+
 
 /* ── лента ─────────────────────────────────────────────────── */
 export function renderMessages(opts = {}) {

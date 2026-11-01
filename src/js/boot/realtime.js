@@ -11,7 +11,7 @@ import { S, chatById } from '../ui/state.js';
 import { idb } from '../db/idb.js';
 import { previewTextFor, loadLatestPreviews } from '../backend/messages.js';
 import { subscribeAllMessages } from '../backend/realtimeSub.js';
-import { refreshRequests, startContactRealtime } from '../ui/modals.js';
+import { refreshRequests, startContactRealtime } from '../ui/reqBadge.js';
 import { loadBlocks } from '../backend/blocks.js';
 import { renderSidebar, loadChats as reloadChats } from '../ui/sidebar.js';
 import { isMuted } from '../ui/prefs.js';

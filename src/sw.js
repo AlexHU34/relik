@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.47.11';
+const VER = 'relik-v1.48.0';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css', './css/fonts.css',
@@ -13,12 +13,12 @@ const ASSETS = [
   './js/db/idb.js', './js/data/mock.js', './js/data/emoji.js',
   './js/ui/state.js', './js/ui/utils.js', './js/ui/a11y.js', './js/ui/activeSync.js', './js/ui/authStatus.js', './js/ui/icons.js', './js/ui/toast.js',
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
-  './js/ui/chat/ttl.js', './js/ui/chat/receipts.js', './js/ui/chat/profile.js', './js/ui/chat/forward.js', './js/ui/chat/render.js', './js/ui/chat/voice.js', './js/ui/chat/select.js', './js/ui/chat/indicators.js', './js/ui/modals/lightbox.js', './js/ui/modals/settings.js', './js/ui/modals/group.js', './js/ui/modals/contacts.js', './js/ui/modals/shared.js', './js/ui/composer/retry.js', './js/ui/composer/media.js', './js/ui/composer/scheduled.js', './js/ui/composer/polls.js',
+  './js/ui/chat/ttl.js', './js/ui/chat/receipts.js', './js/ui/chat/profile.js', './js/ui/chat/head.js', './js/ui/chat/forward.js', './js/ui/chat/render.js', './js/ui/chat/voice.js', './js/ui/chat/select.js', './js/ui/chat/indicators.js', './js/ui/modals/lightbox.js', './js/ui/modals/settings.js', './js/ui/modals/group.js', './js/ui/modals/contacts.js', './js/ui/modals/shared.js', './js/ui/composer/retry.js', './js/ui/composer/media.js', './js/ui/composer/scheduled.js', './js/ui/composer/polls.js',
   './js/ui/themes.js', './js/ui/themeDefs.js', './js/ui/welcomeTyping.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
   './js/ui/prefs.js', './js/ui/menu.js', './js/ui/dialog.js', './js/ui/richText.js', './js/ui/install.js', './js/ui/export.js', './js/ui/pin.js',
-  './js/ui/palette.js', './js/ui/recovery.js', './js/ui/onboarding.js', './js/ui/msgWindow.js', './js/db/mediaCache.js', './js/db/compaction.js',
+  './js/ui/palette.js', './js/ui/recovery.js', './js/ui/onboarding.js', './js/ui/msgWindow.js', './js/ui/overlays.js', './js/ui/reqBadge.js', './js/ui/lazyModals.js', './js/ui/netBadge.js', './js/db/mediaCache.js', './js/db/compaction.js',
   './js/backend/supabaseClient.js', './js/backend/sdk.js', './js/backend/net.js', './js/backend/auth.js', './js/backend/realtimeSub.js', './js/backend/chats.js',  './js/backend/groups.js', './js/backend/groupKeys.js', './js/backend/messages.js', './js/backend/presence.js', './js/backend/storage.js', './js/backend/calls.js', './js/backend/prefsSync.js', './js/backend/devices.js', './js/backend/v2Messages.js', './js/backend/turn.js', './js/backend/contacts.js', './js/backend/blocks.js', './js/backend/telemetry.js', './js/backend/push.js',
-  './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js', './js/crypto/fingerprint.js', './js/crypto/recovery.js', './js/crypto/v2/protocol.js', './js/crypto/v2/envelope.js',
+  './js/crypto/keygen.js', './js/crypto/ecdh.js', './js/crypto/encryption.js', './js/crypto/backup.js', './js/crypto/fingerprint.js', './js/crypto/recovery.js', './js/crypto/v2/protocol.js', './js/crypto/v2/envelope.js', './js/crypto/v2/devicePolicy.js',
   './js/vendor/bip39-wordlist.js',
   './js/backend/keyStore.js', './js/ui/keyRecovery.js', './js/backend/expiry.js', './js/backend/scheduled.js', './js/ui/iosHint.js',
   './assets/icons/icon-192.png', './assets/icons/icon-512.png',
