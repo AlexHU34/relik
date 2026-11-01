@@ -60,6 +60,20 @@ as $$
         'p50', percentile_cont(0.5) within group (order by case when data->>'ms' ~ '^[0-9]+$' then (data->>'ms')::numeric end),
         'p95', percentile_cont(0.95) within group (order by case when data->>'ms' ~ '^[0-9]+$' then (data->>'ms')::numeric end)
       ) from ev where kind = 'perf_render_messages'
+    ),
+    /* LCP p95 по типу сети: видно, «медленно у всех» или «медленно на 3G». */
+    'by_ect', (
+      select coalesce(jsonb_object_agg(ect, jsonb_build_object('n', n, 'p95', round(p95))), '{}'::jsonb)
+      from (
+        select coalesce(nullif(data->>'ect', ''), 'unknown') as ect,
+               count(*) as n,
+               percentile_cont(0.95) within group (
+                 order by case when data->>'lcp' ~ '^[0-9]+$' then (data->>'lcp')::numeric end
+               ) as p95
+        from ev
+        where kind = 'perf_vitals'
+        group by 1
+      ) s
     )
   );
 $$;

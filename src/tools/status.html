@@ -368,6 +368,11 @@
         var pn = (pj && pj.nav) || {};
         var num = function (x) { return x == null ? '—' : Math.round(x); };
         var dec = function (x) { return x == null ? '—' : Number(x).toFixed(3); };
+        var be = (pj && pj.by_ect) || {};
+        var segs = Object.keys(be)
+          .filter(function (k) { return k !== 'unknown' && be[k] && be[k].p95 != null; })
+          .map(function (k) { return k + ' ' + Math.round(be[k].p95) + ' мс'; })
+          .join(' · ');
         if (!pv.n) {
           set('perf', 'warn', '—', 'за 24 часа замеров нет');
         } else {
@@ -376,7 +381,7 @@
             pv.lcp_p95 && pv.lcp_p95 > 4000 ? 'warn' : 'ok',
             'LCP ' + num(pv.lcp_p50) + ' / ' + num(pv.lcp_p95) + ' мс',
             'замеров: ' + pv.n + ' · INP p95 ' + num(pv.inp_p95) + ' мс · CLS p95 ' + dec(pv.cls_p95) +
-              ' · TTFB p95 ' + num(pn.ttfb_p95) + ' мс'
+              ' · TTFB p95 ' + num(pn.ttfb_p95) + ' мс' + (segs ? ' · LCP p95: ' + segs : '')
           );
         }
       } catch (e) {

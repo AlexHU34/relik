@@ -156,21 +156,32 @@ function observeVitals() {
   } catch (e) { /* нет LayoutShift */ }
 
   try {
+    /* buffered для event-timing не поддерживается: observe() падал, и INP
+       всегда уходил нулём. Считаем только настоящие взаимодействия. */
     new PerformanceObserver((list) => {
-      for (const e of list.getEntries()) inp = Math.max(inp, e.duration);
-    }).observe({ type: 'event', durationThreshold: 40, buffered: true });
+      for (const e of list.getEntries()) {
+        if (!e.interactionId) continue;
+        inp = Math.max(inp, e.duration);
+      }
+    }).observe({ type: 'event', durationThreshold: 40 });
   } catch (e) { /* нет Event Timing */ }
 
   let reported = false;
   const report = () => {
     if (reported) return;
     reported = true;
+    const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     logEvent('perf_vitals', {
       lcp: Math.round(lcp),
       cls: Number(cls.toFixed(3)),
       inp: Math.round(inp),
       heap: performance.memory?.usedJSHeapSize || 0,
       v: APP.version,
+      /* Контекст без персональных данных: помогает понять, где LCP p95 высокий. */
+      ect: String(net?.effectiveType || ''),
+      rtt: Number(net?.rtt) || 0,
+      dm: Number(navigator.deviceMemory) || 0,
+      hc: Number(navigator.hardwareConcurrency) || 0,
     });
   };
 

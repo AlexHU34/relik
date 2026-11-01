@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.47.4',
+  version: '1.47.5',
   phase: 'Приватный мессенджер',
 };
 

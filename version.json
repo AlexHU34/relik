@@ -1,7 +1,7 @@
 {
-  "version": "1.47.4",
+  "version": "1.47.5",
   "released": "2026-11-01",
-  "notes": "1.47.4: офсайт-копия бэкапов на рабочую машину (ежедневно, с проверкой), RUM на странице статуса (LCP/INP/CLS/TTFB p50/p95), исправлен 404 js/config.js на служебных страницах.",
+  "notes": "1.47.5: INP теперь реально измеряется (event-timing без buffered), в RUM добавлен тип сети и LCP p95 по сетям на странице статуса.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://relik.best/"
 }
