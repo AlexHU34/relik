@@ -51,6 +51,23 @@ const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
   .map((u) => u.split('?')[0].split('#')[0]);
 for (const r of refs) if (!exists(r)) errors.push(`index.html: ${r} — 404`);
 
+/* То же для служебных страниц: раньше ../js/config.js был 404 на проде,
+   и status/health/preflight молча показывали «Supabase не настроен». */
+for (const page of walk(DIST).filter((f) => f.endsWith('.html'))) {
+  const relPage = path.relative(DIST, page).replace(/\\/g, '/');
+  const dir = path.posix.dirname(relPage);
+  const text = fs.readFileSync(page, 'utf8');
+  for (const m of text.matchAll(/(?:src|href)="([^"]+)"/g)) {
+    const raw = m[1];
+    if (!raw || /^(https?:|data:|mailto:|#|\/\/|javascript:)/.test(raw)) continue;
+    const clean = raw.split('?')[0].split('#')[0];
+    if (!clean || clean.endsWith('/') || clean === '..' || clean === '.') continue;
+    const target = path.posix.normalize(dir === '.' ? clean : `${dir}/${clean}`).replace(/^\.\//, '');
+    if (target.startsWith('..')) continue;
+    if (!exists(target)) errors.push(`${relPage}: ${raw} — 404`);
+  }
+}
+
 /* ── 3. Вендоры, которые грузятся по жёсткому пути ─────────── */
 for (const f of ['js/vendor/supabase.js', 'js/vendor/qrcode.js']) {
   if (!exists(f)) errors.push(`${f} — нет в dist (грузится из HTML/по URL)`);

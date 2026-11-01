@@ -55,6 +55,11 @@ for (const f of ['supabase.js', 'qrcode.js']) {
   if (fs.existsSync(src)) copyFile(src, path.join(DIST, 'js', 'vendor', f));
 }
 
+/* Служебные страницы (tools/status.html, health, preflight) читают настройки
+   из ../js/config.js простым текстом. Vite бандлит config в чанк, поэтому
+   без этой копии на проде они видели 404 и писали «Supabase не настроен». */
+copyFile(path.join(ROOT, 'js', 'config.js'), path.join(DIST, 'js', 'config.js'));
+
 /* Иконки нужны manifest.json и apple-touch-icon по неизменяемым путям. */
 const icons = path.join(ROOT, 'assets', 'icons');
 if (fs.existsSync(icons)) {

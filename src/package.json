@@ -1,6 +1,6 @@
 {
   "name": "relik",
-  "version": "1.47.3",
+  "version": "1.47.4",
   "private": true,
   "type": "module",
   "description": "Relik — приватный мессенджер (статика, без фреймворка)",

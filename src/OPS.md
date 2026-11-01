@@ -46,8 +46,9 @@
   REST, Storage, Realtime и TURN; раз в 5 минут пишет срез в `service_samples`;
   при сбое двух проверок подряд присылает алерт в Telegram и второй — когда
   всё восстановилось.
-- `tools/status.html` — публичная страница: живые проверки из браузера +
-  история доступности за 24 часа.
+- `tools/status.html` — публичная страница: живые проверки из браузера,
+  история доступности за 24 часа и клиентские Web Vitals (LCP/INP/CLS/TTFB
+  p50/p95 из RPC `perf_summary`, см. `supabase/perf_summary.sql`).
 - `scripts/relik-health.mjs` — то же из терминала/по cron (JSON, код возврата).
 - `.github/workflows/health.yml` — внешняя проверка каждые 15 минут с
   инфраструктуры GitHub (сбой = упавший запуск + письмо владельцу репозитория).
@@ -207,9 +208,14 @@ coturn в течение минуты сам.
 - дамп лежит в `/var/backups/relik/relik-YYYY-MM-DD.dump.gz`, хранится
   14 дней (`KEEP_DAYS`), каждый файл проверяется `pg_restore --list`
   и по минимальному размеру — «пустой» дамп считается ошибкой;
-- **офсайт обязателен**: пока копия только на том же VPS, потеря сервера =
-  потеря бэкапов. Настройте `rclone config` и добавьте в `/etc/relik-backup.env`
-  `RCLONE_REMOTE=r2:relik-backups` (или любой S3/B2);
+- **офсайт-копия на рабочей машине**: `py secrets/pull_backup.py` тянет
+  последний дамп по SFTP в `C:\67\backups` и проверяет gzip целиком.
+  Автоматизация: `powershell -ExecutionPolicy Bypass -File
+  C:\67\secrets\install_backup_task.ps1` — задача `RelikBackupPull`, ежедневно
+  04:30 с догоном пропущенного; лог `C:\67\backups\pull.log`. Хранится 14 копий.
+  Проверить сейчас: `Start-ScheduledTask -TaskName RelikBackupPull`.
+- **облако (опционально)**: `rclone config` + `RCLONE_REMOTE=...` в
+  `/etc/relik-backup.env`; тогда VPS сам копирует дамп в S3/B2.
 - сторож `/usr/local/bin/relik-backup-watch` (cron раз в час) пишет в Telegram,
   если последнему дампу больше 26 часов или он подозрительно мал;
 - проверка вручную: `/usr/local/bin/relik-backup --check`;

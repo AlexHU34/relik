@@ -350,6 +350,42 @@
       set('uptime', 'warn', '—', demo ? 'демо-режим' : 'Supabase не настроен');
     }
 
+    /* Клиентские Web Vitals: агрегаты RPC perf_summary (без user_id и текстов) */
+    if (cfg.url && cfg.anon) {
+      try {
+        var pr = await timeFetch(cfg.url + '/rest/v1/rpc/perf_summary', {
+          method: 'POST',
+          headers: {
+            apikey: cfg.anon,
+            Authorization: 'Bearer ' + cfg.anon,
+            'Content-Type': 'application/json',
+          },
+          body: '{}',
+        });
+        if (!pr.res.ok) throw new Error('HTTP ' + pr.res.status);
+        var pj = await pr.res.json();
+        var pv = (pj && pj.vitals) || {};
+        var pn = (pj && pj.nav) || {};
+        var num = function (x) { return x == null ? '—' : Math.round(x); };
+        var dec = function (x) { return x == null ? '—' : Number(x).toFixed(3); };
+        if (!pv.n) {
+          set('perf', 'warn', '—', 'за 24 часа замеров нет');
+        } else {
+          set(
+            'perf',
+            pv.lcp_p95 && pv.lcp_p95 > 4000 ? 'warn' : 'ok',
+            'LCP ' + num(pv.lcp_p50) + ' / ' + num(pv.lcp_p95) + ' мс',
+            'замеров: ' + pv.n + ' · INP p95 ' + num(pv.inp_p95) + ' мс · CLS p95 ' + dec(pv.cls_p95) +
+              ' · TTFB p95 ' + num(pn.ttfb_p95) + ' мс'
+          );
+        }
+      } catch (e) {
+        set('perf', 'warn', '—', 'нужен supabase/perf_summary.sql');
+      }
+    } else {
+      set('perf', 'warn', '—', 'Supabase не настроен');
+    }
+
     /* Service worker */
     try {
       if ('serviceWorker' in navigator) {
@@ -403,6 +439,7 @@
       stun: cfg.stun,
       sw: rows.sw.querySelector('.dt').textContent,
       idb: rows.idb.querySelector('.val').textContent,
+      perf: rows.perf.querySelector('.dt').textContent,
     }, null, 2);
   }
 
@@ -419,6 +456,7 @@
   add('vpsBackup', 'Бэкап БД', 'проверяем…');
   add('vpsDisk', 'Диск сервера', 'проверяем…');
   add('uptime', 'Доступность за 24 часа', 'проверяем…');
+  add('perf', 'Клиентские замеры (24 ч)', 'проверяем…');
   add('sw', 'Service Worker и кэш', 'проверяем…');
   add('idb', 'Локальное хранилище', 'проверяем…');
   add('net', 'Сеть', 'проверяем…');
