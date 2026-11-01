@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
   OUTBOX, backoffMs, canRetry, pickDue, beginAttempt, completeAttempt,
-  failAttempt, applyAck, mergeRemote, summarize,
+  failAttempt, applyAck, mergeRemote, summarize, isPending,
 } from '../../js/core/outbox.js';
 
 /* Детерминированный ГПСЧ, чтобы тест не «мигал». */
@@ -62,6 +62,33 @@ test('outbox: слияние не создаёт дублей', () => {
   assert.equal(added, 0);
   assert.equal(messages[0].status, OUTBOX.SENT);
   assert.equal(messages[0].text, 'привет');
+});
+
+test('outbox: сообщение, отправленное без сети, попадает в очередь и уходит само', () => {
+  const now = 1e12;
+  /* так его создаёт композер, если navigator.onLine === false */
+  const queued = { id: 'q1', status: OUTBOX.QUEUED, ts: now, attempts: 0, nextAt: 0, ack: 'none' };
+  assert.equal(canRetry(queued, now), true, 'очередь обязана подхватываться');
+  assert.equal(isPending(queued.status), true);
+  assert.deepEqual(pickDue([queued], now).map((m) => m.id), ['q1']);
+
+  /* попытка отправки: queued → sending → sent, попытка считается */
+  let m = beginAttempt(queued, now);
+  assert.equal(m.status, OUTBOX.SENDING);
+  assert.equal(m.attempts, 1);
+  m = completeAttempt(m, now + 500);
+  assert.equal(m.status, OUTBOX.SENT);
+  assert.equal(canRetry(m, now + 1000), false, 'доставленное не ретраится');
+});
+
+test('outbox: пока сети нет, очередь не превращается в «ошибки»', () => {
+  const now = 1e12;
+  const queued = { id: 'q2', status: OUTBOX.QUEUED, ts: now, attempts: 0, nextAt: 0 };
+  /* композер ставит queued и НЕ пытается отправить — ошибки не появляется */
+  const summary = summarize([queued]);
+  assert.equal(summary.error, 0);
+  assert.equal(summary.queued, 1);
+  assert.equal(summary.total, 1);
 });
 
 test('outbox chaos: 10 000 отправок, 30% потерь, дубли ответов, рестарты', () => {

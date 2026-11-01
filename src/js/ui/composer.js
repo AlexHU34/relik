@@ -11,13 +11,16 @@ import { renderSidebar } from './sidebar.js';
 import { toast } from './toast.js';
 import { playSent } from './sounds.js';
 import { sendTypingSignal } from '../backend/presence.js';
-import { sendMessage, editMessage } from '../backend/messages.js';
+import { sendMessage } from '../backend/messages.js';
 import { notifyPush } from '../backend/push.js';
+import { logEvent } from '../backend/telemetry.js';
 import { dataUrlToBlob } from '../backend/storage.js';
 import { prefs } from './prefs.js';
 import { currentDevice } from './device.js';
 import { EMOJI_GROUPS, getRecentEmoji, pushRecentEmoji } from '../data/emoji.js';
 import { retryMessage, retryFailedMessages, retryOutbox, friendlySendError } from './composer/retry.js';
+import { paintQueueBar, offlineMediaBlocked } from './composer/queue.js';
+import { saveEdit, bindEditHooks } from './composer/edit.js';
 import {
   handlePickedFile, sendMediaPayload, withUploadNotice, payloadFromBlob, payloadFromDataUrl,
   pickAndSend, MAX_VOICE_CHARS, MAX_CIRCLE_MS, blobToDataUrl,
@@ -37,6 +40,7 @@ import {
 bindScheduledHooks({ getEls: () => els, deliverMessage, clearReplyEdit });
 bindMediaHooks({ deliverMessage, clearReplyEdit });
 bindPollHooks({ getEls: () => els, deliverMessage, clearReplyEdit });
+bindEditHooks({ clearReplyEdit, renderMessages });
 
 export { processScheduled, retryMessage, retryFailedMessages, retryOutbox };
 export { sendImage, sendFile, sendVideo };
@@ -313,6 +317,7 @@ function insertAtCursor(txt) {
 
 /* ── плашка ответа / редактирования ────────────────────────── */
 export function refreshBar() {
+  paintQueueBar();
   const r = S.editing ? 'edit' : S.reply ? 'reply' : null;
   els.reb.classList.toggle('on', !!r);
   if (!r) { els.rebText.textContent = ''; return; }
@@ -390,7 +395,8 @@ export async function sendCurrent() {
   const msg = {
     id: newId(), chatId: chat.id, sender: 'u_me', ts: Date.now(),
     type: 'text', text, reactions: [],
-    status: SUPABASE.url && SUPABASE.anonKey ? 'sending' : 'sent',
+    /* без сети сообщение не «ошибка», а очередь: уйдёт само, когда связь вернётся */
+    status: !(SUPABASE.url && SUPABASE.anonKey) ? 'sent' : navigator.onLine === false ? 'queued' : 'sending',
     ...(replyBox ? { replyTo: replyBox } : {}),
   };
 
@@ -399,6 +405,12 @@ export async function sendCurrent() {
   playSent();
 
   if (!(SUPABASE.url && SUPABASE.anonKey)) return;
+
+  if (navigator.onLine === false) {
+    logEvent('send_queued', {});
+    paintQueueBar();
+    return;
+  }
 
   try {
     await sendMessage(chat.id, text, replyId, chat.kind, chat.publicKey, msg.id, chat.userId || null);
@@ -420,42 +432,7 @@ export async function sendCurrent() {
 
 
 
-async function saveEdit(text) {
-  const m = (S.messages[S.active] || []).find((x) => x.id === S.editing);
-  const chat = chatById(S.active);
-  const wasEditing = S.editing;
-  clearReplyEdit();
-  if (!m || !wasEditing || !chat) return;
-
-  if (SUPABASE.url && SUPABASE.anonKey) {
-    try {
-      await editMessage(m.id, text, chat.kind, chat.publicKey);
-      m.text = text;
-      m.edited = true;
-      await idb.put('messages', m);
-    } catch (err) {
-      console.error('Edit message error:', err);
-      toast(err.message || t('toast.error'));
-    }
-  } else {
-    if (text) {
-      m.text = text;
-      m.edited = true;
-      await idb.put('messages', m);
-    }
-  }
-
-  if (S.active) renderMessages();
-  const chat2 = chatById(S.active);
-  if (chat2) {
-    const last = (S.messages[S.active] || []).filter((x) => !x.hidden).pop();
-    if (last && last.id === m.id) {
-      chat2.last = { ts: last.ts, from: last.sender, type: last.type, text: last.text || '' };
-      await idb.put('chats', chat2);
-    }
-  }
-  renderSidebar();
-}
+/* edit.js — правка сообщений (вынесено: composer.js на лимите строк) */
 
 /* Медиа передаём внутри зашифрованного сообщения (data URL).
    Так фото и файлы работают без Storage и остаются E2E. */
@@ -550,6 +527,7 @@ function cleanupRecording() {
 }
 
 async function sendVoiceData(src, dur, chatId = S.active) {
+  if (offlineMediaBlocked()) return;
   if (src.length > MAX_VOICE_CHARS) {
     toast(t('media.tooBig'), { type: 'error' });
     return;

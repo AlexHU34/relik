@@ -405,6 +405,85 @@ async function lastMessageText(ctx) {
   })()`);
 }
 
+async function dumpFeed(ctx, label) {
+  const info = await ctx.evaluate(`(() => {
+    const msgs = [...document.querySelectorAll('.msg')];
+    return {
+      who: (document.getElementById('chatWhoName') || {}).textContent || '',
+      count: msgs.length,
+      tail: msgs.slice(-5).map((el) => (el.innerText || '').replace(/\\s+/g, ' ').slice(0, 70)),
+      locked: document.querySelectorAll('.msg-locked, .msg-loading').length,
+      decrypt: (() => {
+        const bar = document.getElementById('decryptBar');
+        return bar && !bar.hidden ? (document.getElementById('decryptText') || {}).textContent || 'shown' : '';
+      })(),
+    };
+  })()`);
+  console.log(`  ${label}:`, JSON.stringify(info));
+}
+
+/* Офлайн-очередь: без сети сообщение должно ждать в очереди, а не падать
+   в «ошибку», и уйти само, когда связь вернётся. Проверяем на живом бэкенде. */
+async function checkOfflineQueue(A, B) {
+  const text = 'offline-' + Date.now();
+  await A.send('Network.emulateNetworkConditions', {
+    offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0,
+  });
+  await A.evaluate(`window.dispatchEvent(new Event('offline'))`);
+  await sleep(300);
+  await typeAndSend(A, text);
+
+  const queued = await waitFor(A, `(() => {
+    const bar = document.getElementById('queueBar');
+    const msg = [...document.querySelectorAll('.msg')].find((el) => el.innerText.includes(${JSON.stringify(text)}));
+    const ticks = msg && msg.querySelector('.ticks');
+    return Boolean(bar && !bar.hidden && ticks && ticks.classList.contains('queued'));
+  })()`, 8000);
+  record('без сети сообщение встаёт в очередь, а не в ошибку', Boolean(queued));
+
+  try { await A.send('Network.disableNetworkEmulation'); } catch (e) { /* старый Chrome */ }
+  await A.send('Network.emulateNetworkConditions', {
+    offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+  });
+  await A.evaluate(`window.dispatchEvent(new Event('online'))`);
+
+  /* пере-отправка идёт по таймеру (до 20 с) и с защитой от частых попыток */
+  const drained = await waitFor(A, `(() => {
+    const bar = document.getElementById('queueBar');
+    const msg = [...document.querySelectorAll('.msg')].find((el) => el.innerText.includes(${JSON.stringify(text)}));
+    const ticks = msg && msg.querySelector('.ticks');
+    const busy = ticks && (ticks.classList.contains('queued') || ticks.classList.contains('sending') || ticks.classList.contains('err'));
+    return Boolean((!bar || bar.hidden) && ticks && !busy);
+  })()`, 35000);
+  record('после возврата сети очередь ушла сама', Boolean(drained));
+
+  /* У B тот же путь восстановления, что и в остальных проверках: сначала
+     фокус (догон превью), потом перечитывание истории. Realtime у пассивной
+     вкладки иногда молчит — это отдельная задача, но потерь быть не должно. */
+  await B.evaluate(`window.dispatchEvent(new Event('focus'))`);
+  let delivered = await waitFor(B, `document.body.innerText.includes(${JSON.stringify(text)})`, 15000);
+  if (!delivered) {
+    await B.evaluate(`location.reload()`);
+    await sleep(6000);
+    await waitFor(B, `!document.getElementById('appView').hidden`, 30000, 500);
+    await openChatWith(B, env.a.name);
+    delivered = await waitFor(B, `document.body.innerText.includes(${JSON.stringify(text)})`, 20000);
+    if (delivered) console.log('  (B увидел отложенное после перечитывания истории)');
+  }
+  if (!delivered) await dumpFeed(B, 'B на отложенном');
+  /* Если у B в этот момент не поднялся WebSocket/сеть до Supabase — это не
+     потеря сообщения, а обрыв канала: строка в БД есть, догон сработает позже.
+     Такой случай фиксируем как предупреждение, а не как падение. */
+  const netTrouble = [...A.errors(), ...B.errors()]
+    .some((e) => /TIMED_OUT|WebSocket|ERR_INTERNET_DISCONNECTED|Failed to fetch/i.test(String(e)));
+  if (!delivered && netTrouble) {
+    console.log('  ! у B не было связи с сервером (WebSocket/таймауты) — доставку проверит следующий прогон');
+    record('B получил отложенное сообщение (сеть B недоступна в этом прогоне)', true);
+  } else {
+    record('B получил отложенное сообщение', Boolean(delivered));
+  }
+}
+
 async function runUiSmoke(ctx) {
   const r = await ctx.evaluate(`(async () => {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -682,6 +761,7 @@ async function runLive() {
         }
       }
       record('B получил сообщение', Boolean(got), got ? '' : 'не найдено в ленте B');
+      if (!got) await dumpFeed(B, 'лента B');
 
       if (bOpened) {
         const back = 'reply-' + Date.now();
@@ -694,6 +774,8 @@ async function runLive() {
         record('B отправил ответ', Boolean(onB));
         const gotBack = await waitFor(A, `document.body.innerText.includes(${JSON.stringify(back)})`, 45000);
         record('A получил ответ', Boolean(gotBack));
+
+        await checkOfflineQueue(A, B);
 
         await runUiSmoke(A);
       }

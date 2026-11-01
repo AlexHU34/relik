@@ -10,91 +10,19 @@ import { uploadEncryptedBlob, dataUrlToBlob, rememberMediaPreview, readFileAsDat
 import { refreshMessageStatus } from '../chat/receipts.js';
 import { playSent } from '../sounds.js';
 import { friendlySendError } from './retry.js';
+import { offlineMediaBlocked } from './queue.js';
+import { blobToDataUrl, loadImage, imageThumbFromDataUrl, videoThumbFromBlob } from './thumbs.js';
+
+export { blobToDataUrl } from './thumbs.js';
 
 let hooks = { deliverMessage: async () => {}, clearReplyEdit: () => {} };
 export function bindMediaHooks(next = {}) { hooks = { ...hooks, ...next }; }
-
-export const blobToDataUrl = (blob) => new Promise((res, rej) => {
-  const r = new FileReader();
-  r.onload = () => res(r.result);
-  r.onerror = rej;
-  r.readAsDataURL(blob);
-});
 
 const MAX_MEDIA_CHARS = 900000;
 export const MAX_VOICE_CHARS = 4000000;
 const MAX_FILE_BYTES = 60 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 80 * 1024 * 1024;
 export const MAX_CIRCLE_MS = 60000;
-
-function loadImage(src) {
-  return new Promise((res, rej) => {
-    const img = new Image();
-    img.onload = () => res(img);
-    img.onerror = rej;
-    img.src = src;
-  });
-}
-
-/* Миниатюра для мгновенного превью, пока полный файл летит из Storage */
-async function imageThumbFromDataUrl(dataUrl, max = 96) {
-  try {
-    const img = await loadImage(dataUrl);
-    const w = img.width || img.naturalWidth || 1;
-    const h = img.height || img.naturalHeight || 1;
-    const scale = Math.min(1, max / Math.max(w, h));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(w * scale));
-    canvas.height = Math.max(1, Math.round(h * scale));
-    const g = canvas.getContext('2d');
-    g.fillStyle = '#0b0e14';
-    g.fillRect(0, 0, canvas.width, canvas.height);
-    g.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.62);
-  } catch (e) {
-    return '';
-  }
-}
-
-async function videoThumbFromBlob(blob, max = 160) {
-  const url = URL.createObjectURL(blob);
-  return await new Promise((resolve) => {
-    const v = document.createElement('video');
-    let done = false;
-    const finish = (val) => {
-      if (done) return;
-      done = true;
-      try { v.removeAttribute('src'); v.load(); } catch (e) { /* ignore */ }
-      URL.revokeObjectURL(url);
-      resolve(val || '');
-    };
-    const timer = setTimeout(() => finish(''), 5000);
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = 'metadata';
-    v.onloadedmetadata = () => {
-      try { v.currentTime = Math.min(0.25, (v.duration || 1) / 2); } catch (e) { finish(''); }
-    };
-    v.onseeked = () => {
-      try {
-        const w = v.videoWidth || 1;
-        const h = v.videoHeight || 1;
-        const scale = Math.min(1, max / Math.max(w, h));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(w * scale));
-        canvas.height = Math.max(1, Math.round(h * scale));
-        canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
-        clearTimeout(timer);
-        finish(canvas.toDataURL('image/jpeg', 0.65));
-      } catch (e) {
-        clearTimeout(timer);
-        finish('');
-      }
-    };
-    v.onerror = () => { clearTimeout(timer); finish(''); };
-    v.src = url;
-  });
-}
 
 async function compressToDataUrl(file) {
   const url = URL.createObjectURL(file);
@@ -303,7 +231,7 @@ export async function withUploadNotice(size, fn) {
 
 /* Отправка выбранного/вставленного/перетащенного файла */
 export async function handlePickedFile(file, chatId = S.active) {
-  if (!file || !chatById(chatId)) return;
+  if (!file || !chatById(chatId) || offlineMediaBlocked()) return;
   try {
     const kind = String(file.type || '');
 
@@ -349,7 +277,7 @@ export async function handlePickedFile(file, chatId = S.active) {
 
 /* Несколько фото одним сообщением-альбомом */
 export async function sendAlbum(files, chatId = S.active) {
-  if (!chatById(chatId) || !files?.length) return;
+  if (!chatById(chatId) || !files?.length || offlineMediaBlocked()) return;
   const list = [...files].slice(0, 10);
   const total = list.reduce((n, f) => n + (f.size || 0), 0);
   const items = await withUploadNotice(total > 3 * 1024 * 1024 ? total : 0, async () => {
@@ -378,7 +306,7 @@ export async function sendAlbum(files, chatId = S.active) {
 
 export function pickAndSend(kind) {
   const chatId = S.active;
-  if (!chatById(chatId)) return;
+  if (!chatById(chatId) || offlineMediaBlocked()) return;
   const input = document.createElement('input');
   input.type = 'file';
   if (kind === 'image' || kind === 'album') input.accept = 'image/*';

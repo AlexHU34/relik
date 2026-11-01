@@ -65,6 +65,7 @@
 .msg.mine .msg-meta{color:var(--meta-mine,#a2abff)}
 .ticks{display:inline-flex;line-height:0}
 .ticks.sending .ic{animation:tickSpin 2.2s linear infinite;transform-origin:50% 50%}
+.ticks.queued{color:var(--tx-3)}
 @keyframes tickSpin{to{transform:rotate(360deg)}}
 html[data-motion="off"] .ticks.sending .ic{animation:none}
 .ticks.read{color:var(--tick-read,#7ea6ff);cursor:pointer}

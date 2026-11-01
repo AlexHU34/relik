@@ -14,7 +14,7 @@ import { pickDue, canRetry, backoffMs } from '../../core/outbox.js';
 
 /* ── повторная отправка (клик по ошибке или возврат сети) ── */
 export async function retryMessage(m, opts = {}) {
-  if (!m || m.status !== 'error') return false;
+  if (!m || (m.status !== 'error' && m.status !== 'queued')) return false;
   const chat = chatById(m.chatId || S.active);
   if (!chat) return false;
 
@@ -56,6 +56,7 @@ export async function retryMessage(m, opts = {}) {
   }
   if (S.active === chat.id) refreshMessageStatus(m);
   renderSidebar();
+  document.dispatchEvent(new Event('relik:outbox'));
   return ok;
 }
 
@@ -125,6 +126,7 @@ export async function retryOutbox() {
     console.warn('Outbox retry failed:', err);
   } finally {
     outboxBusy = false;
+    document.dispatchEvent(new Event('relik:outbox'));
   }
 }
 

@@ -316,6 +316,9 @@ export function ticksHtml(m, mine) {
   if (m.status === 'sending') {
     return `<span class="ticks sending" title="${t('comp.sending')}">${icon('clock', 13)}</span>`;
   }
+  if (m.status === 'queued') {
+    return `<span class="ticks queued" title="${t('comp.queued')}">${icon('clock', 13)}</span>`;
+  }
   if (m.status === 'read') {
     return `<span class="ticks read" title="${t('msg.read')}">${icon('check2', 13)}</span>`;
   }
