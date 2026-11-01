@@ -2,6 +2,7 @@
 import { S, user, chatTitle, chatById, bus } from './state.js';
 import { $, esc, fmtDay, avatarHtml, snippet } from './utils.js';
 import { syncExpanded } from './a11y.js';
+import { registerActiveSync, syncActiveNow } from './activeSync.js';
 import { icon } from './icons.js';
 import { t } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';
@@ -106,7 +107,6 @@ let unseenCount = 0;
 let currentSubscription = null; // Realtime subscription
 let pollTimer = null;           // страховочный опрос активного чата
 let realtimeStatus = 'offline'; // статус канала Supabase Realtime
-let activeSyncTick = null;
 let toolsOpen = null;           // панель действий сообщения (тап на телефоне)
 let toolsHideTimer = 0;         // пауза перед удалением панели (чтобы до неё дотянулись)
 let autoScrolling = false;
@@ -411,7 +411,7 @@ export function initChatView() {
 
   /* вернулись в браузер/вкладку — сразу подтягиваем новые сообщения */
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && activeSyncTick) activeSyncTick();
+    if (document.visibilityState === 'visible') syncActiveNow();
     if (document.visibilityState === 'visible' && S.active) sendReadUpto(S.active);
   });
 
@@ -714,7 +714,7 @@ function closeReact() {
 
 function stopActiveSync() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  activeSyncTick = null;
+  registerActiveSync(null);
 }
 
 /* ── добавляет только новые сообщения в конец ленты ──
@@ -849,7 +849,7 @@ function startActiveSync(id, chat) {
     }
   };
 
-  activeSyncTick = tick;
+  registerActiveSync(tick);
   /* Если realtime подключён, опрос нужен только как страховка — реже.
      Без realtime (VPN, RLS, сеть) держим частый опрос. */
   const period = realtimeStatus === 'SUBSCRIBED' ? 15000 : 4000;

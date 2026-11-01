@@ -725,21 +725,6 @@ export function subscribeToChat(chatId, callbacks, chatKind = 'dm', theirPublicK
 }
 
 /* ── Realtime-подписка на все сообщения пользователя (RLS фильтрует) ── */
-export function subscribeAllMessages(onInsert) {
-  if (!sb) return { unsubscribe: () => {} };
-
-  const channel = sb
-    .channel('all-messages')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'messages' },
-      (payload) => { onInsert?.(payload.new); }
-    )
-    .subscribe();
-
-  return { unsubscribe: () => { sb.removeChannel(channel); } };
-}
-
 /* Текст для превью входящего сообщения (с расшифровкой, если возможно) */
 export async function previewTextFor(row, chat) {
   if (isV2Row(row)) {

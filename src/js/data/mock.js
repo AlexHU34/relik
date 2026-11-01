@@ -64,6 +64,36 @@ export function demoMessage() {
   };
 }
 
+/* Нагрузочный тест ленты: `?demo=1&stress=2000` добавляет N сообщений в первый
+   чат. Только демо (seedIfEmpty вызывается лишь там), на реальную БД не влияет.
+   Нужно для scripts/perf-chat.mjs: проверяем, что окно DOM ограничено и
+   прокрутка длинной истории не деградирует. */
+function stressMessages(n, t0) {
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    out.push({
+      id: 'stress_' + i,
+      chatId: 'c_alina',
+      sender: i % 3 === 0 ? 'u_me' : 'u_alina',
+      ts: t0 - (n - i) * 37e3,
+      type: 'text',
+      text: `Сообщение #${i + 1} — длинная лента для проверки прокрутки и памяти.`,
+      reactions: [],
+      status: 'read',
+    });
+  }
+  return out;
+}
+
+function stressCount() {
+  try {
+    const n = Number(new URLSearchParams(location.search).get('stress')) || 0;
+    return Math.max(0, Math.min(5000, n));
+  } catch (e) {
+    return 0;
+  }
+}
+
 export async function seedIfEmpty() {
   const chats = await idb.getAll('chats');
   if (chats.length) return;
@@ -116,6 +146,9 @@ export async function seedIfEmpty() {
     { id: 's2', chatId: 'c_sonya', sender: 'u_me', ts: t0 - 2 * D + 5 * M, type: 'text', text: 'Всё 잘, спасибо! А у тебя?', reactions: [], status: 'read' },
     { id: 's3', chatId: 'c_sonya', sender: 'u_sonya', ts: t0 - 2 * D + 10 * M, type: 'text', text: 'Тоже норм, работаю над дизайном Relik', reactions: [{ e: '👍', by: ['u_me'] }], status: 'read' },
   ];
+
+  const stress = stressCount();
+  if (stress) msgs.push(...stressMessages(stress, t0));
 
   await Promise.all([
     idb.bulkPut('chats', chatsData),

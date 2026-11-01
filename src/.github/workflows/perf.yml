@@ -41,6 +41,13 @@ jobs:
           sleep 2
           node scripts/perf.mjs --profile slow3g --url http://localhost:8123/ --json > perf-local.json
 
+      - name: Лента: 2000 сообщений
+        continue-on-error: true
+        run: |
+          python3 -m http.server 8124 --directory dist >/dev/null 2>&1 &
+          sleep 2
+          node scripts/perf-chat.mjs --msgs 2000 --url http://localhost:8124/ --json > perf-chat.json
+
       - name: Живой сайт (slow3g)
         continue-on-error: true
         run: node scripts/perf.mjs --profile slow3g --url https://alexhu34.github.io/relik/ --json > perf-live.json

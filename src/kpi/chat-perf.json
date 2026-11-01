@@ -1,0 +1,29 @@
+{
+  "2000": {
+    "msgs": 2000,
+    "url": "http://localhost:8096/",
+    "at": "2026-11-01T12:07:41.475Z",
+    "chats": true,
+    "openChat": 119,
+    "dom": {
+      "domMsgs": 120,
+      "domChildren": 122,
+      "domNodes": 897,
+      "banner": "Показать раньше1887",
+      "renders": 1,
+      "renderP95": 16,
+      "renderedN": 120,
+      "heap": 4706309
+    },
+    "scroll": {
+      "fps": 60,
+      "frames": 180,
+      "p50": 17,
+      "p95": 17,
+      "max": 33,
+      "long": 0,
+      "ms": 3006
+    },
+    "errors": []
+  }
+}

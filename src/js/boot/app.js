@@ -12,23 +12,20 @@ import { toast } from '../ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from '../ui/sidebar.js';
 import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from '../ui/chatView.js';
 import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from '../ui/composer.js';
-import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, startContactRealtime, closeTransientOverlays } from '../ui/modals.js';
+import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, closeTransientOverlays } from '../ui/modals.js';
 import { openRecoveryFlow, maybePromptBackup } from '../ui/keyRecovery.js';
 import { sweepExpired } from '../backend/expiry.js';
 import { initPalette, openPalette } from '../ui/palette.js';
 import { initRecovery } from '../ui/recovery.js';
 import { seedDemoRequests } from '../backend/contacts.js';
 import { paintAuth, animateWelcome, isRealBackend } from './auth.js';
-import { loadBlocks } from '../backend/blocks.js';
 import { initRouter, route, showApp, showAuth } from '../ui/router.js';
 import { sb } from '../backend/supabaseClient.js';
 import { signOut, restoreSession, updateLastSeen, saveAvatar, retryPendingProfile } from '../backend/auth.js';
-import { subscribeAllMessages, previewTextFor, loadLatestPreviews } from '../backend/messages.js';
-import { playMessage } from '../ui/sounds.js';
-import { notifyMessage } from '../ui/notify.js';
+import { startGlobalRealtime, stopGlobalRealtime } from './realtime.js';
 import { initCalls, stopCalls } from '../ui/calls.js';
 import { initPin, armPin } from '../ui/pin.js';
-import { isMuted, applyRemotePrefs } from '../ui/prefs.js';
+import { applyRemotePrefs } from '../ui/prefs.js';
 import { applyTheme, currentTheme } from '../ui/themes.js';
 import { bootDone } from './runtime.js';
 import { enablePrefsSync, loadRemotePrefs } from '../backend/prefsSync.js';
@@ -247,8 +244,7 @@ function initChrome() {
     document.title = 'Relik';
     try { navigator.clearAppBadge?.(); } catch (e) { /* ignore */ }
     stopCalls();
-    stopSidebarRefresh();
-    if (globalSub) { globalSub.unsubscribe(); globalSub = null; }
+    stopGlobalRealtime();
     location.hash = '#/auth';
     showAuth();
     toast(t(isRealBackend ? 'toast.loggedOut' : 'toast.logout'));
@@ -279,111 +275,8 @@ async function syncPrefsFromCloud() {
   }
 }
 
-/* ── глобальные уведомления о новых сообщениях ── */
-let globalSub = null;
-let sidebarTimer = null;
-let sidebarBusy = false;
-
-function startGlobalRealtime() {
-  if (!S.me) return;
-
-  /* заявки в контакты работают и в демо-режиме:
-     счётчик на конверте + live-обновление */
-  refreshRequests().catch(() => {});
-  startContactRealtime();
-  /* блокировки: скрыть чаты и запретить отправку */
-  loadBlocks().then(() => renderSidebar()).catch(() => {});
-  /* realtime может быть не включён для таблицы — тихо сверяем раз в 30 с */
-  if (!window.__reqTimer) {
-    window.__reqTimer = setInterval(() => {
-      if (document.visibilityState === 'visible' && S.me) refreshRequests().catch(() => {});
-    }, 30000);
-  }
-
-  if (!isRealBackend || globalSub) return;
-  globalSub = subscribeAllMessages(async (row) => {
-    if (!row) return;
-    const chat = chatById(row.conversation_id);
-    if (!chat) {
-      /* Новый чат создан другим человеком, пока мы были онлайн.
-         Подтягиваем список, иначе сообщение некуда положить. */
-      reloadChats().then(() => renderSidebar()).catch(() => {});
-      return;
-    }
-    if (row.sender_id === S.me.id) return; // свои сообщения обрабатываются локально
-    if (S.active === row.conversation_id) return; // открытый чат — своя подписка
-
-    const text = await previewTextFor(row, chat);
-    if (text == null) return; // голос в опросе не показываем
-    chat.last = { ts: Date.now(), from: row.sender_id, type: 'text', text };
-    chat.unread = (chat.unread || 0) + 1;
-    await idb.put('chats', chat);
-    renderSidebar();
-    if (!isMuted(chat.id)) {
-      playMessage();
-      notifyMessage(chat, text, () => { location.hash = `#/chat/${chat.id}`; });
-    }
-  });
-
-  /* Realtime может не дойти (сеть/RLS) — раз в 10 секунд тихо сверяем список */
-  if (!sidebarTimer) {
-    sidebarTimer = setInterval(refreshChatListQuiet, 10000);
-  }
-}
-
-function stopSidebarRefresh() {
-  if (sidebarTimer) { clearInterval(sidebarTimer); sidebarTimer = null; }
-}
-
-/* Тихая синхронизация превью в списке чатов — без перезагрузки страницы */
-async function refreshChatListQuiet() {
-  if (!isRealBackend || !S.me || sidebarBusy) return;
-  if (document.visibilityState === 'hidden') return;
-  sidebarBusy = true;
-  try {
-    const latest = await loadLatestPreviews();
-    let changed = false;
-    let incoming = false;
-    let audible = false;
-
-    /* Если появился чат, которого нет в локальном списке (его создал
-       собеседник), сначала перечитываем список чатов. */
-    const known = new Set(S.chats.map((c) => c.id));
-    const hasUnknown = [...latest.keys()].some((id) => !known.has(id));
-    if (hasUnknown) {
-      await reloadChats();
-      changed = true;
-    }
-
-    for (const chat of S.chats) {
-      const rows = latest.get(chat.id) || [];
-      for (const row of rows) {
-        const ts = new Date(row.created_at).getTime();
-        if ((chat.last?.ts || 0) >= ts) break;
-
-        const text = await previewTextFor(row, chat);
-        if (text == null) continue; // голос/реакция/опрос/прочтение
-        const mine = row.sender_id === S.me.id;
-        chat.last = { ts, from: mine ? 'u_me' : row.sender_id, type: 'text', text };
-        if (!mine) {
-          if (S.active !== chat.id) chat.unread = (chat.unread || 0) + 1;
-          incoming = true;
-          if (!isMuted(chat.id)) audible = true;
-        }
-        await idb.put('chats', chat);
-        changed = true;
-        break;
-      }
-    }
-
-    if (changed) renderSidebar();
-    if (incoming && audible) playMessage();
-  } catch (err) {
-    /* тихо: сеть/RLS восстановятся сами */
-  } finally {
-    sidebarBusy = false;
-  }
-}
+/* Глобальная синхронизация (realtime, опрос превью, переподключение)
+   живёт в js/boot/realtime.js — здесь только вызовы. */
 
 /* ── демо-сцена: в чат «прилетает» живое сообщение ── */
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
