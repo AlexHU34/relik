@@ -73,50 +73,53 @@
 
 <script>
 (function () {
-  var FILES = [
-    ['../index.html', 'страница'],
-    ['../sw.js', 'service worker'],
-    ['../manifest.json', 'манифест PWA'],
-    ['../css/tokens.css', 'стили'],
-    ['../css/base.css', 'стили'],
-    ['../css/layout.css', 'стили'],
-    ['../css/components/chat.css', 'стили'],
-    ['../css/components/composer.css', 'стили'],
-    ['../css/components/modals.css', 'стили'],
-    ['../css/components/call.css', 'стили'],
-    ['../js/main.js', 'код'],
-    ['../js/config.js', 'конфиг'],
-    ['../js/vendor/supabase.js', 'SDK Supabase ≈ 213 КБ'],
-    ['../js/vendor/qrcode.js', 'QR-генератор ≈ 55 КБ'],
-    ['../js/i18n/i18n.js', 'код'],
-    ['../js/db/idb.js', 'код'],
-    ['../js/db/mediaCache.js', 'кэш медиа'],
-    ['../js/ui/palette.js', 'палитра'],
-    ['../js/ui/recovery.js', 'восстановление'],
-    ['../js/ui/router.js', 'код'],
-    ['../js/ui/chatView.js', 'код'],
-    ['../js/ui/device.js', 'код'],
-    ['../js/ui/prefs.js', 'код'],
-    ['../js/ui/menu.js', 'код'],
-    ['../js/ui/dialog.js', 'код'],
-    ['../js/ui/richText.js', 'код'],
-    ['../js/ui/install.js', 'код'],
-    ['../js/ui/export.js', 'код'],
-    ['../js/ui/pin.js', 'код'],
-    ['../js/backend/prefsSync.js', 'код'],
-    ['../js/backend/groupKeys.js', 'код'],
-    ['../js/backend/storage.js', 'код'],
-    ['../js/crypto/fingerprint.js', 'код безопасности'],
-    ['../js/crypto/v2/protocol.js', 'X3DH + ratchet'],
-    ['../js/backend/devices.js', 'устройства v2'],
-    ['../js/backend/v2Messages.js', 'сообщения v2'],
-    ['../tools/selftest.html', 'самопроверка'],
-    ['../CRYPTO.md', 'документ'],
-    ['../CRYPTO-V2.md', 'проект v2'],
-    ['../js/data/emoji.js', 'код'],
-    ['../js/backend/supabaseClient.js', 'код'],
-    ['../assets/icons/icon-192.png', 'иконка'],
-  ];
+  /* Список файлов больше не хардкодится: с 1.28 сайт собирается Vite, и
+     исходных js/xxx.js в деплое нет (они в хешированных чанках). Берём
+     реальный манифест сборки integrity.json — там ровно то, что уехало. */
+  var FILES = [];
+  var MANIFEST_NOTE = '';
+
+  function kindOf(url) {
+    if (/\.js($|\?)/.test(url)) return 'код';
+    if (/\.css($|\?)/.test(url)) return 'стили';
+    if (/\.html($|\?)/.test(url)) return 'страница';
+    if (/\.json($|\?)/.test(url)) return 'данные';
+    if (/\.woff2?($|\?)/.test(url)) return 'шрифт';
+    if (/\.(png|svg|ico)($|\?)/.test(url)) return 'иконка';
+    return 'файл';
+  }
+
+  function loadFiles() {
+    return fetch('../integrity.json', { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (man) {
+        var keys = Object.keys(man.files || {});
+        if (!keys.length) throw new Error('пусто');
+        FILES = keys
+          .filter(function (rel) {
+            return /\.(html|js|css|json|png|svg|ico|woff2)$/i.test(rel);
+          })
+          .map(function (rel) {
+            var url = '../' + rel.replace(/^\.\//, '');
+            return [url, kindOf(url)];
+          });
+        MANIFEST_NOTE = 'манифест v' + (man.version || '?') + ', файлов: ' + FILES.length;
+      })
+      .catch(function () {
+        /* Манифеста нет (старый деплой/Netlify) — проверяем хотя бы каркас. */
+        FILES = [
+          ['../index.html', 'страница'],
+          ['../sw.js', 'service worker'],
+          ['../manifest.json', 'манифест PWA'],
+          ['../js/config.js', 'конфиг'],
+          ['../js/vendor/supabase.js', 'SDK Supabase'],
+        ];
+        MANIFEST_NOTE = 'integrity.json недоступен — проверяем только каркас';
+      });
+  }
 
   var list = document.getElementById('list');
   var summary = document.getElementById('summary');
@@ -148,9 +151,9 @@
     var t0 = Date.now();
     return fetch(url, { method: 'GET', cache: 'no-store' })
       .then(function (res) {
-        return res.text().then(function (txt) {
+        return res.arrayBuffer().then(function (buf) {
           var ms = Date.now() - t0;
-          var bytes = txt.length;
+          var bytes = buf.byteLength;
           var ok = res.ok && bytes > 0;
           row(ok ? 'ok' : 'bad', url + '  (' + note + ')',
             res.status + ' · ' + bytes + ' Б · ' + ms + ' мс');
@@ -308,7 +311,7 @@
     summary.className = 'summary';
     summary.textContent = 'Проверяем…';
     var fails = 0;
-    var chain = Promise.resolve();
+    var chain = loadFiles();
     FILES.forEach(function (f) {
       chain = chain.then(function () {
         return checkFile(f[0], f[1]).then(function (ok) { if (!ok) fails++; });
@@ -318,11 +321,12 @@
       .then(readConfig)
       .then(checkServer)
       .then(function () {
+        row('warn', 'Манифест сборки', MANIFEST_NOTE);
+        report = 'URL: ' + location.href + '\nUA: ' + navigator.userAgent + '\n' + MANIFEST_NOTE + '\n\n' + report;
         summary.className = 'summary ' + (fails ? 'bad' : 'ok');
         summary.textContent = fails
           ? 'Не загрузилось файлов: ' + fails + ' из ' + FILES.length + ' — см. красные строки'
           : 'Все ' + FILES.length + ' файлов загрузились — приложение должно открываться';
-        report = 'URL: ' + location.href + '\nUA: ' + navigator.userAgent + '\n\n' + report;
         return finish();
       });
   }

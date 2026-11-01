@@ -1,7 +1,7 @@
 {
-  "version": "1.47.5",
+  "version": "1.47.6",
   "released": "2026-11-01",
-  "notes": "1.47.5: INP теперь реально измеряется (event-timing без buffered), в RUM добавлен тип сети и LCP p95 по сетям на странице статуса.",
+  "notes": "1.47.6: страница проверки сайта берёт список файлов из integrity.json (больше нет ложных «404» на сборке Vite); INP в телеметрии реально измеряется, в RUM добавлен тип сети.",
   "download": "https://github.com/AlexHU34/relik/releases",
   "web": "https://relik.best/"
 }

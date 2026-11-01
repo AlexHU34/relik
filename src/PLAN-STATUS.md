@@ -22,7 +22,7 @@
 | Тесты | 100 юнит / e2e 16 | **101 юнит / e2e 18/18** | `check-all.mjs`, `e2e.mjs` |
 | Визуальные регрессы | 9 экранов | **9/9 совпали** | `visual.mjs --check` |
 | RUM за 24 ч (реальные пользователи) | не было видно | **LCP p50 1652 / p95 6528 мс, TTFB p95 763 мс, CLS p95 0.072** | `tools/status.html` |
-
+| INP в телеметрии | всегда 0 (observer падал) | **измеряется** (`event` без `buffered`, только `interactionId`) | `js/backend/telemetry.js` |
 Важно: время на троттлинге шумит (фоновая нагрузка машины, CI-runner).
 Жёсткие бюджеты — только по байтам (`check-dist`, `kpi`), время фиксируется
 как тренд в `kpi/perf-baseline.json`.
@@ -36,7 +36,11 @@
 - [x] RUM Web Vitals в `client_events` уже был (`perf_vitals`, `perf_nav`) —
   дублировать не стали, проверили.
 - [x] Видно на публичной странице: RPC `perf_summary` (агрегаты за 24 ч, без
-  user_id) + строка «Клиентские замеры» в `tools/status.html`.
+  user_id) + строка «Клиентские замеры» в `tools/status.html`; LCP p95
+  разбивается по типу сети (`effectiveType`), INP починен (раньше observer
+  падал из-за `buffered` для event-timing и всегда писал 0).
+- [x] `tools/health.html` берёт список файлов из `integrity.json` — больше не
+  врёт «32 из 42 не загрузилось» на сборке Vite.
 - [x] Базы: `kpi/perf-baseline.json` (fast, slow3g), `kpi/chat-perf.json` (2000).
 
 ## Этап 1 — скорость загрузки
