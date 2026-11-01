@@ -17,12 +17,7 @@ import { initDevice } from './ui/device.js';
 import { maybeShowIosHint } from './ui/iosHint.js';
 import { restoreSession } from './backend/auth.js';
 import { ensureSdk, HAS_BACKEND } from './backend/sdk.js';
-
-/* Экран входа не импортирует приложение: подгружаем его по факту входа. */
-async function loadApp() {
-  const mod = await import('./boot/app.js');
-  return mod;
-}
+import { loadApp, prefetchApp, wireAppPrefetch } from './boot/lazyApp.js';
 
 bindAuthHooks({
   enterApp: async (welcomeKey) => {
@@ -56,6 +51,10 @@ async function boot() {
 
   initAuth();
 
+  /* Пользователь коснулся поля входа — значит, скорее всего, сейчас войдёт:
+     качаем чанк приложения параллельно с вводом, а не после нажатия кнопки. */
+  wireAppPrefetch();
+
   /* Профиль из кэша: если входили раньше — сразу грузим приложение */
   try {
     const cached = await quick(idb.get('settings', 'me'), 1500);
@@ -74,7 +73,11 @@ async function boot() {
 
   showAuth();
   bootDone();
-  if (!HAS_BACKEND) return;
+  if (!HAS_BACKEND) {
+    /* Демо открывается одним кликом — грузим приложение в фоне. */
+    setTimeout(() => { prefetchApp().catch(() => {}); }, 400);
+    return;
+  }
 
   /* SDK — после первой отрисовки: 213 КБ больше не держат экран входа.
      Дальше это первое действие с бэкендом (проверка сохранённой сессии). */

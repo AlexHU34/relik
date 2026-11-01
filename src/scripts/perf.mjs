@@ -216,18 +216,27 @@ async function run() {
     await ctx.goto(demoUrl.href, 300);
     const demoBoot = await waitFor(ctx, `document.documentElement.dataset.boot === 'done'`, 45000, 150);
     /* Демо без регистрации: на экране входа отправляем форму (как это делает
-       пользователь по кнопке «Войти»), иначе чатов не будет. */
+       пользователь по кнопке «Войти»), иначе чатов не будет. Небольшая пауза —
+       как будто человек прочитал экран: за это время чанк уже грузится. */
+    await sleep(1200);
     await ctx.evaluate(`(function(){
       if (document.getElementById('appView') && !document.getElementById('appView').hidden) return true;
       var f = document.getElementById('authForm');
       if (!f) return false;
+      window.__tLogin = performance.now();
       document.getElementById('authEmail').value = 'perf@relik.app';
       document.getElementById('authPass').value = '123456';
       f.requestSubmit();
       return true;
     })()`);
+    await waitFor(ctx, `document.getElementById('appView') && !document.getElementById('appView').hidden`, 30000, 60);
+    const loginMs = round(await ctx.evaluate('performance.now() - (window.__tLogin || performance.now())'));
+    const appChunk = await ctx.evaluate(`(function(){
+      var e = (performance.getEntriesByType('resource') || []).filter(function(r){ return /\\/app-[^/]+\\.js$/.test(r.name); })[0];
+      return e ? { start: Math.round(e.startTime), bytes: e.transferSize || e.encodedBodySize || 0 } : null;
+    })()`);
     const hasChat = await waitFor(ctx, `document.querySelectorAll('.chat-item[data-cid]').length > 0`, 30000, 200);
-    out.demo = { booted: Boolean(demoBoot), chats: Boolean(hasChat) };
+    out.demo = { booted: Boolean(demoBoot), chats: Boolean(hasChat), login: loginMs, chunk: appChunk };
 
     if (hasChat) {
       await ctx.evaluate(`(function(){
@@ -337,6 +346,8 @@ if (JSON_OUT) {
     console.log(`Отправка сообщения       ${d.send} мс${d.sent ? '' : ' — сообщение не появилось!'}`);
     console.log(`render_messages p95      ${d.perf?.render_messages?.p95 ?? 0} мс (${d.perf?.render_messages?.n ?? 0} замеров)`);
     console.log(`Демо: FCP / LCP / CLS    ${d.vitals?.fcp ?? 0} / ${d.vitals?.lcp ?? 0} / ${d.vitals?.cls ?? 0}`);
+    console.log(`Вход (submit → экран)    ${d.login ?? 0} мс`);
+    console.log(`Чанк приложения          ${d.chunk ? `старт ${d.chunk.start} мс, ${kb(d.chunk.bytes)}` : 'не найден'}`);
   }
 }
 
