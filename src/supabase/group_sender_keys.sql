@@ -9,11 +9,15 @@
 -- Клиент включает это только при CRYPTO_V2.groupsEnabled = true; без таблицы
 -- он молча остаётся на прежнем групповом ключе.
 
+-- Таблица только что создаётся этим файлом; если предыдущая попытка успела
+-- создать её с неверными типами (device_id — uuid, как в device_keys), убираем.
+drop table if exists public.group_sender_keys;
+
 create table if not exists public.group_sender_keys (
   conversation_id uuid not null references public.conversations(id) on delete cascade,
   sender_id uuid not null references public.profiles(id) on delete cascade,
-  sender_device text not null,
-  recipient_device text not null,
+  sender_device uuid not null,
+  recipient_device uuid not null,
   chain_id text not null,
   box jsonb not null,                 -- { header, iv, ct, x3dh?, ts } — уже зашифровано
   created_at timestamptz not null default now(),
@@ -37,11 +41,13 @@ create policy "sender keys read own device" on public.group_sender_keys
   );
 
 -- Запись: только от себя и только в чат, где я состою.
+-- ВАЖНО: у is_conversation_member есть перегрузка (conv uuid, uid uuid).
+-- Вызов с одним аргументом неоднозначен — передаём uid явно.
 drop policy if exists "sender keys write" on public.group_sender_keys;
 create policy "sender keys write" on public.group_sender_keys
   for insert with check (
     sender_id = auth.uid()
-    and public.is_conversation_member(conversation_id)
+    and public.is_conversation_member(conversation_id, auth.uid())
   );
 
 -- Перевыпуск своей цепочки (upsert) — обновляем только свои строки.
