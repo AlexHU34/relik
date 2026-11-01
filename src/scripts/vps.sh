@@ -152,6 +152,46 @@ EOF
 chmod 644 /etc/cron.d/relik-keepalive
 /usr/local/bin/relik-keepalive.sh || true
 
+say "Сторож бэкапов (раз в час)"
+cat > /usr/local/bin/relik-backup-watch <<'EOF'
+#!/bin/sh
+# Проверяет свежесть последнего pg_dump и пишет в Telegram, если бэкапы встали.
+set -eu
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/relik}"
+STATE=/var/lib/relik-backup-watch.state
+if [ -f /etc/relik-push.env ]; then
+  set -a; . /etc/relik-push.env; set +a
+fi
+alert() {
+  echo "$(date -Iseconds) $1"
+  if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+    curl -s -m 15 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+      -d "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=Relik backup: $1" >/dev/null || true
+  fi
+}
+newest="$(ls -1t "$BACKUP_DIR"/relik-*.dump.gz 2>/dev/null | head -1 || true)"
+[ -n "$newest" ] || { alert "нет ни одного бэкапа в $BACKUP_DIR"; exit 1; }
+age_h=$(( ( $(date +%s) - $(stat -c %Y "$newest") ) / 3600 ))
+size=$(stat -c %s "$newest")
+if [ "$age_h" -gt 26 ] || [ "$size" -lt 10240 ]; then
+  today="$(date +%F)"
+  if [ ! -f "$STATE" ] || [ "$(cat "$STATE" 2>/dev/null)" != "$today" ]; then
+    alert "последний бэкап $(basename "$newest"): ${age_h}ч назад, $((size / 1024)) KB — смотрите /var/log/relik-backup.log"
+    echo "$today" > "$STATE"
+  fi
+  exit 1
+fi
+rm -f "$STATE"
+EOF
+chmod 755 /usr/local/bin/relik-backup-watch
+cat > /etc/cron.d/relik-backup-watch <<'EOF'
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+17 * * * * root /usr/local/bin/relik-backup-watch
+EOF
+chmod 644 /etc/cron.d/relik-backup-watch
+/usr/local/bin/relik-backup-watch || true
+
 say "Firewall"
 ufw allow 22/tcp >/dev/null
 ufw allow 3478/udp >/dev/null
@@ -200,7 +240,10 @@ cat <<'EOF'
        SUPABASE_ANON_KEY=<publishable key>
      затем: systemctl restart relik-push && curl -s localhost:8099/healthz
   2) История доступности: выполнить supabase/service_uptime.sql в Supabase.
-  3) Бэкапы БД: scripts/backup-db.sh в cron (03:20), проверить restore.
+  3) Бэкапы БД — уже стоят (ежедневно 03:17, /var/backups/relik, 14 дней).
+     Проверить: /usr/local/bin/relik-backup --check
+     Офсайт (обязательно для прода): rclone config + RCLONE_REMOTE=... в /etc/relik-backup.env
+     Тренировка восстановления: scripts/restore-drill.sh "postgresql://...".
   4) Резервная статика: scripts/mirror-static.sh + scripts/Caddyfile.relik.
   5) Внешний монитор (не зависит от этого VPS): UptimeRobot/BetterStack
      на https://alexhu34.github.io/relik/tools/status.html раз в 5 минут.

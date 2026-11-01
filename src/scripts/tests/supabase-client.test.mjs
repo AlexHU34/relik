@@ -1,6 +1,7 @@
-/* Supabase-клиент: один клиент на вкладку и устойчивость к порядку скриптов.
-   Регресс этого места уже ломал прод: SDK грузился после модулей, supabaseClient
-   создавался с null, и все запросы данных молча падали. */
+/* Supabase-клиент: один клиент на вкладку и ленивая загрузка SDK.
+   Регресс этого места уже ломал прод: SDK грузился после модулей, клиент
+   создавался с null, и все запросы данных молча падали. Теперь SDK грузится
+   через ensureSdk(), а модули читают sb в момент вызова (живая привязка). */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -10,8 +11,6 @@ import { spawnSync } from 'node:child_process';
 import { installShim } from './_shim.mjs';
 
 installShim();
-
-const realConsoleError = console.error;
 
 function fakeWindow(withSdk) {
   const handlers = new Map();
@@ -40,24 +39,73 @@ test('клиент создаётся, когда SDK уже загружен, �
   assert.equal(second.sb, first.sb, 'два клиента вместо одного = двойные realtime-подписки');
 });
 
-test('если SDK ещё не выполнился, клиент появляется после load (живая привязка)', async () => {
+test('SDK грузится лениво и привязка обновляется после ensureClient()', async () => {
   const win = fakeWindow(false);
   globalThis.window = win;
-  console.error = () => {};
+
+  const appended = [];
+  globalThis.document = {
+    baseURI: 'https://example.test/relik/',
+    querySelector: () => null, /* SRI-meta в тестах нет — это нормально */
+    head: { appendChild: (el) => appended.push(el) },
+    createElement: () => ({
+      addEventListener() {},
+      removeEventListener() {},
+    }),
+  };
+
+  const sdk = await import('../../js/backend/sdk.js');
+  sdk.resetSdk();
+
   try {
-    const mod = await import('../../js/backend/supabaseClient.js?case=sdk-late');
-    assert.equal(mod.sb, null, 'без SDK клиента быть не может');
+    const mod = await import('../../js/backend/supabaseClient.js?case=lazy');
+    assert.equal(mod.sb, null, 'до ensureClient клиента нет — и это не ошибка');
+    assert.equal(mod.HAS_BACKEND, true, 'режим определяется по ключам, а не по факту загрузки');
 
+    const waiting = mod.ensureClient();
+    assert.equal(appended.length, 1, 'SDK подключается тегом script');
+    assert.match(appended[0].src, /js\/vendor\/supabase\.js$/);
+    assert.equal(mod.sb, null, 'пока скрипт не выполнился, клиента нет');
+
+    /* имитируем выполнение UMD: он выставляет window.supabase */
     win.supabase = { createClient: () => win.__client };
-    win.fire('load');
+    appended[0].onload();
 
-    assert.equal(mod.sb, win.__client, 'после загрузки SDK привязка должна обновиться');
+    const client = await waiting;
+    assert.equal(client, win.__client, 'ensureClient возвращает готовый клиент');
+    assert.equal(mod.sb, win.__client, 'живая привязка обновилась');
   } finally {
-    console.error = realConsoleError;
+    delete globalThis.document;
   }
 });
 
-test('демо-режим (нет ключей) не создаёт клиент', () => {
+test('ошибка загрузки SDK не вешает вход: возвращается null, следующая попытка повторяет', async () => {
+  globalThis.window = fakeWindow(false);
+  const bad = [];
+  globalThis.document = {
+    baseURI: 'https://example.test/relik/',
+    querySelector: () => null,
+    head: { appendChild: (el) => bad.push(el) },
+    createElement: () => ({ addEventListener() {}, removeEventListener() {} }),
+  };
+  const sdk = await import('../../js/backend/sdk.js');
+  sdk.resetSdk();
+  try {
+    const first = sdk.ensureSdk();
+    bad[0].onerror();
+    assert.equal(await first, null);
+    assert.equal(sdk.sdkFailed(), true);
+
+    const second = sdk.ensureSdk();
+    assert.equal(bad.length, 2, 'после сбоя можно попробовать снова');
+    bad[1].onerror();
+    await second;
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test('демо-режим (нет ключей) не создаёт клиент и не грузит SDK', () => {
   /* config.js читает ?demo=1 из location один раз при импорте, поэтому
      проверяем в отдельном процессе — иначе кэш модулей уже содержит ключи. */
   const code = `
@@ -66,13 +114,17 @@ test('демо-режим (нет ключей) не создаёт клиент
       addEventListener() {},
       supabase: { createClient() { throw new Error('в демо клиент создавать нельзя'); } },
     };
+    globalThis.document = { createElement() { throw new Error('в демо SDK грузить нельзя'); } };
     const m = await import('./js/backend/supabaseClient.js?case=demo');
-    process.stdout.write(JSON.stringify({ sb: m.sb, stored: window.__relikSb !== undefined }));
+    const c = await m.ensureClient();
+    process.stdout.write(JSON.stringify({ sb: m.sb, client: c, backend: m.HAS_BACKEND, stored: window.__relikSb !== undefined }));
   `;
   const run = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'),
     encoding: 'utf8',
   });
   assert.equal(run.status, 0, run.stderr.slice(0, 400));
-  assert.deepEqual(JSON.parse(run.stdout), { sb: null, stored: false });
+  assert.deepEqual(JSON.parse(run.stdout), {
+    sb: null, client: null, backend: false, stored: false,
+  });
 });

@@ -1,0 +1,68 @@
+# Ночной замер производительности: медленный 3G + слабый CPU.
+# Не блокирует PR (время на троттлинге шумит) — складывает JSON в артефакт,
+# чтобы видеть тренд до/после изменений. Жёсткие бюджеты (байты) проверяют
+# scripts/check-dist.mjs и scripts/kpi.mjs на каждом push.
+name: Perf nightly
+
+on:
+  schedule:
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Зависимости
+        run: npm ci
+
+      - name: Сборка
+        run: node scripts/build.mjs
+
+      - name: Локальная сборка (slow3g)
+        continue-on-error: true
+        run: |
+          python3 -m http.server 8123 --directory dist >/dev/null 2>&1 &
+          sleep 2
+          node scripts/perf.mjs --profile slow3g --url http://localhost:8123/ --json > perf-local.json
+
+      - name: Живой сайт (slow3g)
+        continue-on-error: true
+        run: node scripts/perf.mjs --profile slow3g --url https://alexhu34.github.io/relik/ --json > perf-live.json
+
+      - name: Сводка
+        if: always()
+        run: |
+          echo '### Замеры (slow3g)' >> "$GITHUB_STEP_SUMMARY"
+          for f in perf-local.json perf-live.json; do
+            echo "#### $f" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            head -c 2000 "$f" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo 'нет данных' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Артефакт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-${{ github.run_number }}
+          path: |
+            src/perf-local.json
+            src/perf-live.json
+          if-no-files-found: warn
+          retention-days: 30

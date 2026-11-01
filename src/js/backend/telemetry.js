@@ -2,7 +2,7 @@
    Пишет только то, что нужно для отладки: тип события, версия, короткий контекст.
    Тексты сообщений и ключи сюда не попадают никогда. */
 
-import { sb } from './supabaseClient.js';
+import { sb, ensureClient } from './supabaseClient.js';
 import { SUPABASE, APP } from '../config.js';
 import { S } from '../ui/state.js';
 
@@ -14,7 +14,9 @@ let sent = 0;
 let timer = null;
 let ready = null;
 
-const real = () => !!(SUPABASE.url && SUPABASE.anonKey && sb);
+/* Режим определяем по ключам: SDK загружается лениво, поэтому sb может быть
+   ещё null — события просто копятся в очереди до его появления. */
+const real = () => !!(SUPABASE.url && SUPABASE.anonKey);
 
 function sanitize(data) {
   try {
@@ -45,6 +47,12 @@ async function flush() {
   /* До входа user_id ещё нет — запись упрётся в RLS (401) и засорит консоль
      у всех, кто просто открыл страницу. Копим до появления сессии. */
   if (!S.me?.id) { queue = []; return; }
+  /* SDK мог ещё не догрузиться — не теряем события, повторим позже. */
+  if (!(await ensureClient())) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) queue = [];
+    else schedule();
+    return;
+  }
   if (!(await tableReady())) { queue = []; return; }
 
   const batch = queue.splice(0, 20);

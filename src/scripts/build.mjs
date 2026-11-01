@@ -77,16 +77,22 @@ let indexHtml = fs.readFileSync(indexPath, 'utf8');
 indexHtml = indexHtml.replace(/href="\.?\/?assets\/manifest-[^"]+\.json"/g, 'href="./manifest.json"');
 
 /* SRI для вендорного SDK: если файл подменят (сервер, CDN, кэш),
-   браузер откажется его выполнять. Хеш считается от того, что реально в dist. */
+   браузер откажется его выполнять. Хеш считается от того, что реально в dist.
+   SDK грузится динамически (js/backend/sdk.js), поэтому хеш кладём в meta:
+   статического тега <script> на критическом пути больше нет. */
 const vendorSdk = path.join(DIST, 'js', 'vendor', 'supabase.js');
 if (fs.existsSync(vendorSdk)) {
   const sri = 'sha384-' + createHash('sha384').update(fs.readFileSync(vendorSdk)).digest('base64');
-  if (/src="js\/vendor\/supabase\.js"/.test(indexHtml) && !/supabase\.js"[^>]*integrity=/.test(indexHtml)) {
+  if (/<meta[^>]*name="relik-sdk-sri"/.test(indexHtml)) {
+    indexHtml = indexHtml.replace(/(<meta name="relik-sdk-sri" content=")[^"]*(")/, `$1${sri}$2`);
+  } else if (/<meta name="relik-sdk"/.test(indexHtml)) {
     indexHtml = indexHtml.replace(
-      /(<script[^>]*src="js\/vendor\/supabase\.js"[^>]*?)(\s*>)/,
-      (m, attrs, end) => `${attrs} integrity="${sri}" crossorigin="anonymous"${end}`,
+      /(<meta name="relik-sdk"[^>]*>)/,
+      `$1\n  <meta name="relik-sdk-sri" content="${sri}">`,
     );
-    log('SRI для supabase.js');
+    log('SRI для supabase.js → meta relik-sdk-sri');
+  } else {
+    console.warn('  ! в index.html нет meta[name=relik-sdk] — SRI для SDK не записан');
   }
 }
 fs.writeFileSync(indexPath, indexHtml);

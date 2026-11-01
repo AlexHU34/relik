@@ -89,14 +89,23 @@ const preloads = [...html.matchAll(/<link[^>]+rel=["'](?:modulepreload|styleshee
   .map((m) => m[1]);
 const entry = (html.match(/<script[^>]+type=["']module["'][^>]+src=["']([^"']+)["']/) || [])[1];
 const critical = [...new Set([entry, ...preloads].filter(Boolean))];
+const criticalBufs = [];
 let bootRaw = 0;
 for (const c of critical) {
   const p = path.join(DIST, c.replace(/^\.?\//, ''));
-  if (fs.existsSync(p)) bootRaw += fs.statSync(p).size;
-  else errors.push(`критический путь: ${c} — 404`);
+  if (fs.existsSync(p)) {
+    bootRaw += fs.statSync(p).size;
+    criticalBufs.push(fs.readFileSync(p));
+  } else errors.push(`критический путь: ${c} — 404`);
 }
 const cssEntry = critical.filter((c) => c.endsWith('.css')).map((c) => path.join(DIST, c.replace(/^\.?\//, '')));
 const cssBytes = cssEntry.reduce((a, f) => a + (fs.existsSync(f) ? fs.statSync(f).size : 0), 0);
+
+/* Ленивый вендор: его вес виден отдельно и в критический путь не входит.
+   Если он вернётся статическим тегом — check-dist выше это уже поймал. */
+const lazyVendorPath = path.join(DIST, 'js', 'vendor', 'supabase.js');
+const lazyVendorBytes = fs.existsSync(lazyVendorPath) ? fs.statSync(lazyVendorPath).size : 0;
+const criticalGzip = gzip(Buffer.concat(criticalBufs));
 
 /* ── 8. Домен: если CNAME есть, он должен быть валидным ─────── */
 const cnamePath = path.join(DIST, 'CNAME');
@@ -107,22 +116,18 @@ if (fs.existsSync(cnamePath)) {
   warnings.push('CNAME нет — сайт отдаётся с github.io');
 }
 
-/* ── 9. Целостность: SRI вендора и манифест хешей ───────────── */
+/* ── 9. Целостность: SRI ленивого вендора и манифест хешей ──── */
 const vendorAbs = path.join(DIST, 'js', 'vendor', 'supabase.js');
 if (fs.existsSync(vendorAbs)) {
   const want = 'sha384-' + createHash('sha384').update(fs.readFileSync(vendorAbs)).digest('base64');
-  const tag = (html.match(/<script[^>]*src="js\/vendor\/supabase\.js"[^>]*>/) || [])[0] || '';
-  /* Скрипты выполняются в порядке документа даже с defer, поэтому тег SDK
-     обязан стоять раньше модуля: иначе supabaseClient.js создаётся, когда
-     window.supabase ещё нет, и весь обмен данными молча падает. */
-  const vendorAt = tag ? html.indexOf(tag) : -1;
-  const moduleAt = entry ? html.indexOf(entry) : -1;
-  if (vendorAt < 0) errors.push('index.html: нет тега js/vendor/supabase.js');
-  else if (moduleAt >= 0 && vendorAt > moduleAt) {
-    errors.push('index.html: supabase.js стоит ПОСЛЕ модуля приложения — SDK не успеет загрузиться');
-  }
-  if (!/integrity=/.test(tag)) errors.push('index.html: у supabase.js нет SRI (integrity)');
+  const tag = (html.match(/<meta[^>]*name=["']relik-sdk-sri["'][^>]*>/) || [])[0] || '';
+  if (!tag) errors.push('index.html: нет meta relik-sdk-sri — SRI для ленивого SDK не записан');
   else if (!tag.includes(want)) errors.push('index.html: SRI supabase.js не совпадает с файлом');
+  /* 213 КБ SDK не должны вернуться на критический путь: это главный тормоз
+     первого экрана. Грузится только через js/backend/sdk.js. */
+  if (/<script[^>]+src=["'][^"']*js\/vendor\/supabase\.js/.test(html)) {
+    errors.push('index.html: supabase.js снова статическим тегом — SDK должен грузиться лениво');
+  }
 }
 
 const integrityPath = path.join(DIST, 'integrity.json');
@@ -149,12 +154,36 @@ const maps = walk(DIST).filter((f) => f.endsWith('.map'));
 if (maps.length) warnings.push(`в dist ${maps.length} sourcemap — лишний вес`);
 if (!exists('.nojekyll')) warnings.push('.nojekyll отсутствует — GitHub Pages может включить Jekyll');
 
+/* ── 11. Бюджет критического пути (сборка, а не исходники) ─────
+   kpi.mjs следит за исходниками, а здесь — за тем, что реально уезжает
+   в браузер: минифицированный entry + CSS. Рост больше 5% = откат. */
+const DIST_BASELINE = path.join(ROOT, 'kpi', 'dist-baseline.json');
+const budget = { criticalBytes: bootRaw, criticalGzip, lazyVendorBytes, cssBytes };
+if (process.argv.includes('--write-baseline')) {
+  fs.mkdirSync(path.dirname(DIST_BASELINE), { recursive: true });
+  fs.writeFileSync(DIST_BASELINE, JSON.stringify({ generatedAt: new Date().toISOString(), ...budget }, null, 2) + '\n');
+  console.log(`Бюджет записан: ${path.relative(ROOT, DIST_BASELINE).replace(/\\/g, '/')}`);
+} else if (fs.existsSync(DIST_BASELINE)) {
+  try {
+    const base = JSON.parse(fs.readFileSync(DIST_BASELINE, 'utf8'));
+    const cap = Math.ceil((base.criticalGzip || 0) * 1.05);
+    if (base.criticalGzip && criticalGzip > cap) {
+      errors.push(`критический путь вырос: ${kb(criticalGzip)} gzip > ${kb(cap)} (база ${kb(base.criticalGzip)})`);
+    } else if (base.criticalGzip && criticalGzip < base.criticalGzip * 0.9) {
+      warnings.push(`критический путь уменьшился: ${kb(base.criticalGzip)} → ${kb(criticalGzip)} gzip (обновите базу: --write-baseline)`);
+    }
+  } catch (e) {
+    warnings.push('kpi/dist-baseline.json повреждён — бюджет не проверен');
+  }
+}
+
 const result = {
   files: walk(DIST).length,
   assets: assets.length,
   criticalFiles: critical.length,
   bootBytes: bootRaw,
-  bootGzip: gzip(Buffer.concat(critical.filter((c) => fs.existsSync(path.join(DIST, c.replace(/^\.?\//, '')))).map((c) => fs.readFileSync(path.join(DIST, c.replace(/^\.?\//, '')))))),
+  bootGzip: criticalGzip,
+  lazyVendorBytes,
   cssBytes,
   errors,
   warnings,
@@ -164,6 +193,7 @@ if (JSON_OUT) {
   console.log(JSON.stringify(result, null, 2));
 } else {
   console.log(`dist: ${result.files} файлов · ASSETS ${result.assets} · критический путь ${result.criticalFiles} файлов, ${kb(result.bootBytes)} / ${kb(result.bootGzip)} gzip`);
+  console.log(`ленивый SDK: ${kb(result.lazyVendorBytes)} (вне критического пути)`);
   if (warnings.length) {
     console.log(`Предупреждения (${warnings.length}):`);
     for (const w of warnings) console.log('  ! ' + w);

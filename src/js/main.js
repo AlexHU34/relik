@@ -7,7 +7,7 @@ import { idb } from './db/idb.js';
 import { USERS } from './data/mock.js';
 import { S } from './ui/state.js';
 import { initTelemetry, logEvent } from './backend/telemetry.js';
-import { initNetBar, initServiceWorker, scheduleStorageUpkeep, bootDone } from './boot/runtime.js';
+import { initNetBar, initServiceWorker, scheduleStorageUpkeep, bootDone, initPwaOpen, quick, withTimeout } from './boot/runtime.js';
 import { initAuth, isRealBackend, bindAuthHooks } from './boot/auth.js';
 import { showAuth } from './ui/screens.js';
 import { applyPrefs } from './ui/prefs.js';
@@ -16,17 +16,7 @@ import { applySavedFont, currentFontId, restoreCustomFont } from './ui/fonts.js'
 import { initDevice } from './ui/device.js';
 import { maybeShowIosHint } from './ui/iosHint.js';
 import { restoreSession } from './backend/auth.js';
-
-const quick = (p, ms = 2500) => Promise.race([
-  Promise.resolve(p).catch(() => null),
-  new Promise((r) => setTimeout(() => r(null), ms)),
-]);
-
-/* Жёсткий таймаут с ошибкой: «нет ответа» нельзя путать с «нет сессии» */
-const withTimeout = (p, ms) => Promise.race([
-  Promise.resolve(p),
-  new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms)),
-]);
+import { ensureSdk, HAS_BACKEND } from './backend/sdk.js';
 
 /* Экран входа не импортирует приложение: подгружаем его по факту входа. */
 async function loadApp() {
@@ -74,6 +64,9 @@ async function boot() {
   if (!isRealBackend) S.users = USERS;
 
   if (S.me) {
+    /* Кэш профиля есть — сразу в приложение, но клиенту Supabase нужен SDK.
+       Грузим его до старта приложения (первый экран уже не ждём: splash). */
+    if (HAS_BACKEND) await ensureSdk();
     const app = await loadApp();
     await app.bootApp();
     return;
@@ -81,7 +74,16 @@ async function boot() {
 
   showAuth();
   bootDone();
-  if (!isRealBackend) return;
+  if (!HAS_BACKEND) return;
+
+  /* SDK — после первой отрисовки: 213 КБ больше не держат экран входа.
+     Дальше это первое действие с бэкендом (проверка сохранённой сессии). */
+  const sdk = await ensureSdk();
+  if (!sdk) {
+    logEvent('sdk_load_failed', { url: 'js/vendor/supabase.js' });
+    console.warn('[relik] Supabase SDK не загрузился — остаёмся на экране входа');
+    return;
+  }
 
   /* Токен мог остаться, а кэш профиля — нет (например, почистили IndexedDB) */
   try {
@@ -95,16 +97,7 @@ async function boot() {
 }
 
 /* Открыть чат по клику на push-уведомление */
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (e) => {
-    const url = e.data && e.data.type === 'relik:open-chat' ? e.data.url : '';
-    if (!url) return;
-    try {
-      const u = new URL(url, location.href);
-      if (u.hash) location.hash = u.hash;
-    } catch (err) { /* ignore */ }
-  });
-}
+initPwaOpen();
 
 /* Заголовок и версия */
 document.title = APP.name;

@@ -104,6 +104,14 @@ for (const src of eagerScripts) {
   if (fs.existsSync(p)) vendorEagerBytes += fs.statSync(p).size;
 }
 
+/* Полный вес SDK и критический путь JS: boot-граф + вендоры, которые браузер
+   обязан скачать до первой отрисовки. Ленивый SDK сюда не входит. */
+const vendorFile = path.join(ROOT, 'js', 'vendor', 'supabase.js');
+const vendorBytes = fs.existsSync(vendorFile) ? fs.statSync(vendorFile).size : 0;
+const vendorSrc = fs.existsSync(vendorFile) ? fs.readFileSync(vendorFile) : Buffer.alloc(0);
+const criticalBytes = bootBytes + vendorEagerBytes;
+const criticalGzip = gzip(Buffer.concat(vendorEagerBytes ? [Buffer.from(bootSrc), vendorSrc] : [Buffer.from(bootSrc)]));
+
 const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
 const assetsBlock = (sw.match(/const ASSETS = \[([\s\S]*?)\];/) || [])[1] || '';
 const assetCount = [...assetsBlock.matchAll(/'([^']+)'/g)].length;
@@ -123,8 +131,11 @@ const metrics = {
   bootBytes,
   bootGzip: gzip(Buffer.from(bootSrc)),
   bootMissing: graph.missing,
+  vendorBytes,
   vendorEagerBytes,
-  vendorEagerGzip: vendorEagerBytes ? gzip(fs.readFileSync(path.join(ROOT, 'js', 'vendor', 'supabase.js'))) : 0,
+  vendorEagerGzip: vendorEagerBytes ? gzip(vendorSrc) : 0,
+  criticalBytes,
+  criticalGzip,
   cssBytes: cssBuf.length,
   cssGzip: gzip(cssBuf),
   maxFile: rel(maxFile.file),
@@ -140,7 +151,9 @@ console.log(`модулей (без вендоров)   ${metrics.modules}`);
 console.log(`строк JS                 ${metrics.loc}`);
 console.log(`JS всего                 ${KB(metrics.jsBytes)} / ${KB(metrics.jsGzip)} gzip`);
 console.log(`boot-граф                ${metrics.bootModules} модулей, ${KB(metrics.bootBytes)} / ${KB(metrics.bootGzip)} gzip`);
+console.log(`критический путь JS      ${KB(metrics.criticalBytes)} / ${KB(metrics.criticalGzip)} gzip (boot + вендоры на старте)`);
 console.log(`вендоры на старте        ${KB(metrics.vendorEagerBytes)} / ${KB(metrics.vendorEagerGzip)} gzip`);
+console.log(`SDK (лениво)             ${KB(metrics.vendorBytes)} — вне критического пути`);
 console.log(`CSS                      ${KB(metrics.cssBytes)} / ${KB(metrics.cssGzip)} gzip`);
 console.log(`самый большой файл       ${metrics.maxFile} (${metrics.maxFileLines} стр.)`);
 console.log(`ассетов в sw.js          ${metrics.assets}`);
@@ -167,6 +180,7 @@ if (CHECK) {
     if (now > was * factor) bad.push(`${name}: ${now} > ${Math.round(was * factor)} (база ${was})`);
   };
   cmp('boot JS gzip', metrics.bootGzip, base.bootGzip);
+  cmp('критический путь JS gzip', metrics.criticalGzip, base.criticalGzip || base.bootGzip);
   cmp('JS всего', metrics.jsBytes, base.jsBytes);
   cmp('CSS gzip', metrics.cssGzip, base.cssGzip);
   if (metrics.maxFileLines > base.maxFileLines) bad.push(`макс. файл: ${metrics.maxFileLines} стр. > ${base.maxFileLines}`);

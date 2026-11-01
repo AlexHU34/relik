@@ -174,7 +174,7 @@ function handlePwaAction() {
 /* ── проверка, что Supabase-сессия ещё жива ───────────────── */
 let sessionCheckedAt = 0;
 async function validateSession(force = false) {
-  if (!isRealBackend || !S.me?.id) return;
+  if (!isRealBackend || !S.me?.id || !sb) return;
   if (!force && Date.now() - sessionCheckedAt < 60000) return;
   sessionCheckedAt = Date.now();
   try {

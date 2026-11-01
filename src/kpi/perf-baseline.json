@@ -1,0 +1,108 @@
+{
+  "fast": {
+    "profile": "fast",
+    "profileLabel": "fast: без троттлинга",
+    "url": "http://localhost:8096/",
+    "at": "2026-11-01T11:19:26.364Z",
+    "first": {
+      "ttfb": 34,
+      "fcp": 232,
+      "lcp": 260,
+      "domContentLoaded": 303,
+      "load": 311,
+      "boot": 1116,
+      "cls": 0,
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "criticalBytes": 231084,
+      "criticalRequests": 6,
+      "renderBlockingBytes": 88905,
+      "renderBlockingRequests": 2,
+      "totalBytes": 556808,
+      "resources": 11,
+      "sdk": {
+        "startedAt": 364,
+        "bytes": 218552,
+        "pending": false
+      }
+    },
+    "demo": {
+      "booted": true,
+      "chats": true,
+      "openChat": 120,
+      "send": 239,
+      "sent": true,
+      "perf": {
+        "open_chat": {
+          "n": 1,
+          "p50": 113,
+          "p95": 113
+        },
+        "render_messages": {
+          "n": 1,
+          "p50": 47,
+          "p95": 47
+        },
+        "samples": 2
+      },
+      "vitals": {
+        "fcp": 276,
+        "lcp": 820,
+        "cls": 0
+      }
+    }
+  },
+  "slow3g": {
+    "profile": "slow3g",
+    "profileLabel": "slow3g: 400 кбит/с, 400 мс RTT, CPU ×4",
+    "url": "http://localhost:8096/",
+    "at": "2026-11-01T11:24:09.377Z",
+    "first": {
+      "ttfb": 10,
+      "fcp": 6680,
+      "lcp": 6680,
+      "domContentLoaded": 8202,
+      "load": 8253,
+      "boot": 9649,
+      "cls": 0.003,
+      "longTasks": 2,
+      "longTaskMs": 292,
+      "criticalBytes": 232734,
+      "criticalRequests": 7,
+      "renderBlockingBytes": 88905,
+      "renderBlockingRequests": 2,
+      "totalBytes": 338256,
+      "resources": 10,
+      "sdk": {
+        "startedAt": 8402,
+        "bytes": 0,
+        "pending": true
+      }
+    },
+    "demo": {
+      "booted": true,
+      "chats": true,
+      "openChat": 643,
+      "send": 444,
+      "sent": true,
+      "perf": {
+        "open_chat": {
+          "n": 1,
+          "p50": 712,
+          "p95": 712
+        },
+        "render_messages": {
+          "n": 1,
+          "p50": 101,
+          "p95": 101
+        },
+        "samples": 2
+      },
+      "vitals": {
+        "fcp": 8552,
+        "lcp": 12644,
+        "cls": 0
+      }
+    }
+  }
+}

@@ -43,6 +43,9 @@ js/
       lightbox.js      просмотр медиа
       shared.js        closeOv, mergeUsers
   backend/           Supabase: auth, chats, messages, storage, groups, keystore…
+                     sdk.js — ленивая загрузка supabase-js (213 КБ) после первого экрана;
+                     supabaseClient.js — ensureClient() и один клиент на вкладку;
+                     net.js — таймауты, повтор сетевых ошибок, тексты ошибок входа
   crypto/            v1 (ECDH+AES) и v2 (X3DH + Double Ratchet)
   db/                IndexedDB: сообщения, чаты, медиа-кэш, сжатие истории
 ```

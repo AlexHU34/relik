@@ -7,7 +7,8 @@ import { toast } from '../ui/toast.js';
 import { S } from '../ui/state.js';
 import { idb } from '../db/idb.js';
 import { ME } from '../data/mock.js';
-import { sb } from '../backend/supabaseClient.js';
+import { sb, ensureClient, HAS_BACKEND } from '../backend/supabaseClient.js';
+import { sdkLoaded, sdkFailed } from '../backend/sdk.js';
 import { signUp, signIn, authHealth, authErrorMessage, isValidUsername, isUsernameTaken, verifySignupCode } from '../backend/auth.js';
 import { logEvent } from '../backend/telemetry.js';
 
@@ -19,7 +20,7 @@ let lastPass = '';
 let verifyEmail = '';
 let verifyMode = 'email';
 let pendingSignup = null;
-export const isRealBackend = !!sb; // использует ли реальный Supabase
+export const isRealBackend = HAS_BACKEND; // реальный бэкенд (ключи есть), SDK грузится лениво
 
 export function paintAuth() {
   $('#authGo').textContent = t(authMode === 'login' ? 'auth.login' : 'auth.create');
@@ -40,47 +41,10 @@ export function paintAuth() {
   animateWelcome();
 }
 
-/* ── «Welcome to Relik!» — побуквенное появление (вход + пустой чат) ── */
-let welcomeRun = 0;
-export function animateWelcome() {
-  const text = 'Welcome to Relik!';
-  const run = ++welcomeRun;
-
-  /* экран входа */
-  const authEl = $('#authWelcome');
-  if (authEl) {
-    authEl.textContent = '';
-    let i = 0;
-    clearInterval(authEl._timer);
-    authEl._timer = setInterval(() => {
-      if (run !== welcomeRun) { clearInterval(authEl._timer); return; }
-      if (i < text.length) { authEl.textContent += text[i]; i++; }
-      else clearInterval(authEl._timer);
-    }, 55);
-  }
-
-  /* пустой чат: побуквенно + мигающий курсор */
-  const target = document.querySelector('.welcome-title i');
-  if (target) {
-    target.innerHTML = '';
-    const caret = document.createElement('span');
-    caret.className = 'caret';
-    target.appendChild(caret);
-    let j = 0;
-    const step = () => {
-      if (run !== welcomeRun || !caret.isConnected) return;
-      if (j >= text.length) { setTimeout(() => caret.remove(), 1200); return; }
-      const ch = document.createElement('span');
-      ch.className = 'ch';
-      ch.textContent = text[j] === ' ' ? '\u00A0' : text[j];
-      target.insertBefore(ch, caret);
-      requestAnimationFrame(() => ch.classList.add('on'));
-      j++;
-      setTimeout(step, 55);
-    };
-    setTimeout(step, 350);
-  }
-}
+/* ── «Welcome to Relik!» — побуквенное появление (вход + пустой чат).
+   Живёт в js/ui/welcomeTyping.js; реэкспорт сохраняет старые импорты. ── */
+import { animateWelcome } from '../ui/welcomeTyping.js';
+export { animateWelcome };
 
 export function initAuth() {
   const form = $('#authForm');
@@ -117,7 +81,8 @@ export function initAuth() {
     forgot.addEventListener('click', async () => {
       const email = $('#authEmail').value.trim().toLowerCase();
       if (!/.+@.+\..+/.test(email)) { toast(t('auth.badEmail')); return; }
-      if (!isRealBackend || !sb) { toast(t('auth.resetDemo')); return; }
+      if (!isRealBackend) { toast(t('auth.resetDemo')); return; }
+      if (!(await ensureClient())) { toast(t('net.unreachable')); return; }
       try {
         const { error } = await sb.auth.resetPasswordForEmail(email, {
           redirectTo: location.origin + location.pathname,
@@ -166,6 +131,10 @@ export function initAuth() {
     }
 
     lastPass = pass;
+
+    /* Первое действие с бэкендом: догружаем SDK, если он ещё не пришёл
+       (до этого экран входа уже отрисован и не ждал 213 КБ). */
+    if (isRealBackend && !(await ensureClient())) return bad(t('net.unreachable'));
 
     /* Регистрация: сначала спрашиваем код доступа */
     if (authMode === 'signup' && isRealBackend) {
@@ -230,21 +199,36 @@ export function initAuth() {
   /* подтверждение email кодом */
   wireVerify();
 
-  /* статус сервера под кнопкой: видно, живой ли Supabase */
+  /* статус сервера под кнопкой: видно, живой ли Supabase.
+     Проверку не запускаем сами: она догружает SDK, а экран входа не должен
+     его ждать. Ждём, пока SDK подтянется (этим занимается main.js). */
   if (isRealBackend) {
     const line = $('#authServer');
     if (line) {
       line.hidden = false;
       line.textContent = t('auth.checking');
-      authHealth().then((h) => {
-        line.classList.toggle('bad', !h.ok);
-        line.textContent = h.ok
-          ? t('auth.serverOk').replace('{ms}', String(h.ms))
-          : t('auth.serverDown');
-      }).catch(() => {
-        line.classList.add('bad');
-        line.textContent = t('auth.serverDown');
-      });
+      let tries = 0;
+      const poll = setInterval(() => {
+        tries += 1;
+        if (sdkLoaded()) {
+          clearInterval(poll);
+          authHealth().then((h) => {
+            line.classList.toggle('bad', !h.ok);
+            line.textContent = h.ok
+              ? t('auth.serverOk').replace('{ms}', String(h.ms))
+              : t('auth.serverDown');
+          }).catch(() => {
+            line.classList.add('bad');
+            line.textContent = t('auth.serverDown');
+          });
+          return;
+        }
+        if (sdkFailed() || tries > 60) {
+          clearInterval(poll);
+          line.classList.add('bad');
+          line.textContent = t('auth.serverDown');
+        }
+      }, 500);
     }
   }
 
@@ -280,6 +264,7 @@ export async function checkInviteCode(code) {
   const timeout = new Promise((resolve) => setTimeout(() => resolve('timeout'), 8000));
   const request = (async () => {
     try {
+      if (!(await ensureClient())) return code === expected;
       const { data, error } = await sb.rpc('check_signup_code', { code });
       if (error) {
         const missing = /could not find|does not exist|schema cache|function/i.test(error.message || '');
@@ -374,7 +359,8 @@ export function wireVerify() {
   });
 
   $('#verifyResend').addEventListener('click', async () => {
-    if (!isRealBackend || !sb) { toast(t('auth.resetDemo')); return; }
+    if (!isRealBackend) { toast(t('auth.resetDemo')); return; }
+    if (!(await ensureClient())) { toast(t('net.unreachable')); return; }
     try {
       const { error } = await sb.auth.resend({ type: 'signup', email: verifyEmail });
       if (error) throw error;

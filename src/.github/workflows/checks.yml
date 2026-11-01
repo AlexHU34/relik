@@ -51,3 +51,38 @@ jobs:
           for f in version.json manifest.json package.json scripts/push-service/package.json; do
             node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
           done
+
+  # Живой режим: два настоящих аккаунта в Supabase. Ловит то, что демо не видит
+  # (RLS, сессии, реальные запросы). Секреты EMAIL_A/PASS_A/EMAIL_B/PASS_B.
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src
+    env:
+      EMAIL_A: ${{ secrets.EMAIL_A }}
+      PASS_A: ${{ secrets.PASS_A }}
+      EMAIL_B: ${{ secrets.EMAIL_B }}
+      PASS_B: ${{ secrets.PASS_B }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/package-lock.json
+
+      - name: Зависимости
+        run: npm ci
+
+      - name: Сборка
+        run: node scripts/build.mjs
+
+      - name: E2E живого режима (2 аккаунта)
+        if: env.EMAIL_A != '' && env.PASS_A != '' && env.EMAIL_B != '' && env.PASS_B != ''
+        run: |
+          python3 -m http.server 8123 --directory dist >/dev/null 2>&1 &
+          sleep 2
+          node scripts/e2e.mjs --url http://localhost:8123/

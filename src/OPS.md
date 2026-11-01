@@ -54,7 +54,8 @@
 - `scripts/mirror-static.sh` + `scripts/Caddyfile.relik` — резервная копия сайта
   на своём домене (обновляется каждые 5 минут из GitHub). Уже поднято зеркало:
   `https://relik.62-113-99-46.nip.io/` (DNS nip.io, TLS автоматический).
-- `scripts/backup-db.sh` — ежедневный `pg_dump` (бэкап БД).
+- `scripts/backup-db.sh` + `scripts/backup-watch.sh` — ежедневный `pg_dump`
+  с проверкой читаемости и сторож свежести (алерт в Telegram).
 - `tools/health.html`, `tools/preflight.html`, `scripts/e2e.mjs` — проверки
   конкретного устройства и сквозного сценария.
 
@@ -194,20 +195,29 @@ coturn в течение минуты сам.
 
 ## 7. Бэкапы
 
-Ежедневно, 03:20, на VPS:
+Ежедневно, 03:17 UTC, на VPS (`/etc/cron.d/relik-backup` →
+`/usr/local/bin/relik-backup`, конфиг `/etc/relik-backup.env` с правами 600):
 
 ```bash
-20 3 * * * PGPASSWORD='...' /bin/bash /opt/relik/backup-db.sh >> /var/log/relik-backup.log 2>&1
+17 3 * * * root /usr/local/bin/relik-backup >> /var/log/relik-backup.log 2>&1
 ```
 
 Правила:
 
-- дамп лежит в `/var/backups/relik`, хранится 14 дней (`KEEP_DAYS`);
-- **раз в квартал** проверять восстановление на пустом проекте:
-  `pg_restore --no-owner --no-privileges -d "$TARGET_URL" /var/backups/relik/relik-YYYY-MM-DD.dump`;
+- дамп лежит в `/var/backups/relik/relik-YYYY-MM-DD.dump.gz`, хранится
+  14 дней (`KEEP_DAYS`), каждый файл проверяется `pg_restore --list`
+  и по минимальному размеру — «пустой» дамп считается ошибкой;
+- **офсайт обязателен**: пока копия только на том же VPS, потеря сервера =
+  потеря бэкапов. Настройте `rclone config` и добавьте в `/etc/relik-backup.env`
+  `RCLONE_REMOTE=r2:relik-backups` (или любой S3/B2);
+- сторож `/usr/local/bin/relik-backup-watch` (cron раз в час) пишет в Telegram,
+  если последнему дампу больше 26 часов или он подозрительно мал;
+- проверка вручную: `/usr/local/bin/relik-backup --check`;
+- **раз в квартал** — тренировка восстановления на пустой БД:
+  `bash scripts/restore-drill.sh "postgresql://...@scratch:5432/postgres"`
+  (скрипт отказывается работать с боевым проектом);
 - медиа в Storage в дамп не входят — их бэкапят отдельно (Dashboard → Storage
-  или `rclone`), иначе восстановите чаты без картинок;
-- возраст последнего дампа виден в статусе (строка «Бэкап БД»).
+  или `rclone`), иначе восстановите чаты без картинок.
 
 ---
 

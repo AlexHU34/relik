@@ -17,12 +17,9 @@
   <link rel="preconnect" href="https://sumaysqzahgesifdevxu.supabase.co" crossorigin>
   <link rel="dns-prefetch" href="https://sumaysqzahgesifdevxu.supabase.co">
   <!-- Критичные модули грузим параллельно, чтобы не ждать цепочку импортов -->
-  <link rel="modulepreload" href="js/main.js">
-  <link rel="modulepreload" href="js/config.js">
-  <link rel="modulepreload" href="js/ui/state.js">
-  <link rel="modulepreload" href="js/ui/chatView.js">
-  <link rel="modulepreload" href="js/backend/messages.js">
-  <link rel="modulepreload" href="js/backend/auth.js">
+  <!-- modulepreload для чата/сообщений/авторизации убран: эти модули собираются
+       в ленивый чанк приложения, и предзагрузка тянула ~116 КБ кода чата на
+       экран входа. Entry-бандл и так содержит свой граф одним файлом. -->
   <!-- Шрифт локальный: без Google Fonts в критическом пути (в РФ он часто
        медленный или недоступен). Файлы — assets/fonts, объявления — css/fonts.css -->
   <link rel="stylesheet" href="css/fonts.css">
@@ -153,11 +150,11 @@
   <link rel="stylesheet" href="css/components/composer.css">
   <link rel="stylesheet" href="css/components/modals.css">
   <link rel="stylesheet" href="css/components/call.css">
-  <!-- SDK лежит в <head> и грузится с defer: он больше не блокирует разбор страницы
-       и первую отрисовку, но гарантированно выполняется РАНЬШЕ модулей приложения
-       (деферентные скрипты идут в порядке документа). Иначе supabaseClient.js
-       создаётся, когда window.supabase ещё нет, и весь обмен данными молча падает. -->
-  <script defer src="js/vendor/supabase.js"></script>
+  <!-- Supabase SDK (213 КБ) НЕ подключён здесь: это 82% критического пути.
+       Его лениво подгружает js/backend/sdk.js (ensureSdk) после первой отрисовки
+       или при первом действии с бэкендом. В демо-режиме он не грузится вовсе.
+       SRI для динамического тега сборка кладёт в meta relik-sdk-sri. -->
+  <meta name="relik-sdk" content="lazy">
 </head>
 <body>
 

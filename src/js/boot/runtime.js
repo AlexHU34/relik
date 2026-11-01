@@ -112,3 +112,35 @@ export function scheduleStorageUpkeep() {
     setTimeout(run, 2500);
   }
 }
+
+/* ── Общие помощники запуска ──────────────────────────────────
+   Собраны здесь, чтобы main.js оставался точкой входа, а не свалкой. */
+
+/* Мягкий таймаут: «нет ответа» превращается в null, а не в ошибку. */
+export function quick(p, ms = 2500) {
+  return Promise.race([
+    Promise.resolve(p).catch(() => null),
+    new Promise((r) => setTimeout(() => r(null), ms)),
+  ]);
+}
+
+/* Жёсткий таймаут с ошибкой: «нет ответа» нельзя путать с «нет сессии». */
+export function withTimeout(p, ms) {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms)),
+  ]);
+}
+
+/* Push-уведомление открывает нужный чат (service worker → message). */
+export function initPwaOpen() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    const url = e.data && e.data.type === 'relik:open-chat' ? e.data.url : '';
+    if (!url) return;
+    try {
+      const u = new URL(url, location.href);
+      if (u.hash) location.hash = u.hash;
+    } catch (err) { /* ignore */ }
+  });
+}

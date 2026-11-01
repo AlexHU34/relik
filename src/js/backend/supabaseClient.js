@@ -1,9 +1,11 @@
 /* Relik — Supabase-клиент (локальный SDK, без CDN)
-   SDK лежит в js/vendor/supabase.js и подключён в <head> как UMD (defer),
-   поэтому к моменту выполнения модулей window.supabase уже определён.
+   SDK лежит в js/vendor/supabase.js и загружается лениво через sdk.js:
+   на первом экране его нет в критическом пути, а клиент создаётся, когда
+   бэкенд действительно понадобился (restoreSession, вход, первый запрос).
    Без ключей приложение работает в демо-режиме на IndexedDB. */
 
 import { SUPABASE } from '../config.js';
+import { ensureSdk, HAS_BACKEND } from './sdk.js';
 
 /* Клиент храним на window: сборщик может положить этот модуль в несколько
    чанков, и без общего ключа получилось бы два клиента и две realtime-подписки. */
@@ -18,22 +20,32 @@ function makeClient() {
   });
 }
 
-function initSb() {
-  if (typeof window === 'undefined') return null;
-  if (window[GLOBAL_KEY]) return window[GLOBAL_KEY];
+function bind() {
+  if (typeof window === 'undefined' || !HAS_BACKEND) return null;
+  if (window[GLOBAL_KEY]) {
+    sb = window[GLOBAL_KEY];
+    return sb;
+  }
   const client = makeClient();
-  if (client) window[GLOBAL_KEY] = client;
-  return client;
+  if (client) {
+    window[GLOBAL_KEY] = client;
+    sb = client;
+  }
+  return sb;
 }
 
-export let sb = initSb();
+/* Живая привязка: модули читают sb в момент вызова и видят клиент,
+   как только он появится. До этого здесь null — это нормальное состояние
+   «SDK ещё не загружен», а не ошибка. */
+export let sb = null;
+bind();
 
-/* Страховка от регресса порядка скриптов: если SDK ещё не выполнился,
-   пробуем создать клиент после загрузки страницы (живая привязка обновится). */
-if (typeof window !== 'undefined' && !sb && SUPABASE.url && SUPABASE.anonKey) {
-  const late = () => { if (!sb) sb = initSb(); };
-  window.addEventListener('load', late);
-  setTimeout(late, 100);
-  setTimeout(late, 1500);
-  console.error('[relik] Supabase SDK не выполнился до старта модулей — проверьте порядок <script> в index.html.');
+/** Дождаться SDK (если нужно) и вернуть готовый клиент. В демо — null. */
+export async function ensureClient() {
+  if (sb) return sb;
+  if (!HAS_BACKEND) return null;
+  await ensureSdk();
+  return bind();
 }
+
+export { ensureSdk, HAS_BACKEND };

@@ -1,11 +1,16 @@
 /* Relik — Supabase Auth + профили
    Регистрация с подтверждением по коду из письма, вход, ключи E2E */
 
-import { sb } from './supabaseClient.js';
+import { sb, ensureClient } from './supabaseClient.js';
+import {
+  withTimeout, withRetry, sleep, isRetryable, requireClient as client,
+} from './net.js';
 import { idb } from '../db/idb.js';
 import * as keygen from '../crypto/keygen.js';
 import * as backup from '../crypto/backup.js';
 import { hasAvatarColumn, hasUsernameColumn, hasRoleColumn } from './chats.js';
+
+export { authErrorMessage } from './net.js';
 
 /* Приватный ключ может прийти и объектом (после расшифровки бэкапа), и строкой.
    В IndexedDB всегда кладём строку — так его читают все версии приложения. */
@@ -14,60 +19,9 @@ function jwkToString(v) {
   return typeof v === 'string' ? v : JSON.stringify(v);
 }
 
-/* Сетевые вызовы Supabase не должны вешать вход навсегда:
-   на медленной/заблокированной сети запрос может висеть без ответа. */
-function withTimeout(promise, ms = 15000, label = 'timeout') {
-  let timer = null;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-/* ── Надёжность авторизации ─────────────────────────────────
-   Сеть до Supabase бывает рваной: делаем 2–3 попытки с паузой,
-   но только для сетевых/5xx ошибок — пароль и «уже занято» не повторяем. */
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function isRetryable(err) {
-  const msg = String(err?.message || err || '');
-  const code = String(err?.code || err?.status || '');
-  return /fetch|network|timeout|abort|load failed|failed to fetch|503|502|504|429/i.test(msg)
-    || /^(429|5\d\d)$/.test(code);
-}
-
-async function withRetry(fn, tries = 3, delays = [400, 1200]) {
-  let last = null;
-  for (let i = 0; i < tries; i += 1) {
-    try {
-      return await fn();
-    } catch (err) {
-      last = err;
-      if (!isRetryable(err) || i === tries - 1) break;
-      await sleep(delays[Math.min(i, delays.length - 1)]);
-    }
-  }
-  throw last;
-}
-
-/* Понятный текст вместо технического. UI может показать как есть. */
-export function authErrorMessage(err) {
-  const msg = String(err?.message || err || '');
-  const code = String(err?.code || '');
-  if (/invalid login credentials|invalid_credentials/i.test(msg)) return 'Неверный email или пароль';
-  if (/email not confirmed|not confirmed/i.test(msg)) return 'Email не подтверждён — введите код из письма';
-  if (/user already registered|already been registered|23505/i.test(msg)) return 'Этот email уже зарегистрирован. Войдите.';
-  if (/password should be at least|weak.?password/i.test(msg)) return 'Пароль слишком короткий — минимум 6 символов';
-  if (/rate limit|too many|429/i.test(msg) || code === '429') return 'Слишком много попыток. Подождите минуту.';
-  if (/fetch|network|timeout|abort|load failed|offline/i.test(msg)) return 'Нет связи с сервером. Проверьте интернет и попробуйте снова.';
-  if (/signup.*disabled|signups not allowed/i.test(msg)) return 'Регистрация временно закрыта';
-  if (/username/i.test(msg) && /taken|unique|23505/i.test(msg + code)) return 'Этот @username уже занят';
-  return msg || 'Не удалось выполнить вход';
-}
-
 /* Быстрая проверка доступности Auth (для строки статуса на экране входа). */
 export async function authHealth() {
-  if (!sb) return { ok: false, ms: 0 };
+  if (!(await ensureClient())) return { ok: false, ms: 0 };
   const started = Date.now();
   try {
     const { error } = await withTimeout(sb.auth.getSession(), 6000, 'health');
@@ -93,6 +47,7 @@ export function isValidUsername(v) {
 }
 
 export async function isUsernameTaken(username, myId) {
+  await client();
   /* _ и % в LIKE — служебные, экранируем */
   const pattern = String(username).replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
   const { data, error } = await sb
@@ -115,6 +70,7 @@ function pendingName(email) {
 
 /* ── Регистрация: шаг 1 — создать пользователя в Auth ── */
 export async function signUp(email, password, name = '', username = '') {
+  await client();
   sessionStorage.setItem('relik.pendingPass', password);
   if (name) sessionStorage.setItem('relik.pendingName', name);
   if (username) sessionStorage.setItem('relik.pendingUsername', username);
@@ -138,6 +94,7 @@ export async function signUp(email, password, name = '', username = '') {
 
 /* ── Регистрация: шаг 2 — проверить код из письма ── */
 export async function verifySignupCode(email, token, password) {
+  await client();
   const { data, error } = await withRetry(async () => {
     const res = await withTimeout(
       sb.auth.verifyOtp({ email, token, type: 'signup' }),
@@ -258,6 +215,7 @@ async function queuePendingProfile(row) {
 
 /* Дослать профиль, который не успел сохраниться при регистрации. */
 export async function retryPendingProfile() {
+  if (!(await ensureClient())) return false;
   let rec = null;
   try { rec = await idb.get('settings', PENDING_PROFILE); } catch (e) { return false; }
   if (!rec?.value?.id) return false;
@@ -279,6 +237,7 @@ export async function retryPendingProfile() {
 
 /* ── Вход ── */
 export async function signIn(email, password) {
+  await client();
   const { data, error } = await withRetry(async () => {
     const res = await withTimeout(
       sb.auth.signInWithPassword({ email, password }),
@@ -371,6 +330,7 @@ async function clearLocalData() {
 
 export async function signOut() {
   try {
+    if (!(await ensureClient())) throw new Error('SDK не загружен');
     await sb.auth.signOut();
   } catch (e) {
     console.warn('Sign out request failed:', e && e.message ? e.message : e);
@@ -381,6 +341,7 @@ export async function signOut() {
 /* Выход со всех устройств: завершаем все сессии аккаунта */
 export async function signOutAll() {
   try {
+    if (!(await ensureClient())) throw new Error('SDK не загружен');
     await sb.auth.signOut({ scope: 'global' });
   } catch (e) {
     console.warn('Global sign out failed:', e && e.message ? e.message : e);
@@ -390,6 +351,7 @@ export async function signOutAll() {
 
 /* ── Полное удаление аккаунта (RPC из supabase/privacy.sql) ── */
 export async function deleteAccount() {
+  await client();
   const { error } = await sb.rpc('delete_my_account');
   if (error) throw error;
   /* после удаления профиля сессия недействительна */
@@ -399,6 +361,7 @@ export async function deleteAccount() {
 
 /* ── Получение текущего пользователя ── */
 export async function getCurrentUser() {
+  await client();
   const { data: { user }, error } = await sb.auth.getUser();
   if (error) throw error;
   return user;
@@ -406,6 +369,7 @@ export async function getCurrentUser() {
 
 /* ── Обновление профиля ── */
 export async function updateProfile(updates) {
+  await client();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
@@ -423,6 +387,7 @@ export async function updateProfile(updates) {
 
 /* ── Аватар: сохраняем на бэкенде (profiles.avatar + метаданные Auth) ── */
 export async function saveAvatar(dataUrl) {
+  await client();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
@@ -449,6 +414,7 @@ export async function saveAvatar(dataUrl) {
 
 /* ── Восстановление сессии при загрузке ── */
 export async function restoreSession() {
+  await client();
   const { data: { session }, error } = await sb.auth.getSession();
   if (error || !session) return null;
 
@@ -487,6 +453,7 @@ export async function restoreSession() {
 
 /* ── last_seen (presence) ── */
 export async function updateLastSeen() {
+  if (!(await ensureClient())) return;
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return;
 
