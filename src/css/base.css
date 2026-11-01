@@ -8,6 +8,10 @@ body{
   color:var(--tx);background:var(--bg);
   -webkit-font-smoothing:antialiased;overflow:hidden;
 }
+/* Документальные страницы (legal.html и подобные) должны прокручиваться
+   колесом и пальцем. В приложении body{overflow:hidden} — там скроллятся
+   внутренние панели, и это правило возвращать нельзя. */
+html[data-page="doc"],html[data-page="doc"] body{height:auto;min-height:100%;overflow:visible}
 /* Мягкое свечение фона — как у логотипа */
 body::before{
   content:"";position:fixed;inset:0;pointer-events:none;z-index:0;

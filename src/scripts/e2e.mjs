@@ -342,6 +342,47 @@ async function dismissOnboarding(ctx) {
   return true;
 }
 
+/* Документальные страницы должны прокручиваться колесом/пальцем: base.css
+   ставит body{overflow:hidden} для приложения, и однажды это уже «съело»
+   прокрутку legal.html. Проверяем настоящим колесом, а не scrollTop. */
+async function checkDocScroll(ctx, page) {
+  await ctx.send('Page.navigate', { url: BASE + page });
+  await sleep(1200);
+  /* В headless вкладка может быть не в фокусе — тогда синтетические жесты
+     игнорируются (а программный scrollTop работает, и легко обмануться). */
+  try { await ctx.send('Page.bringToFront'); } catch (e) { /* ignore */ }
+  try { await ctx.send('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch (e) { /* ignore */ }
+  /* synthesizeScrollGesture — тот же путь, что у реального жеста. Ждём,
+     пока страница действительно прокрутится: жест асинхронный и на нагруженной
+     машине успевает начаться позже, чем мы читаем scrollTop. */
+  let moved = null;
+  for (let attempt = 0; attempt < 3 && !moved; attempt += 1) {
+    try {
+      await ctx.send('Input.synthesizeScrollGesture', {
+        x: 120, y: 320, xDistance: 0, yDistance: -400, speed: 1200,
+      });
+    } catch (e) {
+      await ctx.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 120, y: 320, deltaX: 0, deltaY: 400 }).catch(() => {});
+    }
+    moved = await waitFor(ctx, `document.scrollingElement.scrollTop > 0`, 2500, 120);
+  }
+  return ctx.evaluate(`(function(){
+    var d = document.scrollingElement;
+    return {
+      top: d.scrollTop,
+      sh: d.scrollHeight,
+      ch: d.clientHeight,
+      overflowY: getComputedStyle(document.body).overflowY,
+      htmlOy: getComputedStyle(document.documentElement).overflowY,
+      scrolling: d === document.documentElement ? 'html' : (d ? d.tagName : 'null'),
+      focus: document.hasFocus(),
+      innerH: window.innerHeight,
+      vvH: window.visualViewport ? Math.round(window.visualViewport.height) : 0,
+      href: location.href
+    };
+  })()`);
+}
+
 async function typeAndSend(ctx, text) {
   const sent = await ctx.evaluate(`(function(){
     var ta=document.getElementById('ta');
@@ -547,6 +588,14 @@ async function runDemo() {
     }
 
     await runUiSmoke(ctx);
+
+    /* Последняя проверка — вне приложения: документные страницы скроллятся.
+       Синтетический жест в headless не всегда доставляется (композитор),
+       поэтому падение ловим по главному признаку: body не должен быть
+       overflow:hidden при переполнении страницы. */
+    const doc = await checkDocScroll(ctx, 'legal.html');
+    const docOk = Boolean(doc) && (doc.top > 0 || (doc.sh > doc.ch + 10 && doc.overflowY !== 'hidden'));
+    record('страница правил не блокирует прокрутку', docOk, JSON.stringify(doc));
   } finally {
     const errs = ctx.errors();
     if (errs.length) {
