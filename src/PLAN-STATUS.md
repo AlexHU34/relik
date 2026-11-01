@@ -8,7 +8,8 @@
 
 | Метрика (замерено) | До | После | Чем мерим |
 |---|---|---|---|
-| Собранный критический путь (entry + CSS) | 258.0 KB / 65.9 KB gzip | **205.7 KB / 55.9 KB gzip** (entry + статический чанк + CSS) | `node scripts/check-dist.mjs` |
+| Собранный критический путь (entry + CSS) | 258.0 KB / 65.9 KB gzip | **174.0 KB / 50.2 KB gzip** (entry + статический чанк + CSS входа) | `node scripts/check-dist.mjs` |
+| CSS экрана входа | 88 KB (всё сразу) | **57 KB** (chat/composer/call грузятся с приложением) | `check-dist` |
 | Английский словарь на первом экране | ~30 KB в общем чанке | **0 KB для RU**, отдельный чанк только для en | `check-dist`, `boot-chunks` |
 | SDK Supabase в первом экране | 213 KB статическим тегом | **0 KB** (лениво, после FCP) | `check-dist`, `perf.mjs` |
 | Живой сайт: FCP / экран готов | — | 1588 мс / 2328 мс (fast) | `perf.mjs --url https://alexhu34.github.io/relik/` |

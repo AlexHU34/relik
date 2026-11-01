@@ -1,5 +1,10 @@
 /* Relik — приложение после входа: экран чата, сайдбар, модалки, realtime.
    Грузится динамически из main.js, чтобы экран входа не тянул код чата. */
+/* Стили приложения грузятся вместе с этим чанком (Vite вставит <link>
+   перед выполнением). На экране входа они не нужны. */
+import '../../css/components/chat.css';
+import '../../css/components/composer.css';
+import '../../css/components/call.css';
 import { SUPABASE, CRYPTO_V2 } from '../config.js';
 import { t, applyDom } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';

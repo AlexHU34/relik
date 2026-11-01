@@ -142,14 +142,16 @@
       if (/(^|[?&])reset=1(&|$)/.test(location.search)) setTimeout(window.__relikReset, 200);
     })();
   </script>
+  <!-- chat/composer/call CSS грузятся вместе с кодом приложения (js/boot/app.js):
+       на экране входа они не нужны, это ~37 КБ исходников. -->
   <!-- Supabase SDK (213 КБ) НЕ подключён здесь: это 82% критического пути.
        Его лениво подгружает js/backend/sdk.js (ensureSdk) после первой отрисовки
        или при первом действии с бэкендом. В демо-режиме он не грузится вовсе.
        SRI для динамического тега сборка кладёт в meta relik-sdk-sri. -->
   <meta name="relik-sdk" content="lazy">
   <meta name="relik-sdk-sri" content="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK">
-  <script type="module" crossorigin src="./assets/index-BF863O6V.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-Dh9ZYgHK.css">
+  <script type="module" crossorigin src="./assets/index-BCxUYhFU.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-Td0ILZQ_.css">
   <link rel="stylesheet" crossorigin href="./assets/base-DIn17Gf-.css">
 </head>
 <body>

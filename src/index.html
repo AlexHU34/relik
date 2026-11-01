@@ -146,10 +146,9 @@
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/layout.css">
-  <link rel="stylesheet" href="css/components/chat.css">
-  <link rel="stylesheet" href="css/components/composer.css">
   <link rel="stylesheet" href="css/components/modals.css">
-  <link rel="stylesheet" href="css/components/call.css">
+  <!-- chat/composer/call CSS грузятся вместе с кодом приложения (js/boot/app.js):
+       на экране входа они не нужны, это ~37 КБ исходников. -->
   <!-- Supabase SDK (213 КБ) НЕ подключён здесь: это 82% критического пути.
        Его лениво подгружает js/backend/sdk.js (ensureSdk) после первой отрисовки
        или при первом действии с бэкендом. В демо-режиме он не грузится вовсе.
