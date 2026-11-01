@@ -89,6 +89,13 @@ const STABLE_CSS = `(function(){
 async function snap(name, device, { volatile = false } = {}) {
   await ctx.device(device.width, device.height, device.mobile);
   await sleep(450);
+  /* «Welcome to Relik!» печатается JS-таймером (CSS-анимации уже выключены),
+     поэтому без ожидания снимок зависит от кадра: у desktop-экрана это уже
+     давало ложное расхождение хеша. */
+  await waitFor(ctx, `(function(){
+    var el = document.querySelector('.welcome-title i');
+    return !el || (el.textContent || '').indexOf('Welcome to Relik!') >= 0;
+  })()`, 3000, 100);
   await ctx.evaluate(STABLE_CSS);
   await sleep(120);
   const png = await ctx.screenshot();
