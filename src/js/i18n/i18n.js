@@ -1,24 +1,40 @@
-/* Relik — i18n: перевод, применение к DOM, переключение языка */
+/* Relik — i18n: словари, перевод DOM, переключение языка.
+   Русский — интерфейс по умолчанию, поэтому он в основном бандле.
+   Английский словарь (33 КБ исходников) грузится отдельным чанком только
+   тем, у кого язык en: на первом экране незачем тянуть оба. */
+
 import RU from './ru.js';
-import EN from './en.js';
 
-const DICTS = { ru: RU, en: EN };
+const DICTS = { ru: RU };
+let EN = null;
 
-function detect() {
-  const saved = localStorage.getItem('relik.lang');
-  if (saved && DICTS[saved]) return saved;
+function detectLang() {
+  let saved = null;
+  try { saved = localStorage.getItem('relik.lang'); } catch (e) { /* приватный режим */ }
+  if (saved === 'ru' || saved === 'en') return saved;
   const nav = (navigator.language || 'ru').toLowerCase();
   return nav.startsWith('ru') ? 'ru' : 'en';
 }
 
-export let lang = detect();
+export let lang = detectLang();
 
-/* Получить строку по ключу; фолбэк — английский */
-export function t(key) {
-  return DICTS[lang]?.[key] ?? DICTS.en[key] ?? key;
+async function ensureDict(l) {
+  if (l !== 'en' || DICTS.en) return;
+  try {
+    const mod = await import('./en.js');
+    EN = mod.default;
+    DICTS.en = EN;
+  } catch (e) {
+    console.warn('i18n: en.js не загрузился, остаёмся на русском');
+  }
 }
 
-/* Применить data-i18n / data-i18n-ph к DOM */
+/* Перевод по ключу. Пока en не загружен — показываем русский, а не ключ. */
+export function t(key) {
+  return DICTS[lang]?.[key] ?? RU[key] ?? key;
+}
+
+/* Подставляем data-i18n / data-i18n-ph в DOM */
 export function applyDom(root = document) {
   root.querySelectorAll('[data-i18n]').forEach((el) => {
     el.textContent = t(el.dataset.i18n);
@@ -28,17 +44,19 @@ export function applyDom(root = document) {
   });
 }
 
-/* Переключить язык и оповестить приложение */
-export function setLang(l) {
-  if (!DICTS[l] || l === lang) return;
+/* Переключение языка: словарь догружается, если его ещё нет. */
+export async function setLang(l) {
+  if ((l !== 'ru' && l !== 'en') || l === lang) return;
   lang = l;
-  localStorage.setItem('relik.lang', l);
+  try { localStorage.setItem('relik.lang', l); } catch (e) { /* ignore */ }
   document.documentElement.lang = l;
+  await ensureDict(l);
   applyDom();
   document.dispatchEvent(new CustomEvent('relik:lang'));
 }
 
-export function initI18n() {
+export async function initI18n() {
+  await ensureDict(lang);
   document.documentElement.lang = lang;
   applyDom();
 }

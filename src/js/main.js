@@ -29,7 +29,7 @@ bindAuthHooks({
 async function boot() {
   initTelemetry();
   logEvent('boot', { ua: navigator.userAgent.slice(0, 120) });
-  initI18n();
+  await initI18n();
   applyDom();
 
   /* тема и шрифт — до первого рендера */

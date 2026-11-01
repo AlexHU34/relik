@@ -106,6 +106,26 @@ const preloads = [...html.matchAll(/<link[^>]+rel=["'](?:modulepreload|styleshee
   .map((m) => m[1]);
 const entry = (html.match(/<script[^>]+type=["']module["'][^>]+src=["']([^"']+)["']/) || [])[1];
 const critical = [...new Set([entry, ...preloads].filter(Boolean))];
+/* Vite режет бандл на чанки: entry может статически импортировать другие
+   файлы (словари, общие модули) — они грузятся до выполнения и тоже входят
+   в критический путь. Динамические import(...) сюда не попадают. */
+const queue = critical.filter((c) => c.endsWith('.js'));
+const seenJs = new Set(queue);
+while (queue.length) {
+  const rel = queue.pop();
+  const absJs = path.join(DIST, rel.replace(/^\.?\//, ''));
+  if (!fs.existsSync(absJs)) continue;
+  const src = fs.readFileSync(absJs, 'utf8');
+  for (const m of src.matchAll(/(?:from|import)\s*["'](\.\/[^"']+\.js)["']/g)) {
+    const next = path.posix
+      .normalize(path.posix.join(path.posix.dirname(rel), m[1]))
+      .replace(/^\.\//, '');
+    if (seenJs.has(next) || !fs.existsSync(path.join(DIST, next))) continue;
+    seenJs.add(next);
+    critical.push(next);
+    queue.push(next);
+  }
+}
 const criticalBufs = [];
 let bootRaw = 0;
 for (const c of critical) {

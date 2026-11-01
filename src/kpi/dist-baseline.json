@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-11-01T11:28:17.030Z",
-  "criticalBytes": 147802,
-  "criticalGzip": 37454,
+  "generatedAt": "2026-11-01T16:51:06.102Z",
+  "criticalBytes": 210666,
+  "criticalGzip": 57197,
   "lazyVendorBytes": 218252,
-  "cssBytes": 88305
+  "cssBytes": 89997
 }
