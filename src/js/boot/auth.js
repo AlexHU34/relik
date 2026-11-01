@@ -8,9 +8,9 @@ import { S } from '../ui/state.js';
 import { idb } from '../db/idb.js';
 import { ME } from '../data/mock.js';
 import { sb, ensureClient, HAS_BACKEND } from '../backend/supabaseClient.js';
-import { sdkLoaded, sdkFailed } from '../backend/sdk.js';
-import { signUp, signIn, authHealth, authErrorMessage, isValidUsername, isUsernameTaken, verifySignupCode } from '../backend/auth.js';
+import { signUp, signIn, authErrorMessage, isValidUsername, isUsernameTaken, verifySignupCode } from '../backend/auth.js';
 import { logEvent } from '../backend/telemetry.js';
+import { initAuthStatus } from '../ui/authStatus.js';
 
 let hooks = { enterApp: async () => {} };
 export function bindAuthHooks(next = {}) { hooks = { ...hooks, ...next }; }
@@ -199,39 +199,8 @@ export function initAuth() {
   /* подтверждение email кодом */
   wireVerify();
 
-  /* статус сервера под кнопкой: видно, живой ли Supabase.
-     Проверку не запускаем сами: она догружает SDK, а экран входа не должен
-     его ждать. Ждём, пока SDK подтянется (этим занимается main.js). */
-  if (isRealBackend) {
-    const line = $('#authServer');
-    if (line) {
-      line.hidden = false;
-      line.textContent = t('auth.checking');
-      let tries = 0;
-      const poll = setInterval(() => {
-        tries += 1;
-        if (sdkLoaded()) {
-          clearInterval(poll);
-          authHealth().then((h) => {
-            line.classList.toggle('bad', !h.ok);
-            line.textContent = h.ok
-              ? t('auth.serverOk').replace('{ms}', String(h.ms))
-              : t('auth.serverDown');
-          }).catch(() => {
-            line.classList.add('bad');
-            line.textContent = t('auth.serverDown');
-          });
-          return;
-        }
-        if (sdkFailed() || tries > 60) {
-          clearInterval(poll);
-          line.classList.add('bad');
-          line.textContent = t('auth.serverDown');
-        }
-      }, 500);
-    }
-  }
-
+  /* статус сервера под кнопкой: жив ли Supabase и «Повторить» при сбое */
+  if (isRealBackend) initAuthStatus();
   paintAuth();
 }
 

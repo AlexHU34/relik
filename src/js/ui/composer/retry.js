@@ -100,18 +100,24 @@ export async function retryOutbox() {
       .map((m) => ({ ...m, nextAt: m.nextTry || 0 }));
     const queue = pickDue(candidates, now, { limit: 20 });
     const expired = candidates.filter((m) => m.status === 'error' && !canRetry(m, now)).length;
+    let sent = 0;
 
     for (const m of queue) {
       if (!chatById(m.chatId)) continue;
       const list = S.messages[m.chatId] || (S.messages[m.chatId] = []);
       if (!list.some((x) => x.id === m.id)) list.push(m);
       const ok = await retryMessage(m, { silent: true });
+      if (ok) sent += 1;
       /* Счётчики надёжности: по ним видно, реально ли «ничего не теряется»,
          не читая переписку. Только метаданные, без текста. */
       logEvent(ok ? 'outbox_delivered' : 'outbox_failed', {
         attempts: Number(m.attempts) || 1,
         ageMin: Math.max(0, Math.round((Date.now() - (Number(m.ts) || Date.now())) / 60000)),
       });
+    }
+    /* Человеку важно знать, что отложенное ушло, а не гадать по галочкам. */
+    if (sent && document.visibilityState !== 'hidden') {
+      toast(t('comp.outboxSent').replace('{n}', String(sent)), { type: 'success' });
     }
     if (expired) logEvent('outbox_expired', { count: expired });
     if (queue.length) renderSidebar();

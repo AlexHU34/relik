@@ -328,3 +328,5 @@ html[data-device="phone"] .side-search .input{padding-right:12px}
 
 .auth-server{margin-top:6px;font-size:var(--fs-2xs);color:var(--tx-3);text-align:center}
 .auth-server.bad{color:#e08a8d}
+.auth-retry{margin:2px auto 0;display:block;padding:2px 8px;border:0;background:transparent;color:var(--tx-2);font:inherit;font-size:var(--fs-2xs);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.auth-retry:hover{color:var(--tx)}

@@ -1,5 +1,5 @@
 /* Relik — service worker: офлайн-оболочка PWA */
-const VER = 'relik-v1.47.9';
+const VER = 'relik-v1.47.10';
 const ASSETS = [
   './', './index.html', './legal.html', './welcome.html', './version.json', './manifest.json',
   './css/tokens.css', './css/base.css', './css/layout.css', './css/fonts.css',
@@ -11,7 +11,7 @@ const ASSETS = [
   './js/core/outbox.js', './js/boot/runtime.js', './js/boot/realtime.js', './js/boot/lazyApp.js', './js/boot/auth.js', './js/boot/app.js', './js/ui/screens.js',
   './js/i18n/i18n.js', './js/i18n/ru.js', './js/i18n/en.js',
   './js/db/idb.js', './js/data/mock.js', './js/data/emoji.js',
-  './js/ui/state.js', './js/ui/utils.js', './js/ui/a11y.js', './js/ui/activeSync.js', './js/ui/icons.js', './js/ui/toast.js',
+  './js/ui/state.js', './js/ui/utils.js', './js/ui/a11y.js', './js/ui/activeSync.js', './js/ui/authStatus.js', './js/ui/icons.js', './js/ui/toast.js',
   './js/ui/sidebar.js', './js/ui/chatView.js', './js/ui/composer.js', './js/ui/modals.js', './js/ui/router.js',
   './js/ui/chat/ttl.js', './js/ui/chat/receipts.js', './js/ui/chat/profile.js', './js/ui/chat/forward.js', './js/ui/chat/render.js', './js/ui/chat/voice.js', './js/ui/chat/select.js', './js/ui/chat/indicators.js', './js/ui/modals/lightbox.js', './js/ui/modals/settings.js', './js/ui/modals/group.js', './js/ui/modals/contacts.js', './js/ui/modals/shared.js', './js/ui/composer/retry.js', './js/ui/composer/media.js', './js/ui/composer/scheduled.js', './js/ui/composer/polls.js',
   './js/ui/themes.js', './js/ui/themeDefs.js', './js/ui/welcomeTyping.js', './js/ui/fonts.js', './js/ui/sounds.js', './js/ui/device.js', './js/ui/calls.js', './js/ui/notify.js',
