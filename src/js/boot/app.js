@@ -15,12 +15,10 @@ import { applyA11y } from '../ui/a11y.js';
 import { icon } from '../ui/icons.js';
 import { toast } from '../ui/toast.js';
 import { initSidebar, renderSidebar, touchSidebar, loadChats as reloadChats } from '../ui/sidebar.js';
-import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from '../ui/chatView.js';
-import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from '../ui/composer.js';
+import { initChatView, showChat, deliverMessage, showTyping, hideTyping, rerenderAll, clearTtlTimers } from '../ui/chatView.js';import { initComposer, refreshBar, retryFailedMessages, retryOutbox, processScheduled } from '../ui/composer.js';
 import { initModals, openSettings, contactClicked, openNewChat, openPeople, openRequests, refreshRequests, closeTransientOverlays } from '../ui/modals.js';
 import { openRecoveryFlow, maybePromptBackup } from '../ui/keyRecovery.js';
 import { sweepExpired } from '../backend/expiry.js';
-import { initPalette, openPalette } from '../ui/palette.js';
 import { initRecovery } from '../ui/recovery.js';
 import { maybeShowOnboarding } from '../ui/onboarding.js';
 import { seedDemoRequests } from '../backend/contacts.js';
@@ -39,6 +37,56 @@ import { clearGroupKeyCache } from '../backend/groupKeys.js';
 import { clearMediaObjectUrls } from '../backend/storage.js';
 import { ensureDeviceV2, clearDeviceV2 } from '../backend/devices.js';
 import { clearV2Sessions } from '../backend/v2Messages.js';
+
+/* ── палитра команд (Ctrl+K) ─────────────────────────────────
+   Грузится по требованию: ~16 КБ не нужны, пока её не открыли.
+   До первого открытия держим лёгкие обработчики, после initPalette()
+   они замолкают и дальше работает сама палитра. */
+let paletteChunk = null;
+let paletteBooted = false;
+let paletteLoading = false;
+
+function paletteReady() {
+  if (!paletteChunk) paletteChunk = import('../ui/palette.js');
+  return paletteChunk;
+}
+
+async function openPaletteLazy(initial = '') {
+  if (paletteLoading) return;
+  paletteLoading = true;
+  try {
+    const m = await paletteReady();
+    if (!paletteBooted) { paletteBooted = true; m.initPalette(); }
+    m.openPalette(initial);
+  } catch (e) {
+    toast(t('toast.error'));
+  } finally {
+    paletteLoading = false;
+  }
+}
+
+function bindPaletteTrigger() {
+  const btn = $('#paletteBtn');
+  if (btn) {
+    const mac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+    btn.textContent = mac ? '⌘K' : 'Ctrl K';
+  }
+  document.addEventListener('keydown', (e) => {
+    if (paletteBooted) return; /* дальше Ctrl+K обрабатывает palette.js */
+    const cmd = e.ctrlKey || e.metaKey;
+    if (!cmd || e.shiftKey) return;
+    if (String(e.key || '').toLowerCase() !== 'k' && e.code !== 'KeyK') return;
+    if (!S.me) return;
+    e.preventDefault();
+    openPaletteLazy('');
+  }, true);
+  document.addEventListener('click', (e) => {
+    if (paletteBooted) return;
+    if (!e.target.closest('[data-open-palette]')) return;
+    e.preventDefault();
+    openPaletteLazy('');
+  });
+}
 
 /* ── статичные иконки и заголовки кнопок (перерисовка при смене языка) ── */
 function paintChrome() {
@@ -170,7 +218,7 @@ function handlePwaAction() {
   setTimeout(() => {
     if (action === 'new') openNewChat();
     else if (action === 'settings') openSettings();
-    else if (action === 'search') openPalette('');
+    else if (action === 'search') openPaletteLazy('');
     else if (action === 'people') openPeople();
   }, 220);
 }
@@ -323,7 +371,7 @@ function initUi() {
   initChatView();
   initComposer();
   initModals();
-  initPalette();
+  bindPaletteTrigger();
   initRecovery();
   initRouter();
   initPin();
