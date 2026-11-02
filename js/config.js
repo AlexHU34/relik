@@ -2,7 +2,7 @@
 
 export const APP = {
   name: 'Relik',
-  version: '1.50.1',
+  version: '1.51.0',
   phase: 'Приватный мессенджер',
 };
 
@@ -51,13 +51,15 @@ export const PUSH = {
 
 /* Протокол v2 (X3DH + Double Ratchet).
    enabled = false: приложение работает по v1, новые таблицы не нужны.
-   После выполнения supabase/crypto_v2.sql и проверки на двух устройствах
-   можно включить true — новые личные сообщения пойдут по v2. */
+   Включение (проверено 02.11.2026): SQL применён (crypto_v2.sql,
+   group_sender_keys.sql), RPC take_one_time_prekey починен. Осталось одно:
+   прогнать два аккаунта на здоровой сети и убедиться, что собеседник читает
+   v2-сообщение (сейчас сеть до Supabase из РФ рвётся, проверка не проходит). */
 export const CRYPTO_V2 = {
   enabled: false,
-  /* Групповые sender keys (crypto_version = 3): нужен
-     supabase/group_sender_keys.sql и проверка на двух устройствах.
-     Пока false — группы идут прежним общим ключом (group_keys). */
+  /* Групповые sender keys (crypto_version = 3): sql применён, протокол и тесты
+     готовы. Включать после проверки личек v2 — группа использует тот же ratchet
+     для раздачи цепочки. */
   groupsEnabled: false,
   prekeys: 20,
 };

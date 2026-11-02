@@ -70,10 +70,14 @@ as $$
 declare
   picked public.one_time_prekeys%rowtype;
 begin
-  select * into picked
-  from public.one_time_prekeys
-  where user_id = p_user and device_id = p_device and used = false
-  order by prekey_id
+  /* ВАЖНО: колонки всегда с псевдонимом таблицы. Имена выходных параметров
+     (prekey_id, public_key) совпадают с колонками, и без псевдонима PL/pgSQL
+     падает: «column reference prekey_id is ambiguous» (42702). Именно из-за
+     этого RPC годами отдавал 400, а v2 не получал одноразовый prekey. */
+  select t.* into picked
+  from public.one_time_prekeys t
+  where t.user_id = p_user and t.device_id = p_device and t.used = false
+  order by t.prekey_id
   limit 1
   for update skip locked;
 
@@ -81,9 +85,9 @@ begin
     return;
   end if;
 
-  update public.one_time_prekeys
+  update public.one_time_prekeys t
     set used = true
-    where user_id = p_user and device_id = p_device and prekey_id = picked.prekey_id;
+    where t.user_id = p_user and t.device_id = p_device and t.prekey_id = picked.prekey_id;
 
   prekey_id := picked.prekey_id;
   public_key := picked.public_key;
