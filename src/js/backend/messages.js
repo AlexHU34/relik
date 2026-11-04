@@ -16,6 +16,8 @@ import { encryptGroupText, decryptGroupText } from './groupKeys.js';
 import { decryptV2Row, isV2Row } from './v2Messages.js';
 import { decryptGroupSenderKey, isV3Row } from './senderKeys.js';
 import { aadForMessage, sealMessageText } from './messageSeal.js';
+import { withRetry } from './netRetry.js';
+import { logEvent } from './telemetry.js';
 
 /* Опросы и голоса передаются обычными сообщениями с префиксом —
    так они остаются E2E-зашифрованными и не требуют новых таблиц. */
@@ -280,6 +282,14 @@ async function rowToMessage(m, keyPair, theirPubKey, chatKind) {
 const SERVER_PAGE = 50;
 
 export async function loadMessagesPage(chatId, chatKind = 'dm', theirPublicKeyJwk = null, opts = {}) {
+  /* История — только чтение: на обрыве сети повторяем, иначе человек видит
+     пустой чат и думает, что переписка пропала. */
+  return withRetry(() => loadMessagesPageOnce(chatId, chatKind, theirPublicKeyJwk, opts), {
+    onRetry: (attempt, delay) => logEvent('net_retry', { op: 'messages', attempt, delay }),
+  });
+}
+
+async function loadMessagesPageOnce(chatId, chatKind, theirPublicKeyJwk, opts) {
   const limit = Math.min(200, Math.max(1, Number(opts.limit) || SERVER_PAGE));
   let query = sb
     .from('messages')
@@ -322,6 +332,13 @@ export async function loadOlderMessages(chatId, beforeTs, chatKind = 'dm', their
 
 /* ── Новые сообщения после отметки времени (страховка для Realtime) ── */
 export async function fetchMessagesSince(chatId, afterTs, chatKind = 'dm', theirPublicKeyJwk = null) {
+  return withRetry(
+    () => fetchMessagesSinceOnce(chatId, afterTs, chatKind, theirPublicKeyJwk),
+    { onRetry: (attempt, delay) => logEvent('net_retry', { op: 'since', attempt, delay }) },
+  );
+}
+
+async function fetchMessagesSinceOnce(chatId, afterTs, chatKind, theirPublicKeyJwk) {
   const after = new Date(Math.max(0, afterTs || 0)).toISOString();
 
   const { data, error } = await sb

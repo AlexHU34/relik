@@ -5,6 +5,8 @@ import { sb } from './supabaseClient.js';
 import { idb } from '../db/idb.js';
 import { S } from '../ui/state.js';
 import { SUPABASE } from '../config.js';
+import { withRetry } from './netRetry.js';
+import { logEvent } from './telemetry.js';
 
 /* ── Колонка profiles.avatar появляется миграцией supabase/avatar.sql.
    Проверяем один раз: до миграции приложение тоже работает — аватар
@@ -72,6 +74,14 @@ function upsertUser(p) {
 
 /* ── Загрузка всех чатов пользователя ── */
 export async function loadChats() {
+  /* Один ERR_CONNECTION_RESET не должен оставлять пустой список чатов:
+     чтение идемпотентно, повторяем на обрывах сети (см. netRetry.js). */
+  return withRetry(() => loadChatsOnce(), {
+    onRetry: (attempt, delay) => logEvent('net_retry', { op: 'chats', attempt, delay }),
+  });
+}
+
+async function loadChatsOnce() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return [];
 
