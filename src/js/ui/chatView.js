@@ -907,7 +907,7 @@ export async function openChat(id) {
   searchQuery = '';
   $('#chatSearchInput').value = '';
 
-  if (chat.unread) { chat.unread = 0; await idb.put('chats', chat); }
+  if (chat.unread || chat.mention) { chat.unread = 0; chat.mention = false; await idb.put('chats', chat); }
   setReadAt(id);
 
   /* Один раз за сессию: если миграция ключей групп не выполнена,

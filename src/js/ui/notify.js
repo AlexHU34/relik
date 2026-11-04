@@ -26,14 +26,19 @@ export async function setNotifications(on) {
   return on;
 }
 
-export function notifyMessage(chat, text, onClick) {
+export function notifyMessage(chat, text, onClick, opts = {}) {
   if (!notificationsEnabled()) return;
-  if (isMuted(chat?.id)) return;
+  const mention = !!opts.mention;
+  /* Упоминание пробивает mute: иначе в «тихой» группе его не заметить. */
+  if (isMuted(chat?.id) && !mention) return;
   if (document.visibilityState === 'visible') return;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
   try {
-    const n = new Notification(chat?.title || t('app.name'), {
+    const title = mention
+      ? `${t('notify.mention')} · ${chat?.title || t('app.name')}`
+      : (chat?.title || t('app.name'));
+    const n = new Notification(title, {
       body: text || '…',
       icon: 'assets/icons/icon-192.png',
       tag: chat?.id || 'relik',

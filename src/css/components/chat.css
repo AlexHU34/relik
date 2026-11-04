@@ -53,6 +53,11 @@
 }
 .msg.first.mine .bubble{border-bottom-right-radius:6px}
 .msg.flash .bubble{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+/* Вас упомянули: акцентная подложка слева, без крика и без влияния на размер */
+.msg.mention-me .bubble{
+  border-color:var(--accent);
+  background:linear-gradient(90deg,var(--accent-soft),transparent 62%),var(--theirs-bg);
+}
 /* Медиа-пузырь подстраивается под картинку, а не тянется на всю ширину:
    раньше справа от фото оставалась пустая полоса. */
 .msg.has-media .bubble{max-width:min(340px,100%)}

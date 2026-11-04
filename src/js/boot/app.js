@@ -8,7 +8,7 @@ import '../../css/components/call.css';
 import { SUPABASE, CRYPTO_V2 } from '../config.js';
 import { t, applyDom } from '../i18n/i18n.js';
 import { idb } from '../db/idb.js';
-import { seedIfEmpty, USERS, demoMessage } from '../data/mock.js';
+import { seedIfEmpty, USERS, ME, demoMessage } from '../data/mock.js';
 import { S, chatById } from '../ui/state.js';
 import { $ } from '../ui/utils.js';
 import { applyA11y } from '../ui/a11y.js';
@@ -422,7 +422,7 @@ export async function startApp(welcomeKey) {
     S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
     if (!S.me) {
       const meRec = await quick(idb.get('settings', 'me'), 2000);
-      S.me = meRec?.value || null;
+      S.me = meRec?.value ? { ...ME, ...meRec.value } : null;
     }
     /* Первый запуск демо: наполняем базу в фоне и перечитываем список */
     seedIfEmpty().then(() => reloadChats()).catch(() => {});
@@ -446,7 +446,7 @@ export async function bootApp() {
     S.chats = (await quick(idb.getAll('chats'), 2000)) || [];
     if (!S.me) {
       const meRec = await quick(idb.get('settings', 'me'), 2000);
-      S.me = meRec?.value || null;
+      S.me = meRec?.value ? { ...ME, ...meRec.value } : null;
     }
     /* Сид генерирует превью пару секунд — не держим им первую отрисовку. */
     seedIfEmpty().then(() => reloadChats()).catch(() => {});

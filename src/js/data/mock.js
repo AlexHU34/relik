@@ -4,7 +4,7 @@ import { idb } from '../db/idb.js';
 const M = 60e3, H = 36e5, D = 864e5;
 const now = () => Date.now();
 
-export const ME = { id: 'u_me', name: 'Вы', hue: 0, mail: 'you@relik.app' };
+export const ME = { id: 'u_me', name: 'Вы', username: 'demo', hue: 0, mail: 'you@relik.app' };
 
 export const USERS = [
   { id: 'u_alina',  name: 'Алина',  hue: 1, seen: 'online'  },
@@ -107,7 +107,7 @@ export async function seedIfEmpty() {
     },
     {
       id: 'c_team', kind: 'group', title: 'Команда Relik', hue: 5, members: ['u_alina', 'u_max', 'u_kirill'],
-      unread: 0, last: { ts: t0 - 20 * H, from: 'u_alina', type: 'text', text: 'Релиз на горизонте 🚀' },
+      unread: 1, mention: true, last: { ts: t0 - 19.9 * H, from: 'u_alina', type: 'text', text: '@demo глянь финальный макет, плиз' },
     },
     {
       id: 'c_max', kind: 'dm', userId: 'u_max', members: ['u_max'],
@@ -134,6 +134,7 @@ export async function seedIfEmpty() {
     { id: 'g2', chatId: 'c_team', sender: 'u_max', ts: t0 - 21 * H, type: 'voice', reactions: [{ e: '❤️', by: ['u_me'] }], status: 'read', voice: { dur: 12, bars: bars(26, 2) } },
     { id: 'g3', chatId: 'c_team', sender: 'u_me', ts: t0 - 20.9 * H, type: 'text', text: 'Голосовые тоже работают!', reactions: [], status: 'read', replyTo: { id: 'g2', name: 'Максим', snippet: '🎙 Голосовое · 0:12' } },
     { id: 'g4', chatId: 'c_team', sender: 'u_alina', ts: t0 - 20 * H, type: 'text', text: 'Релиз на горизонте 🚀', reactions: [{ e: '🔥', by: ['u_max', 'u_kirill'] }, { e: '🚀', by: ['u_me'] }], status: 'read' },
+    { id: 'g5', chatId: 'c_team', sender: 'u_alina', ts: t0 - 19.9 * H, type: 'text', text: '@demo глянь финальный макет, плиз', reactions: [], status: 'read' },
 
     /* --- Максим: файл --- */
     { id: 'x1', chatId: 'c_max', sender: 'u_me', ts: t0 - 2 * D - 10 * M, type: 'text', text: 'Скинь, пожалуйста, тот файл по брендингу', reactions: [], status: 'read' },
@@ -143,7 +144,7 @@ export async function seedIfEmpty() {
 
     /* --- Софья: просто привет --- */
     { id: 's1', chatId: 'c_sonya', sender: 'u_sonya', ts: t0 - 2 * D, type: 'text', text: 'Привет! Как дела?', reactions: [], status: 'read' },
-    { id: 's2', chatId: 'c_sonya', sender: 'u_me', ts: t0 - 2 * D + 5 * M, type: 'text', text: 'Всё 잘, спасибо! А у тебя?', reactions: [], status: 'read' },
+    { id: 's2', chatId: 'c_sonya', sender: 'u_me', ts: t0 - 2 * D + 5 * M, type: 'text', text: 'Всё хорошо, спасибо! А у тебя?', reactions: [], status: 'read' },
     { id: 's3', chatId: 'c_sonya', sender: 'u_sonya', ts: t0 - 2 * D + 10 * M, type: 'text', text: 'Тоже норм, работаю над дизайном Relik', reactions: [{ e: '👍', by: ['u_me'] }], status: 'read' },
   ];
 

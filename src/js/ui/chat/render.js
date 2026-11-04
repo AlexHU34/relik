@@ -6,6 +6,7 @@ import { esc, avatarHtml, fmtSize, fmtDur, fmtTime } from '../utils.js';
 import { icon } from '../icons.js';
 import { t } from '../../i18n/i18n.js';
 import { formatText, isEmojiOnly, safeMediaSrc } from '../richText.js';
+import { mentionsMe } from '../mentions.js';
 import { EMOJI_QUICK } from '../../config.js';
 import { toast } from '../toast.js';
 
@@ -21,7 +22,9 @@ export function msgHtml(m, first, hitIndex = -1) {
   const searchCls = hitIndex >= 0 ? ` search-hit${hitIndex === v.searchIndex ? ' search-current' : ''}` : '';
   const selectCls = v.selectMode ? ` selectable${v.selectedMsgs.has(m.id) ? ' selected' : ''}` : '';
   const hasMedia = ['image', 'video', 'file', 'voice', 'album', 'videoNote'].includes(m.type);
-  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${hasMedia ? ' has-media' : ''}${v.toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${searchCls}${selectCls}`;
+  /* @я в чужом сообщении — пузырь получает акцентную подложку */
+  const mentionCls = (!mine && m.text && mentionsMe(m.text, S.me)) ? ' mention-me' : '';
+  const cls = `msg${first ? ' first' : ' cont'}${mine ? ' mine' : ''}${hasMedia ? ' has-media' : ''}${v.toolsOpen === m.id ? ' tools-open' : ''}${S.reactOpen === m.id ? ' react-open' : ''}${mentionCls}${searchCls}${selectCls}`;
   const av = mine ? '' : avatarHtml(u);
   const body = bubbleHtml(m, mine);
   const pick = S.reactOpen === m.id ? rxPickHtml() : '';
@@ -119,7 +122,7 @@ export function bubbleHtml(m, mine) {
         : `<div class="msg-loading">${icon('mic', 16)} ${t('media.loading')}</div>`;
     } else {
       out += `<div class="voice">
-        <button class="v-play">${icon('play', 17)}</button>
+        <button class="v-play" aria-label="${t('msg.playVoice')}" title="${t('msg.playVoice')}">${icon('play', 17)}</button>
         <span class="v-bars">${(m.voice?.bars || []).map((h) => `<i style="height:${Math.round(h * 100)}%"></i>`).join('')}</span>
         <span class="v-dur">${fmtDur(m.voice?.dur || 0)}</span>
         <button class="v-speed" data-speed="${m.voice?.rate || 1}" title="${t('msg.voiceSpeed')}">${m.voice?.rate || 1}×</button>

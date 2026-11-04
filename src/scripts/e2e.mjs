@@ -606,6 +606,24 @@ async function runDemo() {
     const opened = await waitFor(ctx, `!document.getElementById('chatActive').hidden`, 8000);
     record('открытие чата', Boolean(opened), JSON.stringify(sidebarState));
 
+    /* Упоминание: значок @ в списке и акцентный пузырь в группе.
+       Открытие чата должно снимать значок — иначе он «залипает» навсегда. */
+    const mentionBefore = await ctx.evaluate(`(() => {
+      const row = document.querySelector('.chat-item[data-cid="c_team"]');
+      const badge = !!row?.querySelector('.ci-mention');
+      row?.click();
+      return badge;
+    })()`);
+    await sleep(700);
+    const mentionAfter = await ctx.evaluate(`({
+      badge: !!document.querySelector('.chat-item[data-cid="c_team"] .ci-mention'),
+      bubbles: document.querySelectorAll('#chatActive .msg.mention-me').length,
+      hash: location.hash,
+    })`);
+    record('упоминание @ник видно и снимается при прочтении',
+      Boolean(mentionBefore && !mentionAfter.badge && mentionAfter.bubbles >= 1),
+      JSON.stringify({ before: mentionBefore, ...mentionAfter }));
+
     const marker = 'e2e-' + Date.now();
     await typeAndSend(ctx, marker);
     const ok = await waitFor(ctx, `document.body.innerText.includes(${JSON.stringify(marker)})`, 8000);

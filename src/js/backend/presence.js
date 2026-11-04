@@ -165,6 +165,9 @@ export function initTyping(chatId, onTyping) {
 
 export function sendTypingSignal() {
   if (!sb || !typingChannel) return;
+  /* «Скрывать статус онлайн» должно скрывать и «печатает…»: иначе статус
+     утекает через индикатор набора. */
+  if (prefs.hideOnline) return;
   typingChannel.send({
     type: 'broadcast',
     event: 'typing',

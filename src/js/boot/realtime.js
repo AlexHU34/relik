@@ -17,6 +17,7 @@ import { renderSidebar, loadChats as reloadChats } from '../ui/sidebar.js';
 import { isMuted } from '../ui/prefs.js';
 import { playMessage } from '../ui/sounds.js';
 import { notifyMessage } from '../ui/notify.js';
+import { mentionsMe } from '../ui/mentions.js';
 import { syncActiveNow } from '../ui/activeSync.js';
 import { backoffMs } from '../core/outbox.js';
 import { logEvent } from '../backend/telemetry.js';
@@ -138,11 +139,16 @@ async function handleRow(row) {
   if (text == null) return; // голос в опросе не показываем
   chat.last = { ts: Date.now(), from: row.sender_id, type: 'text', text };
   chat.unread = (chat.unread || 0) + 1;
+  /* @упоминание в группе важнее mute: бейдж в списке и уведомление,
+     даже если чат без звука. Звук при этом не включаем — mute есть mute. */
+  const mention = chat.kind === 'group' && mentionsMe(text, S.me);
+  if (mention) chat.mention = true;
   await idb.put('chats', chat);
   renderSidebar();
-  if (!isMuted(chat.id)) {
-    playMessage();
-    notifyMessage(chat, text, () => { location.hash = `#/chat/${chat.id}`; });
+  const muted = isMuted(chat.id);
+  if (!muted) playMessage();
+  if (!muted || mention) {
+    notifyMessage(chat, text, () => { location.hash = `#/chat/${chat.id}`; }, { mention });
   }
 }
 
@@ -156,6 +162,7 @@ export async function refreshChatListQuiet() {
     let changed = false;
     let incoming = false;
     let audible = false;
+    const mentioned = [];
 
     /* Если появился чат, которого нет в локальном списке (его создал
        собеседник), сначала перечитываем список чатов. */
@@ -179,6 +186,11 @@ export async function refreshChatListQuiet() {
         if (!mine) {
           if (S.active !== chat.id) chat.unread = (chat.unread || 0) + 1;
           incoming = true;
+          const mention = chat.kind === 'group' && mentionsMe(text, S.me);
+          if (mention) {
+            chat.mention = true;
+            mentioned.push({ chat, text });
+          }
           if (!isMuted(chat.id)) audible = true;
         }
         await idb.put('chats', chat);
@@ -189,6 +201,11 @@ export async function refreshChatListQuiet() {
 
     if (changed) renderSidebar();
     if (incoming && audible) playMessage();
+    /* Опрос — запасной путь, когда realtime молчит: упоминание должно
+       доходить и здесь, иначе в «тихом» чате его легко пропустить. */
+    for (const ping of mentioned) {
+      notifyMessage(ping.chat, ping.text, () => { location.hash = `#/chat/${ping.chat.id}`; }, { mention: true });
+    }
   } catch (err) {
     /* тихо: сеть/RLS восстановятся сами */
   } finally {

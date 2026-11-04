@@ -31,6 +31,7 @@ function chatRow(chat) {
   const active = chat.id === S.active ? ' active' : '';
   const pinned = isPinned(chat.id);
   const muted = isMuted(chat.id);
+  const mentioned = !!chat.mention;
   const flags = `${pinned ? `<span class="ci-flag pin" title="${t('side.pinned')}">${icon('pin', 11)}</span>` : ''}
     ${muted ? `<span class="ci-flag mute" title="${t('side.muted')}">${icon('bellOff', 11)}</span>` : ''}`;
   const draft = String(S.drafts?.[chat.id] || '').replace(/\s+/g, ' ').trim();
@@ -38,7 +39,7 @@ function chatRow(chat) {
     ? `<span class="who">${t('side.draft')}:</span> ${esc(draft.length > 120 ? draft.slice(0, 120) + '…' : draft)}`
     : preview(chat);
   return `<div class="chat-item${active}${pinned ? ' pinned' : ''}" data-cid="${esc(chat.id)}" role="button" tabindex="0"
-      aria-label="${esc(chatTitle(chat))}">
+      aria-label="${esc(chatTitle(chat))}${mentioned ? ', ' + esc(t('side.mentioned')) : ''}">
     ${avatarHtml(u, { online })}
     <span class="ci-main">
       <span class="ci-top">
@@ -50,7 +51,7 @@ function chatRow(chat) {
       </span>
     </span>
     <span class="ci-side">
-      ${chat.unread ? `<span class="badge">${chat.unread > 99 ? '99+' : chat.unread}</span>` : ''}
+      ${mentioned ? `<span class="ci-mention" title="${t('side.mentioned')}" aria-hidden="true">@</span>` : ''}${chat.unread ? `<span class="badge">${chat.unread > 99 ? '99+' : chat.unread}</span>` : ''}
       <button class="ci-more" type="button" data-chat-menu="${esc(chat.id)}"
         title="${t('side.actions')}" aria-label="${t('side.actions')}">${icon('more', 16)}</button>
     </span>
@@ -109,8 +110,7 @@ export function renderSidebar(force = false) {
     S.me?.name || '', S.me?.username || '', S.me?.mail || '', S.me?.avatar ? 1 : 0,
     rows.map((c) => [
       c.id, c.kind, chatTitle(c), c.last?.ts || 0, c.last?.text || '', c.last?.type || '',
-      c.unread || 0, c.username || '', isPinned(c.id) ? 1 : 0, isMuted(c.id) ? 1 : 0,
-      S.drafts?.[c.id] || '',
+      c.unread || 0, c.username || '', isPinned(c.id) ? 1 : 0, isMuted(c.id) ? 1 : 0, c.mention ? 1 : 0, S.drafts?.[c.id] || '',
     ].join('~')).join('|'),
   ].join('#');
 
@@ -222,7 +222,7 @@ function openFolderMenu(chat, pos) {
 }
 
 function markChatRead(chat) {
-  chat.unread = 0;
+  chat.unread = 0; chat.mention = false;
   setReadAt(chat.id);
   idb.put('chats', chat);
   renderSidebar();
@@ -242,7 +242,7 @@ async function clearChatHistory(chat) {
   } catch (e) { /* ignore */ }
   S.messages[chat.id] = [];
   chat.last = null;
-  chat.unread = 0;
+  chat.unread = 0; chat.mention = false;
   delete chat.pin;
   await idb.put('chats', chat);
   await idb.del('settings', 'pin:' + chat.id);
