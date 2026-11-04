@@ -1,0 +1,34 @@
+# Relik — фрагмент Caddyfile для self-hosted Supabase на том же сервере.
+# Вставляется в существующий блок сайта relik.best (Caddy 2.x).
+# Наружу открыт только Caddy; сервисы слушают 127.0.0.1 (см. docker-compose.yml).
+# Клиентский js/config.js НЕ меняется: адрес и пути те же, что у Supabase.
+
+relik.best {
+	encode gzip zstd
+
+	# Приложение (статическая сборка)
+	root * /var/www/relik
+	file_server
+
+	# ── Supabase API ──────────────────────────────────────────────
+	# handle_path срезает префикс: gotrue/postgrest/storage/realtime
+	# внутри контейнеров живут без /auth/v1 и т.п.
+	handle_path /auth/v1/* {
+		reverse_proxy 127.0.0.1:9999
+	}
+	handle_path /rest/v1/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+	handle_path /realtime/v1/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+	handle_path /storage/v1/* {
+		reverse_proxy 127.0.0.1:5000
+	}
+
+	# Статика сайта — всё остальное
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
