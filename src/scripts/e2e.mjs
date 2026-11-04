@@ -696,8 +696,10 @@ async function runDemo() {
        страницу из IndexedDB. Чистим базу и входим в демо с 600 сообщениями. */
     let hist = null;
     try {
+      /* Оригин берём у самой страницы: BASE может редиректить на relik.best. */
+      const origin = await ctx.evaluate('location.origin');
       await ctx.send('Storage.clearDataForOrigin', {
-        origin: new URL(BASE).origin, storageTypes: 'indexeddb',
+        origin, storageTypes: 'indexeddb',
       });
       await ctx.send('Page.navigate', { url: BASE + '?demo=1&stress=600' });
       await waitFor(ctx, `window.__relikLoaded === true`, 30000);
