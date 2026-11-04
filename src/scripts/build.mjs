@@ -15,10 +15,18 @@ process.chdir(ROOT);
 
 const log = (...a) => { if (VERBOSE) console.log('  ', ...a); };
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
+const TEXT_EXT = new Set(['.js', '.mjs', '.css', '.html', '.json', '.txt', '.svg', '.webmanifest']);
 
 function copyFile(from, to) {
   fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.copyFileSync(from, to);
+  /* Текст пишем с LF. В зеркале (relik-github) git с core.autocrlf=true хранит
+     LF, а integrity.json считается по байтам dist: с CRLF хеши js/config.js
+     и sw.js не сходились на живом сайте, и verify-live ругался каждый деплой. */
+  if (TEXT_EXT.has(path.extname(from).toLowerCase())) {
+    fs.writeFileSync(to, fs.readFileSync(from, 'utf8').replace(/\r\n/g, '\n'));
+  } else {
+    fs.copyFileSync(from, to);
+  }
   log(`${from} → ${path.relative(ROOT, to)}`);
 }
 
@@ -115,7 +123,7 @@ const files = walk(DIST)
   .filter((f) => f !== './sw.js' && f !== './CNAME')
   .sort();
 
-let sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+let sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').replace(/\r\n/g, '\n');
 sw = sw.replace(/const VER = '[^']+';/, `const VER = 'relik-v${version}';`);
 sw = sw.replace(
   /const ASSETS = \[[\s\S]*?\];/,

@@ -1,6 +1,6 @@
 {
   "version": "1.54.0",
-  "generatedAt": "2026-11-04T12:16:43.172Z",
+  "generatedAt": "2026-11-04T12:22:46.692Z",
   "algorithm": "sha256",
   "files": {
     "./.nojekyll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -38,12 +38,12 @@
     "./assets/richText-BsxQbzmP.js": "a8953139ba7bb2f44ca8ac149ac2e89b59f56eb85ed573e01c9f45dc2dbd00f6",
     "./assets/tools_selftest-D4dhCa-d.js": "8aba8bc943ac600e07309ffb88c4f8db0d61abf2f4fa5c3e9cd8e476a24d9ee6",
     "./index.html": "eece9031737b4f27f1edc56d4c325ef23eb3033883aa60809390ef13025e48c7",
-    "./js/config.js": "75804806b993d93bf8c75d61a23ec96f8a78e8a5c90b469e21bd8359bc5dfad6",
+    "./js/config.js": "9bbd777bbb699f5325fa2b25477741fd9b503b862ff9d6f6ae6fae4b6a6503ef",
     "./js/vendor/qrcode.js": "18ae399f81182bc9de916e9c77b195df20cc58d6f2d55a62b085a299f1bf1780",
     "./js/vendor/supabase.js": "ee3be8de192b97cb1d73d1e95d6b82bb1f6b658c0f97c4ef757fc331996ed3d3",
     "./legal.html": "6c738ac0a1c32b7bdb68b7ff5127798b2acf045b0ba2de7ceb1b45ae821804a9",
     "./manifest.json": "62a55f9036ed1204c504b74d8f555b02ae039c8a5b7cf5342a6f0be6620e8624",
-    "./sw.js": "4b1f310193ced66f949e0447c2e7a95581da25d8bd7856746ea43a751160890c",
+    "./sw.js": "ebb6eece7bda7a3fab646809cf9547261b052fe83e04dcc5dac5e4f94c919e81",
     "./tools/diagnostics.html": "00cbbaa1abe6c3b369bb2b62f05c5992c366cf1357fbf8c6074dae0cace33f7f",
     "./tools/health.html": "2d6ad7733ec071c175ff9f38fc7ad9ec4d655f90bc0bee90bea5fedfc1df2d1a",
     "./tools/phone.html": "407de154737cf6d045c89b9ae21170f4bf071bfe542a9b6ad110e63aabfcf17b",
