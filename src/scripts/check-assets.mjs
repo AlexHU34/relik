@@ -100,6 +100,18 @@ if (verMatch && appVer && verMatch[1] !== appVer) {
   warnings.push(`sw.js VER = relik-v${verMatch[1]}, а js/config.js version = ${appVer} — при изменении ассетов VER нужно поднимать`);
 }
 
+/* version.json читает обновление desktop-приложения. Он тихо отстал на
+   семь релизов (1.47.11 против 1.53.0) — теперь это ошибка, а не сюрприз. */
+try {
+  const vj = JSON.parse(fs.readFileSync(path.join(ROOT, 'version.json'), 'utf8'));
+  if (appVer && vj.version !== appVer) {
+    errors.push(`version.json version = ${vj.version}, а js/config.js version = ${appVer} — обновите version.json`);
+  }
+  if (!vj.notes || typeof vj.notes !== 'string') errors.push('version.json: пустые notes (что изменилось)');
+} catch (e) {
+  errors.push('version.json: не читается как JSON');
+}
+
 /* ── 7. Секреты не должны попадать в клиент ─────────────────
    service_role / sb_secret_ в браузерном коде = полный доступ к базе
    у любого, кто откроет DevTools. Ловим до деплоя. */
