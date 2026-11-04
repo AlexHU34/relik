@@ -40,7 +40,9 @@ export function retryDelay(attempt, random = Math.random, { base = 700, cap = 80
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* Обёртка для идемпотентной операции. onRetry — для телеметрии
-   (только номер попытки и пауза, без содержимого запроса). */
+   (только номер попытки и пауза, без содержимого запроса).
+   timeoutMs ограничивает попытку: без него «залипший» запрос к Supabase висит
+   десятки секунд (наблюдали 14 с на одном запросе), и повтор не наступает. */
 export async function withRetry(fn, {
   attempts = 3,
   base = 700,
@@ -48,12 +50,21 @@ export async function withRetry(fn, {
   random = Math.random,
   onRetry = null,
   wait = sleep,
+  timeoutMs = 0,
 } = {}) {
   const total = Math.max(1, Number(attempts) || 1);
+  const attempt = (i) => {
+    if (!timeoutMs) return fn(i);
+    return Promise.race([
+      fn(i),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs)),
+    ]);
+  };
+
   let lastErr = null;
   for (let i = 0; i < total; i += 1) {
     try {
-      return await fn(i);
+      return await attempt(i);
     } catch (err) {
       lastErr = err;
       if (i >= total - 1 || !isRetryableError(err)) throw err;

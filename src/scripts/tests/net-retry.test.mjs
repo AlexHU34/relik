@@ -94,6 +94,23 @@ test('после всех попыток отдаём последнюю оши�
   assert.equal(calls, 2);
 });
 
+test('залипший запрос обрывается по таймауту и повторяется', async () => {
+  let calls = 0;
+  const waits = [];
+  let thrown = null;
+  try {
+    await withRetry(async () => {
+      calls += 1;
+      return new Promise(() => {}); /* никогда не ответит */
+    }, { attempts: 2, timeoutMs: 10, wait: async (ms) => { waits.push(ms); } });
+  } catch (err) {
+    thrown = err;
+  }
+  assert.match(String(thrown?.message), /timeout/);
+  assert.equal(calls, 2, 'таймаут считается попыткой и повторяется');
+  assert.equal(waits.length, 1);
+});
+
 test('паузы не копятся дольше потолка и сообщают о повторе', async () => {
   const waits = [];
   const retries = [];

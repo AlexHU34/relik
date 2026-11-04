@@ -285,6 +285,7 @@ export async function loadMessagesPage(chatId, chatKind = 'dm', theirPublicKeyJw
   /* История — только чтение: на обрыве сети повторяем, иначе человек видит
      пустой чат и думает, что переписка пропала. */
   return withRetry(() => loadMessagesPageOnce(chatId, chatKind, theirPublicKeyJwk, opts), {
+    timeoutMs: 12000,
     onRetry: (attempt, delay) => logEvent('net_retry', { op: 'messages', attempt, delay }),
   });
 }
@@ -334,7 +335,7 @@ export async function loadOlderMessages(chatId, beforeTs, chatKind = 'dm', their
 export async function fetchMessagesSince(chatId, afterTs, chatKind = 'dm', theirPublicKeyJwk = null) {
   return withRetry(
     () => fetchMessagesSinceOnce(chatId, afterTs, chatKind, theirPublicKeyJwk),
-    { onRetry: (attempt, delay) => logEvent('net_retry', { op: 'since', attempt, delay }) },
+    { timeoutMs: 10000, onRetry: (attempt, delay) => logEvent('net_retry', { op: 'since', attempt, delay }) },
   );
 }
 
@@ -782,17 +783,5 @@ export function subscribeToPresence(callbacks) {
 }
 
 /* ── Обновление read receipt ── */
-export async function updateReadReceipt(chatId) {
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return;
-
-  const { error } = await sb
-    .from('read_receipts')
-    .upsert({
-      conversation_id: chatId,
-      user_id: user.id,
-      last_read_at: new Date().toISOString(),
-    });
-
-  if (error) console.error('Read receipt error:', error);
-}
+/* Легаси-квитки вынесены в legacyReceipts.js (см. комментарий там) */
+export { updateReadReceipt } from './legacyReceipts.js';

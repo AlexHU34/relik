@@ -971,7 +971,7 @@ export async function openChat(id) {
         hydrateMessagesMedia(S.messages[id]).then((changed) => {
           if (changed && S.active === id) renderMessages();
         }).catch(() => {});
-        await updateReadReceipt(id).catch(() => {});
+        updateReadReceipt(id).catch(() => {});
         setReadAt(id);
         sendReadUpto(id);
         markLive();

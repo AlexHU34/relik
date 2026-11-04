@@ -55,6 +55,28 @@ function profileCols(withAvatar, withUsername, withRole) {
   return `id, display_name, avatar_hue, public_key${withAvatar ? ', avatar' : ''}${withUsername ? ', username' : ''}${withRole ? ', role' : ''}`;
 }
 
+/* Список колонок профиля с минимумом запросов: один пробный select, и только
+   при отсутствии колонок — точечные пробы (параллельно). */
+let colsCache = null;
+
+async function resolveProfileCols() {
+  if (colsCache) return colsCache;
+  if (!sb) { colsCache = profileCols(false, false, false); return colsCache; }
+
+  const { error } = await sb.from('profiles').select('avatar, username, role').limit(1);
+  if (!error) {
+    avatarCol = true; usernameCol = true; roleCol = true;
+    colsCache = profileCols(true, true, true);
+    return colsCache;
+  }
+  /* старый проект без части колонок: уточняем, какие есть */
+  const [a, u, r] = await Promise.all([
+    hasAvatarColumn(), hasUsernameColumn(), hasRoleColumn(),
+  ]);
+  colsCache = profileCols(a, u, r);
+  return colsCache;
+}
+
 /* Контакты в S.users всегда свежие (имя, цвет, аватар) */
 function upsertUser(p) {
   const i = S.users.findIndex((u) => u.id === p.id);
@@ -77,15 +99,25 @@ export async function loadChats() {
   /* Один ERR_CONNECTION_RESET не должен оставлять пустой список чатов:
      чтение идемпотентно, повторяем на обрывах сети (см. netRetry.js). */
   return withRetry(() => loadChatsOnce(), {
+    timeoutMs: 10000,
     onRetry: (attempt, delay) => logEvent('net_retry', { op: 'chats', attempt, delay }),
   });
 }
 
 async function loadChatsOnce() {
-  const { data: { user } } = await sb.auth.getUser();
+  /* S.me уже есть после входа/восстановления сессии: лишний getUser()
+     стоил полный round-trip на каждый запуск и каждое обновление списка. */
+  let user = S.me?.id ? { id: S.me.id } : null;
+  if (!user) {
+    const { data: { user: fresh } } = await sb.auth.getUser();
+    user = fresh;
+  }
   if (!user) return [];
 
-  const pcols = profileCols(await hasAvatarColumn(), await hasUsernameColumn(), await hasRoleColumn());
+  /* Три пробы колонок раньше шли последовательно (3 round-trip до первого
+     запроса списка). Теперь одна проба на все колонки сразу, а если какие-то
+     отсутствуют — уточняем параллельно. */
+  const pcols = await resolveProfileCols();
 
   const { data: members, error } = await sb
     .from('conversation_members')
