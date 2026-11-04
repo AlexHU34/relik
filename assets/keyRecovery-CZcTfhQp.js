@@ -1,4 +1,4 @@
-import{t as r,v as l,s as x,i as k,k as p,S as T}from"./netRetry-BYm1xB0P.js";import{i as X,P as Y,c as f}from"./index-B3n1DM14.js";function C(e={}){return new Promise(t=>{const{title:a=r("common.confirm"),text:o="",ok:n=r("common.ok"),cancel:i=r("common.cancel"),danger:s=!1,iconName:d=s?"alert":"info"}=e,c=document.createElement("div");c.className="overlay confirm-ov",c.innerHTML=`<div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+import{t as r,v as l,s as x,i as k,k as p,S as T}from"./netRetry-DYj9wAvL.js";import{i as X,P as Y,c as f}from"./index-BD9oBOQn.js";function C(e={}){return new Promise(t=>{const{title:a=r("common.confirm"),text:o="",ok:n=r("common.ok"),cancel:i=r("common.cancel"),danger:s=!1,iconName:d=s?"alert":"info"}=e,c=document.createElement("div");c.className="overlay confirm-ov",c.innerHTML=`<div class="modal confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
       <div class="confirm-body">
         <span class="confirm-ic${s?" danger":""}">${X(d,22)}</span>
         <h3 id="confirmTitle">${l(a)}</h3>

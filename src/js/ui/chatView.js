@@ -21,14 +21,15 @@ import { currentDevice } from './device.js';
 import { startCall } from './calls.js';
 import { getReadAt, setReadAt, isMuted, prefs, getChatTtl, getChatTtlSince, setChatTtl } from './prefs.js';
 import { safeMediaSrc } from './richText.js';
-import { loadMessagesPage, loadOlderMessages, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend } from '../backend/messages.js';
+import { loadMessagesPage, fetchMessagesSince, subscribeToChat, updateReadReceipt, deleteMessage as deleteMessageBackend } from '../backend/messages.js';
 import { hydrateMessagesMedia, hydrateMessageMedia } from '../backend/storage.js';
 import { hasGroupKeysTable } from '../backend/groupKeys.js';
 import { ensureDmMember } from '../backend/chats.js';
 import { markTiming } from '../backend/telemetry.js';
 
 import { openRecoveryFlow } from './keyRecovery.js';
-import { PAGE_SIZE, mergeMessages, windowOf, oldestTs } from './msgWindow.js';
+import { PAGE_SIZE, mergeMessages, windowOf } from './msgWindow.js';
+import { loadChatTail, loadOlderPage, mergeOlder, hasLocalHistory, searchLocalHistory } from './chat/history.js';
 import {
   changeChatTtl, clearTtlForChat, clearTtlTimers, clearTtlTimer, scheduleTtlForChat,
   applyTtlFromHistory, paintTtl, bindTtlHooks,
@@ -227,23 +228,24 @@ export function initChatView() {
       /* В памяти только последняя страница — на длинном чате поиск бы «врал».
          Догружаем до трёх страниц истории, но только пока запрос тот же. */
       const id = S.active;
-      if (!searchQuery || !id || !S.msgMore?.[id]) return;
-      for (let i = 0; i < 3 && S.msgMore?.[id] && searchQuery === value; i++) {
-        const chat = chatById(id);
-        const before = oldestTs(S.messages[id] || []);
-        if (!chat || !before) break;
+      if (!searchQuery || !id) return;
+      /* Глубже загруженного окна: локальный поиск по всей базе, затем сервер. */
+      if (hasLocalHistory(id)) {
         try {
-          const { messages, hasMore } = await loadOlderMessages(id, before, chat.kind, chat.publicKey);
+          const found = await searchLocalHistory(id, value);
           if (S.active !== id || searchQuery !== value) return;
-          S.msgMore = { ...(S.msgMore || {}), [id]: hasMore };
-          if (!messages.length) break;
-          S.messages[id] = mergeMessages(messages, S.messages[id] || []);
+          if (mergeOlder(id, found)) { renderMessages(); if (searchHits.length) { jumpTo(searchHits[searchIndex]); return; } }
+        } catch (err) { console.warn('Search history error:', err); }
+      }
+      if (!S.msgMore?.[id]) return;
+      for (let i = 0; i < 3 && searchQuery === value && S.msgMore?.[id]; i++) {
+        try {
+          const page = await loadOlderPage(id);
+          if (S.active !== id || searchQuery !== value) return;
+          if (!page || !mergeOlder(id, page.messages)) break;
           renderMessages();
           if (searchHits.length) { jumpTo(searchHits[searchIndex]); break; }
-        } catch (err) {
-          console.warn('Search history error:', err);
-          break;
-        }
+        } catch (err) { console.warn('Search history error:', err); break; }
       }
     }, 110);
   });
@@ -343,22 +345,17 @@ export function initChatView() {
       return;
     }
 
-    if (!S.msgMore?.[id] || loadingOlder) return;
+    if (loadingOlder || (!hasLocalHistory(id) && !S.msgMore?.[id])) return;
     loadingOlder = true;
     btn.classList.add('loading');
     btn.setAttribute('aria-busy', 'true');
     try {
-      const chat = chatById(id);
-      const before = oldestTs(S.messages[id] || []);
-      if (!chat || !before) return;
-      const { messages, hasMore } = await loadOlderMessages(id, before, chat.kind, chat.publicKey);
+      const page = await loadOlderPage(id);
       if (S.active !== id) return;
-      S.msgMore = { ...(S.msgMore || {}), [id]: hasMore };
-      if (messages.length) {
-        S.messages[id] = mergeMessages(messages, S.messages[id] || []);
+      if (page && mergeOlder(id, page.messages)) {
         S.renderLimit = { ...(S.renderLimit || {}), [id]: limit + PAGE_SIZE };
         renderMessages({ prepend: true });
-        hydrateMessagesMedia(messages).then((changed) => {
+        hydrateMessagesMedia(page.messages).then((changed) => {
           if (changed && S.active === id) renderMessages({ prepend: true });
         }).catch(() => {});
       } else {
@@ -920,8 +917,9 @@ export async function openChat(id) {
   }
   if (chat.kind === 'dm') warnPeerKeyChange(chat).catch(() => {});
 
-  /* Мгновенно показываем кэш, сеть — фоном */
-  S.messages[id] = await idb.messagesOf(id);
+  /* Мгновенно показываем кэш, сеть — фоном. Только хвост истории:
+     остальное подгружается кнопкой «показать раньше». */
+  S.messages[id] = await loadChatTail(id);
   applyReadState(id);
   applyTtlFromHistory(id);
   scheduleTtlForChat(id);
@@ -1176,7 +1174,7 @@ export function renderMessages(opts = {}) {
       <b>${t(showLocked ? 'chat.hide' : 'chat.show')}</b>
     </button>`;
   }
-  const moreOnServer = !!S.msgMore?.[S.active];
+  const moreOnServer = !!S.msgMore?.[S.active] || hasLocalHistory(S.active);
   if (hiddenCount > 0 || (moreOnServer && !q)) {
     html += `<button type="button" class="load-earlier" data-load-earlier>
       ${icon('chevronUp', 15)} <span>${t('chat.loadEarlier')}</span>${hiddenCount ? `<b>${hiddenCount}</b>` : ''}

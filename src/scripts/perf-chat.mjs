@@ -25,7 +25,7 @@ const arg = (n, d) => {
 };
 
 const BASE = arg('url', 'http://localhost:8096/');
-const MSGS = Math.max(100, Math.min(5000, Number(arg('msgs', '2000')) || 2000));
+const MSGS = Math.max(100, Math.min(10000, Number(arg('msgs', '2000')) || 2000));
 const OUT = path.join(ROOT, 'kpi', 'chat-perf.json');
 const CHECK = has('check');
 const WRITE = has('write');
@@ -49,14 +49,18 @@ const SCROLL = `(async function(){
   let dir = -1;
   const start = performance.now();
   let last = start;
+  holder.scrollTop = Math.max(0, holder.scrollHeight - holder.clientHeight - 1000);
   await new Promise((resolve) => {
     const step = (t) => {
       frames.push(t - last);
       last = t;
       const before = holder.scrollTop;
       const max = holder.scrollHeight - holder.clientHeight;
-      holder.scrollTop = Math.max(0, Math.min(max, before + dir * 18));
-      if (holder.scrollTop <= 0) dir = 1;
+      /* Не доходим до верхней кромки: там приложение само догружает историю,
+         и мы мерили бы запись в IndexedDB вместо прокрутки. */
+      const top = Math.max(0, max - 1000);
+      holder.scrollTop = Math.max(top, Math.min(max, before + dir * 18));
+      if (holder.scrollTop <= top) dir = 1;
       if (holder.scrollTop >= max - 1) dir = -1;
       if (t - start < dur) requestAnimationFrame(step);
       else resolve();
@@ -117,6 +121,22 @@ async function run() {
     out.chats = Boolean(hasChat);
     if (!hasChat) return out;
 
+    /* Ждём, пока демо-сид допишет все сообщения: иначе замер прокрутки ловит
+       фоновую запись IndexedDB, а не работу ленты. */
+    await waitFor(ctx, `(async function(){
+      const have = await new Promise((res) => {
+        const r = indexedDB.open('relik-db-demo');
+        r.onsuccess = () => {
+          const db = r.result;
+          const q = db.transaction('messages').objectStore('messages').index('byChat').count(IDBKeyRange.only('c_alina'));
+          q.onsuccess = () => res(q.result);
+          q.onerror = () => res(0);
+        };
+        r.onerror = () => res(0);
+      });
+      return have >= ${MSGS};
+    })()`, 120000, 250);
+
     /* Открытие чата с длинной историей */
     await ctx.evaluate(`(function(){
       window.__tOpen = performance.now();
@@ -148,6 +168,19 @@ async function run() {
     out.dom = dom;
 
     out.scroll = await ctx.evaluate(SCROLL);
+
+    /* «Показать раньше»: с хвостовой загрузкой история должна приходить
+       из IndexedDB и увеличивать окно, а не оставлять пустой экран. */
+    out.earlier = await ctx.evaluate(`(async function(){
+      const n = () => document.querySelectorAll('#msgs .msg').length;
+      const before = n();
+      const btn = document.querySelector('#msgs [data-load-earlier]');
+      if (!btn) return { before, after: before, ok: false };
+      btn.click();
+      for (let i = 0; i < 40 && n() <= before; i++) await new Promise((r) => setTimeout(r, 100));
+      const after = n();
+      return { before, after, ok: after > before };
+    })()`);
     out.errors = errors.slice(0, 5);
   } finally {
     ctx.close();
@@ -171,6 +204,8 @@ if (JSON_OUT) {
   console.log(`В DOM сейчас             ${d.domMsgs} .msg, ${d.domNodes} узлов, ${d.domChildren} детей`);
   console.log(`Скрыто за баннером       ${d.banner || '—'}`);
   console.log(`Прокрутка (3 с)          ${s.fps} fps, кадры p95 ${s.p95} мс, max ${s.max} мс, >50 мс: ${s.long}`);
+  const e = result.earlier || {};
+  console.log(`Показать раньше          ${e.before} → ${e.after} .msg${e.ok ? '' : ' (нет кнопки/не выросло)'}`);
   console.log(`Память JS                ${(Number(d.heap) / 1048576).toFixed(1)} MB`);
   if (result.errors?.length) console.log(`Ошибки страницы          ${result.errors[0]}`);
 }
@@ -210,6 +245,9 @@ if (CHECK) {
   }
   if ((result.scroll?.fps || 0) < Math.min(30, (base.scroll?.fps || 60) * 0.6)) {
     bad.push(`прокрутка ${result.scroll?.fps} fps < ${Math.round(Math.min(30, (base.scroll?.fps || 60) * 0.6))} fps`);
+  }
+  if (result.earlier && !result.earlier.ok) {
+    bad.push(`«показать раньше» не догрузило историю (${result.earlier.before} → ${result.earlier.after})`);
   }
   if (bad.length) {
     console.error('\n✖ Лента деградировала:\n   ' + bad.join('\n   '));

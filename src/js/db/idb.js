@@ -134,6 +134,66 @@ export const idb = {
       .filter((m) => m.chatId === chatId)
       .sort((a, b) => a.ts - b.ts),
   ),
+  /* Последние `limit` сообщений чата: открытие чата читает окно, а не всю
+     историю. `more = true` — в базе есть ещё более старые записи. */
+  messagesTail: (chatId, limit = 300) => run(
+    async () => {
+      const db = await open();
+      const idx = db.transaction('messages').objectStore('messages').index('byChatTs');
+      const n = Math.max(1, Number(limit) || 300);
+      const out = [];
+      await new Promise((res, rej) => {
+        const range = IDBKeyRange.bound([chatId, -Infinity], [chatId, Infinity]);
+        const req = idx.openCursor(range, 'prev');
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (!cur || out.length > n) return res();
+          out.push(cur.value);
+          cur.continue();
+        };
+        req.onerror = () => rej(req.error);
+      });
+      const more = out.length > n;
+      return { messages: (more ? out.slice(0, n) : out).reverse(), more };
+    },
+    () => {
+      const arr = [...memStore('messages').values()]
+        .filter((m) => m.chatId === chatId)
+        .sort((a, b) => a.ts - b.ts);
+      const more = arr.length > limit;
+      return { messages: more ? arr.slice(-limit) : arr, more };
+    },
+  ),
+  /* Страница истории строго старше beforeTs — для «показать раньше». */
+  messagesBefore: (chatId, beforeTs, limit = 120) => run(
+    async () => {
+      const db = await open();
+      const idx = db.transaction('messages').objectStore('messages').index('byChatTs');
+      const n = Math.max(1, Number(limit) || 120);
+      const out = [];
+      await new Promise((res, rej) => {
+        const range = IDBKeyRange.bound([chatId, -Infinity], [chatId, Number(beforeTs) || 0], false, true);
+        const req = idx.openCursor(range, 'prev');
+        req.onsuccess = () => {
+          const cur = req.result;
+          if (!cur || out.length > n) return res();
+          out.push(cur.value);
+          cur.continue();
+        };
+        req.onerror = () => rej(req.error);
+      });
+      const more = out.length > n;
+      return { messages: (more ? out.slice(0, n) : out).reverse(), more };
+    },
+    () => {
+      const arr = [...memStore('messages').values()]
+        .filter((m) => m.chatId === chatId)
+        .sort((a, b) => a.ts - b.ts);
+      const older = arr.filter((m) => (Number(m.ts) || 0) < (Number(beforeTs) || 0));
+      const more = older.length > limit;
+      return { messages: more ? older.slice(-limit) : older, more };
+    },
+  ),
   /* Удалить все сообщения одного чата одним проходом по индексу */
   delMessagesOf: (chatId) => run(
     async () => {

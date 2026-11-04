@@ -88,7 +88,7 @@ function stressMessages(n, t0) {
 function stressCount() {
   try {
     const n = Number(new URLSearchParams(location.search).get('stress')) || 0;
-    return Math.max(0, Math.min(5000, n));
+    return Math.max(0, Math.min(10000, n));
   } catch (e) {
     return 0;
   }

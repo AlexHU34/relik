@@ -16,6 +16,7 @@ export const S = {
   demoShown: false,  // тост про демо-медиа показывали
   unreadFrom: {},    // chatId -> ts последнего прочтения (для разделителя)
   renderLimit: {},   // chatId -> сколько сообщений показывать
+  historyMore: {},   // chatId -> в IndexedDB есть ещё старые сообщения
   drafts: {},        // chatId -> несохранённый текст (превью в списке)
   reqIn: [],         // входящие заявки в контакты [{id, from, to, status, ts}]
   reqOut: [],        // исходящие заявки

@@ -48,6 +48,27 @@ export function oldestTs(list) {
   return min;
 }
 
+/* Окна истории: чат открывается хвостом, «показать раньше» — страницей
+   строго старше курсора (см. js/ui/chat/history.js). */
+export const HISTORY_TAIL = 300;   // сколько последних сообщений держим после открытия
+export const HISTORY_PAGE = 120;   // шаг «показать раньше» (совпадает с окном ленты)
+
+/* Последние `limit` сообщений + признак «есть ещё старые». */
+export function tailSlice(list, limit = HISTORY_TAIL) {
+  const arr = Array.isArray(list) ? list : [];
+  const n = Math.max(1, Number(limit) || HISTORY_TAIL);
+  return { messages: arr.slice(-n), more: arr.length > n };
+}
+
+/* Страница строго старше beforeTs. */
+export function beforeSlice(list, beforeTs, limit = HISTORY_PAGE) {
+  const arr = Array.isArray(list) ? list : [];
+  const n = Math.max(1, Number(limit) || HISTORY_PAGE);
+  const t = Number(beforeTs) || 0;
+  const older = arr.filter((m) => (Number(m && m.ts) || 0) < t);
+  return { messages: older.slice(-n), more: older.length > n };
+}
+
 /* Размер следующего шага окна при «показать раньше». */
 export function nextLimit(current, added = 0, page = PAGE_SIZE) {
   const base = Math.max(Number(current) || page, page);

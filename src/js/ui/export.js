@@ -3,6 +3,7 @@ import { S, user } from './state.js';
 import { idb } from '../db/idb.js';
 import { SUPABASE } from '../config.js';
 import { esc, fmtDay, fmtTime, fmtDur } from './utils.js';
+import { mergeMessages } from './msgWindow.js';
 import { chatTitle } from './state.js';
 import { lang } from '../i18n/i18n.js';
 
@@ -28,11 +29,11 @@ async function collect() {
   const result = [];
   for (const chat of chats) {
     let messages = [];
-    /* сначала кэш, потом (если есть сервер) — полная история */
+    /* IndexedDB хранит всю локальную историю: открытый чат держит в памяти
+       только хвост, поэтому экспорт читает базу, а не S.messages. */
+    try { messages = await idb.messagesOf(chat.id); } catch (e) { messages = []; }
     if (S.active === chat.id && S.messages[chat.id]?.length) {
-      messages = S.messages[chat.id];
-    } else {
-      try { messages = await idb.messagesOf(chat.id); } catch (e) { messages = []; }
+      messages = mergeMessages(messages, S.messages[chat.id]);
     }
     if (SUPABASE.url && SUPABASE.anonKey) {
       try {

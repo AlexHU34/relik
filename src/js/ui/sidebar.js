@@ -242,7 +242,7 @@ async function clearChatHistory(chat) {
   } catch (e) { /* ignore */ }
   S.messages[chat.id] = [];
   chat.last = null;
-  chat.unread = 0; chat.mention = false;
+  chat.unread = 0; chat.mention = false; if (S.historyMore) delete S.historyMore[chat.id];
   delete chat.pin;
   await idb.put('chats', chat);
   await idb.del('settings', 'pin:' + chat.id);

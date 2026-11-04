@@ -692,6 +692,38 @@ async function runDemo() {
 
     await runUiSmoke(ctx);
 
+    /* Длинная история: чат открывается хвостом, «показать раньше» догружает
+       страницу из IndexedDB. Чистим базу и входим в демо с 600 сообщениями. */
+    let hist = null;
+    try {
+      await ctx.send('Storage.clearDataForOrigin', {
+        origin: new URL(BASE).origin, storageTypes: 'indexeddb',
+      });
+      await ctx.send('Page.navigate', { url: BASE + '?demo=1&stress=600' });
+      await waitFor(ctx, `window.__relikLoaded === true`, 30000);
+      await sleep(400);
+      if (await ctx.evaluate(`!document.getElementById('authView').hidden`)) {
+        await ctx.evaluate(`(function(){
+          document.getElementById('authEmail').value='ui@relik.app';
+          document.getElementById('authPass').value='123456';
+          document.getElementById('authForm').requestSubmit();
+        })()`);
+        await sleep(2500);
+      }
+      await dismissOnboarding(ctx);
+      await waitFor(ctx, `document.querySelectorAll('.chat-item').length > 0`, 15000);
+      await ctx.evaluate(`document.querySelector('.chat-item[data-cid="c_alina"]')?.click(); 'ok'`);
+      await waitFor(ctx, `document.querySelectorAll('#chatActive .msg').length > 0`, 15000);
+      const before = await ctx.evaluate(`document.querySelectorAll('#chatActive .msg').length`);
+      const banner = await ctx.evaluate(`!!document.querySelector('#msgs [data-load-earlier]')`);
+      await ctx.evaluate(`document.querySelector('#msgs [data-load-earlier]')?.click(); 'ok'`);
+      const grew = await waitFor(ctx, `document.querySelectorAll('#chatActive .msg').length > ${before}`, 10000);
+      hist = { before, banner, grew: Boolean(grew), after: await ctx.evaluate(`document.querySelectorAll('#chatActive .msg').length`) };
+    } catch (err) {
+      hist = { error: String(err && err.message ? err.message : err) };
+    }
+    record('длинная история: «показать раньше» грузит кэш', Boolean(hist && hist.banner && hist.grew), JSON.stringify(hist));
+
     /* Последняя проверка — вне приложения: документные страницы скроллятся.
        Синтетический жест в headless не всегда доставляется (композитор),
        поэтому падение ловим по главному признаку: body не должен быть
