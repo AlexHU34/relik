@@ -288,7 +288,9 @@
             ' · агент ' + (s.agent_version || '?') +
             (s.front_version ? ' · сайт v' + s.front_version : '') +
             (s.queue_depth == null ? '' : ' · очередь ' + s.queue_depth));
-          set('vpsTurn', s.turn_ok ? 'ok' : 'bad', s.turn_ok ? 'работает' : 'не отвечает',
+          set('vpsTurn',
+            ageMin > 10 ? 'warn' : (s.turn_ok ? 'ok' : 'bad'),
+            ageMin > 10 ? 'нет данных' : (s.turn_ok ? 'работает' : 'не отвечает'),
             'coturn на сервере (порт 3478)');
           var bh = s.backup_age_h;
           set('vpsBackup',

@@ -1,6 +1,6 @@
 {
   "version": "1.55.0",
-  "generatedAt": "2026-11-12T18:30:19.940Z",
+  "generatedAt": "2026-11-12T18:32:25.684Z",
   "algorithm": "sha256",
   "files": {
     "./.nojekyll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -49,7 +49,7 @@
     "./tools/phone.html": "407de154737cf6d045c89b9ae21170f4bf071bfe542a9b6ad110e63aabfcf17b",
     "./tools/preflight.html": "9a413192d3a13d9bc5849ad6625a94b23f4bff33e565a467d08b0fbfb36aafd6",
     "./tools/selftest.html": "2badeac59781cd8126e3dc78ae785a3f9c0213c15a1500852b6aac9800a12323",
-    "./tools/status.html": "c16f6439d3c02f12d0070755148cc6d18b02c0415fbbc3da62101c4f327572de",
+    "./tools/status.html": "038e827c7c30d3ab4bc09ea11946ec358032b9e295d7b42330dbd3e8aef75fd2",
     "./version.json": "094a00389d9c4ea2414d4aecc5852f90d043a6eb2aade74dc18f4b85e15ddf9c",
     "./welcome.html": "fcad6f100f5a6af5c91d78972991ba30cc716d0b9cdb3eb646f319bf8bc20234"
   }
