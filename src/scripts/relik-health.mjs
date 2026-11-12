@@ -18,11 +18,16 @@
      rest      — база отвечает (это же и keep-alive);
      storage   — сервис файлов отвечает;
      realtime  — WebSocket-handshake (доставка сообщений);
-     turn      — TCP-порт TURN из config.js (если --turn или всегда, когда задан).
+     turn      — STUN binding по UDP (запасной путь — TCP). Важно: просто
+                 TCP-подключение к порту 3478 ничего не доказывает — хост
+                 может принимать SYN, когда coturn уже мёртв (так VPS
+                 «выглядел живым» 11 дней после инцидента Beget).
 
    Алерты: TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID в окружении и флаг --telegram.
 */
 import net from 'node:net';
+import dgram from 'node:dgram';
+import crypto from 'node:crypto';
 
 const argv = process.argv.slice(2);
 const flag = (name) => argv.includes(name);
@@ -134,26 +139,80 @@ if (conf.url) {
   add('auth', false, null, 'Supabase не настроен в config.js');
 }
 
-/* ── 2. TURN (TCP-порт) ───────────────────────────────────── */
+/* ── 2. TURN: настоящий STUN binding, а не «порт открылся» ─────
+   TCP-connect к 3478 проходил даже когда coturn был мёртв: сеть провайдера
+   отвечала SYN, и мониторинг 11 дней показывал «turn ok». */
+
+function stunRequest() {
+  const buf = Buffer.alloc(20);
+  buf.writeUInt16BE(0x0001, 0);      // Binding Request
+  buf.writeUInt16BE(0, 2);           // длина атрибутов
+  buf.writeUInt32BE(0x2112a442, 4);  // magic cookie
+  crypto.randomFillSync(buf, 8, 12); // transaction id
+  return buf;
+}
+
+const isStunSuccess = (b) => Buffer.isBuffer(b) && b.length >= 20 && (b.readUInt16BE(0) & 0x3fff) === 0x0101;
+
+function stunUdp(host, port, timeout) {
+  return new Promise((resolve) => {
+    const s = dgram.createSocket('udp4');
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(t);
+      try { s.close(); } catch (e) { /* ignore */ }
+      resolve(val);
+    };
+    const t = setTimeout(() => finish(null), timeout);
+    s.once('message', (msg) => finish(isStunSuccess(msg) ? msg : null));
+    s.once('error', () => finish(null));
+    try { s.send(stunRequest(), port, host, (err) => { if (err) finish(null); }); } catch (e) { finish(null); }
+  });
+}
+
+function stunTcp(host, port, timeout) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(t);
+      try { sock.destroy(); } catch (e) { /* ignore */ }
+      resolve(val);
+    };
+    const t = setTimeout(() => finish(null), timeout);
+    sock.once('connect', () => sock.write(stunRequest()));
+    sock.once('data', (d) => finish(isStunSuccess(d) ? d : null));
+    sock.once('error', () => finish(null));
+    sock.once('close', () => finish(null));
+  });
+}
+
+async function turnAlive(host, port, timeout) {
+  const viaUdp = await stunUdp(host, port, timeout);
+  if (viaUdp) return 'UDP';
+  const viaTcp = await stunTcp(host, port, timeout);
+  if (viaTcp) return 'TCP';
+  throw new Error('нет ответа на STUN binding (UDP и TCP) — coturn не работает');
+}
+
 if (CHECK_TURN && conf.turn.length) {
   const t = conf.turn[0];
   const m = t.match(/^turn:([^:?]+):(\d+)/);
   if (m) {
-    const turn = await timed(() => new Promise((resolve, reject) => {
-      const sock = net.connect({ host: m[1], port: Number(m[2]) });
-      const done = (ok) => { try { sock.destroy(); } catch (e) {} ok ? resolve(true) : reject(new Error('порт закрыт')); };
-      sock.setTimeout(Math.min(TIMEOUT, 5000));
-      sock.once('connect', () => done(true));
-      sock.once('timeout', () => done(false));
-      sock.once('error', () => done(false));
-    }));
-    add('turn', turn.ok, turn.ms, turn.ok ? `${m[1]}:${m[2]}` : `TURN ${m[1]}:${m[2]} — ${turn.error}`);
+    const turn = await timed(() => turnAlive(m[1], Number(m[2]), Math.min(TIMEOUT, 5000)));
+    add('turn', turn.ok, turn.ms, turn.ok ? `${m[1]}:${m[2]} · STUN ${turn.value}` : `TURN ${m[1]}:${m[2]} — ${turn.error}`);
   }
 }
 
 /* ── 3. Вывод ─────────────────────────────────────────────── */
 const total = Date.now() - t0;
-const critical = ['site', 'config', 'auth', 'rest'];
+/* TURN теперь критичен: без него звонки не проходят за строгим NAT, и его
+   падение — единственный сигнал, что VPS (coturn, push, зеркало, бэкапы) мёртв. */
+const critical = ['site', 'config', 'auth', 'rest', 'turn'];
 const failed = results.filter((r) => r.ok === false);
 const criticalFailed = failed.filter((r) => critical.includes(r.name));
 

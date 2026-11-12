@@ -22,6 +22,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # В зеркале сайт лежит в корне, а исходники — в src/ (см. publish-github.ps1).
+    # Без этого рабочего каталога job падал на «Cannot find module» — и падение
+    # VPS 01.11.2026 никто не увидел.
+    defaults:
+      run:
+        working-directory: src
     steps:
       - uses: actions/checkout@v4
 
